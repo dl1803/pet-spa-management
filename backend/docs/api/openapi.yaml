@@ -1,0 +1,2316 @@
+openapi: 3.0.3
+info:
+  title: Pet-Spa API
+  version: 1.0.0
+  description: |
+    API backend hệ thống quản lý spa thú cưng (ASP.NET Core Web API, JSON UTF-8).
+    Căn cứ: System_Analysis_UI_Design v1.3 mục 5.1 (endpoint, request, response), Backend-Conventions 1.0, Authorization, Requirements v2, DatabaseDesign. Quy ước và điểm chưa chốt: xem API-Notes.md.
+
+    Ký hiệu trong tài liệu này:
+    - `x-roles`: vai trò được gọi — KH khách hàng, LT lễ tân, NVS nhân viên spa, QL quản lý. Ngoài vai trò, backend luôn kiểm tra sở hữu/phạm vi (BR-16).
+    - `x-fr`: mã yêu cầu chức năng (FR).
+    - `x-proposal: true`: nội dung đề xuất, chưa có trong SA 5.1, chờ nhóm duyệt.
+    - Mọi endpoint có thể trả 500 (không lộ chi tiết nội bộ).
+servers:
+  - url: /api/v1
+    description: Tiền tố /api/v1; HTTPS bắt buộc ở mọi môi trường.
+security:
+  - bearerAuth: []
+tags:
+  - name: Xác thực & tài khoản
+  - name: Khách hàng
+  - name: Thú cưng
+  - name: Danh mục dịch vụ
+  - name: Lịch hẹn – đặt lịch & truy vấn
+  - name: Lịch hẹn – xác nhận, đổi, hủy
+  - name: Lịch hẹn – thực hiện
+  - name: Thanh toán
+  - name: Lưu trú – chuồng & giá
+  - name: Lịch làm việc, cấu hình, tác vụ nền
+  - name: Nhân viên
+  - name: Thông báo
+paths:
+  # ───────────── Xác thực & tài khoản ─────────────
+  /auth/register:
+    post:
+      tags: ["Xác thực & tài khoản"]
+      operationId: register
+      summary: Đăng ký tài khoản khách hàng
+      description: "Role luôn là Customer, không nhận từ client. Tạo AppUser và Customer; userName là số điện thoại."
+      security: []
+      x-roles: [Ẩn danh]
+      x-fr: [FR-ACC-01]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: Đã tạo tài khoản.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegisterResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: "DUPLICATE_CONTACT — số điện thoại đã được dùng."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/login:
+    post:
+      tags: ["Xác thực & tài khoản"]
+      operationId: login
+      summary: Đăng nhập
+      description: "Cấp access token và refresh token. Sai thông tin, tài khoản bị vô hiệu hóa (IsActive = false) đều trả 401, thông báo chung không nêu trường sai."
+      security: []
+      x-roles: [Ẩn danh]
+      x-fr: [FR-ACC-02]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Đăng nhập thành công.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/refresh:
+    post:
+      tags: ["Xác thực & tài khoản"]
+      operationId: refreshToken
+      summary: Làm mới token
+      description: "Xoay vòng: thu hồi refresh token cũ, cấp cặp token mới. Từ chối nếu token đã thu hồi, hết hạn hoặc tài khoản bị vô hiệu hóa. Token đã thu hồi bị gửi lại → thu hồi mọi refresh token của tài khoản."
+      security: []
+      x-roles: ["Ẩn danh (refresh token)"]
+      x-fr: ["Req. 5.2"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '200':
+          description: Cặp token mới.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/logout:
+    post:
+      tags: ["Xác thực & tài khoản"]
+      operationId: logout
+      summary: Đăng xuất
+      description: Thu hồi refresh token.
+      x-roles: [Đã đăng nhập]
+      x-fr: ["Req. 5.2"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '204': { description: Đã thu hồi. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /me:
+    get:
+      tags: ["Xác thực & tài khoản"]
+      operationId: getMe
+      summary: Xem tài khoản của chính mình
+      description: Tài khoản lấy từ token, không nhận id từ client.
+      x-roles: [Đã đăng nhập]
+      x-fr: [FR-ACC-03]
+      responses:
+        '200':
+          description: Hồ sơ cá nhân.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    put:
+      tags: ["Xác thực & tài khoản"]
+      operationId: updateMe
+      summary: Cập nhật thông tin cá nhân của chính mình
+      description: "`fullName` bắt buộc với KH và nhân viên; QL không có họ tên (AppUser không có cột này) nên bỏ qua. `phone` chỉ áp dụng cho KH: cập nhật cả Customer.Phone và AppUser.UserName trong một giao dịch; vai trò khác bỏ qua `phone` (nhân viên do QL quản lý ở PUT /staff/{id})."
+      x-roles: [Đã đăng nhập]
+      x-fr: [FR-ACC-03]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateMeRequest' }
+      responses:
+        '200': { description: Đã cập nhật. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: "DUPLICATE_CONTACT — thông tin liên hệ trùng."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  # ───────────── Khách hàng ─────────────
+  /customers:
+    get:
+      tags: ["Khách hàng"]
+      operationId: listCustomers
+      summary: Tìm khách theo thông tin liên hệ / xem khách bị khóa
+      description: "LT tìm khách theo `search`. QL chỉ xem danh sách khách bị khóa tự đặt lịch (FR-BOOK-07)."
+      x-roles: [LT, "QL (chỉ khách bị khóa)"]
+      x-fr: [FR-ACC-04, FR-BOOK-07]
+      parameters:
+        - name: search
+          in: query
+          description: Thông tin liên hệ cần tìm.
+          schema: { type: string }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: Danh sách khách.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /customers/walk-in:
+    post:
+      tags: ["Khách hàng"]
+      operationId: createWalkInCustomer
+      summary: Ghi nhận khách vãng lai
+      description: "Tạo Customer với UserId = NULL (không đăng nhập, không nhận thông báo). Từ chối nếu trùng liên hệ."
+      x-roles: [LT]
+      x-fr: [FR-ACC-04]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WalkInRequest' }
+      responses:
+        '201':
+          description: Đã ghi nhận.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WalkInCreated' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: "DUPLICATE_CONTACT — thông tin liên hệ đã thuộc khách hiện có."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  /customers/{id}/unlock-booking:
+    post:
+      tags: ["Khách hàng"]
+      operationId: unlockBooking
+      summary: Gỡ khóa quyền tự đặt lịch trực tuyến
+      description: Đặt IsBookingLocked = false (BR-15).
+      x-roles: [QL]
+      x-fr: [FR-BOOK-07]
+      parameters:
+        - { $ref: '#/components/parameters/CustomerId' }
+      responses:
+        '204': { description: Đã gỡ khóa. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: "CUSTOMER_NOT_LOCKED (đề xuất) — khách không ở trạng thái bị khóa."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  # ───────────── Thú cưng ─────────────
+  /pets:
+    post:
+      tags: ["Thú cưng"]
+      operationId: createPet
+      summary: Tạo hồ sơ thú cưng
+      description: "Hệ thống xác định SizeGroup theo SizeRule (BR-19); bỏ qua nhóm do client gửi. LT bắt buộc kèm `customerId`; KH tạo cho chính mình (bỏ qua `customerId`). `heightCm` bắt buộc khi species = Dog."
+      x-roles: ["KH (của mình)", "LT (kèm customerId)"]
+      x-fr: [FR-PET-01, FR-PET-04]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PetRequest' }
+      responses:
+        '201':
+          description: Đã tạo hồ sơ.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PetSizeResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    get:
+      tags: ["Thú cưng"]
+      operationId: listPets
+      summary: Danh sách hồ sơ thú cưng đang hoạt động
+      description: "KH: của mình. LT: theo `customerId`."
+      x-roles: ["KH (của mình)", "LT (?customerId)"]
+      x-fr: [FR-PET-02]
+      parameters:
+        - name: customerId
+          in: query
+          description: Chỉ dùng cho LT.
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: Danh sách hồ sơ đang hoạt động (IsActive = true).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PetPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /pets/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/PetId' }
+    get:
+      tags: ["Thú cưng"]
+      operationId: getPet
+      summary: Xem hồ sơ thú cưng trong phạm vi
+      description: "KH: của mình. LT: toàn cửa hàng. NVS: thú cưng của lịch hẹn được phân công. QL: toàn cửa hàng."
+      x-roles: ["KH (của mình)", LT, "NVS (lịch được phân công)", QL]
+      x-fr: [FR-PET-02]
+      responses:
+        '200':
+          description: Hồ sơ thú cưng.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pet' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: ["Thú cưng"]
+      operationId: updatePet
+      summary: Cập nhật hồ sơ thú cưng
+      description: "Body như POST /pets (`customerId` bị bỏ qua). Hệ thống xác định lại SizeGroup."
+      x-roles: ["KH (của mình)", LT]
+      x-fr: [FR-PET-02, FR-PET-04]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PetRequest' }
+      responses:
+        '200':
+          description: Đã cập nhật.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PetSizeResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: ["Thú cưng"]
+      operationId: deletePet
+      summary: Gỡ bỏ hồ sơ thú cưng
+      description: "BR-25: chưa từng có lịch hẹn → xóa hẳn; đã có lịch hẹn → xóa mềm (IsActive = false)."
+      x-roles: ["KH (của mình)"]
+      x-fr: [FR-PET-03]
+      responses:
+        '204': { description: Đã gỡ bỏ. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  # ───────────── Danh mục dịch vụ ─────────────
+  /services:
+    get:
+      tags: ["Danh mục dịch vụ"]
+      operationId: listServices
+      summary: Xem dịch vụ đang cung cấp
+      description: "Dịch vụ đang cung cấp kèm giá, thời lượng, số nhân viên theo loài và nhóm kích cỡ; lọc `pricing` theo `species`, `sizeGroup` nếu có. QL nhận cả dịch vụ đã ngừng (`isActive = false`) để mở lại (đề xuất)."
+      x-roles: [Đã đăng nhập]
+      x-fr: [FR-SVC-04]
+      parameters:
+        - name: species
+          in: query
+          schema: { $ref: '#/components/schemas/Species' }
+        - name: sizeGroup
+          in: query
+          schema: { $ref: '#/components/schemas/SizeGroup' }
+      responses:
+        '200':
+          description: Danh sách dịch vụ (rỗng nếu không có).
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Service' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: ["Danh mục dịch vụ"]
+      operationId: createService
+      summary: Thêm dịch vụ
+      description: "Kèm mốc giờ bắt đầu muộn nhất (thuộc Booking.SlotTimes) và dòng giá, thời lượng, số nhân viên cho đủ mọi nhóm kích cỡ của từng loài áp dụng; thiếu → 400."
+      x-roles: [QL]
+      x-fr: [FR-SVC-01]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceRequest' }
+      responses:
+        '201':
+          description: Đã thêm dịch vụ.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceCreated' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /services/{id}:
+    put:
+      tags: ["Danh mục dịch vụ"]
+      operationId: updateService
+      summary: Sửa dịch vụ, loài, giá, thời lượng
+      description: "Body như POST /services. Có hiệu lực ngay; khoảng giữ chỗ và số nhân viên của lịch đã đặt giữ giá trị đã chốt, khoản thanh toán chưa ghi nhận tính theo đơn giá hiện có (FR-PAY-01)."
+      x-roles: [QL]
+      x-fr: [FR-SVC-02]
+      parameters:
+        - { $ref: '#/components/parameters/ServiceId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceRequest' }
+      responses:
+        '200': { description: Đã cập nhật. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /services/{id}/status:
+    patch:
+      tags: ["Danh mục dịch vụ"]
+      operationId: setServiceStatus
+      summary: Ngừng / mở lại cung cấp dịch vụ
+      x-roles: [QL]
+      x-fr: [FR-SVC-03]
+      parameters:
+        - { $ref: '#/components/parameters/ServiceId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActiveToggleRequest' }
+      responses:
+        '204': { description: Đã cập nhật. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  # ───────────── Lịch hẹn – đặt lịch & truy vấn ─────────────
+  /spa/slots:
+    get:
+      tags: ["Lịch hẹn – đặt lịch & truy vấn"]
+      operationId: getSpaSlots
+      summary: Mốc giờ spa còn chỗ
+      description: "Các mốc giờ trong Booking.SlotTimes (mặc định 09:00–19:00). Còn chỗ khi mốc không muộn hơn mốc bắt đầu muộn nhất của mọi dịch vụ đã chọn và E − Tải đỉnh ≥ n (BR-13, SA 2.3.3)."
+      x-roles: [KH, LT]
+      x-fr: [FR-BOOK-01, FR-BOOK-02]
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema: { type: string, format: date }
+          example: "2026-10-06"
+        - name: petId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: serviceIds
+          in: query
+          required: true
+          description: Danh sách mã dịch vụ, phân cách bằng dấu phẩy.
+          style: form
+          explode: false
+          schema:
+            type: array
+            minItems: 1
+            items: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Thời lượng, số nhân viên cần, thời gian dọn dẹp và trạng thái từng mốc giờ.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpaSlots' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /appointments/spa:
+    post:
+      tags: ["Lịch hẹn – đặt lịch & truy vấn"]
+      operationId: createSpaAppointment
+      summary: Tạo lịch spa "Chờ xác nhận"
+      description: "KH tự đặt: thú cưng của mình, không bị khóa (BR-15). LT đặt thay: kèm `customerId`, không áp dụng khóa. Không chọn nhân viên (BR-10). Kiểm tra khả dụng và giữ chỗ trong một giao dịch có khóa (BR-18)."
+      x-roles: ["KH (của mình)", "LT (thay)"]
+      x-fr: [FR-BOOK-03]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpaBookingRequest' }
+      responses:
+        '201':
+          description: Đã tạo lịch hẹn.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpaBookingCreated' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: "FORBIDDEN (sai vai trò/ngoài phạm vi) hoặc BOOKING_LOCKED (KH tự đặt khi tài khoản bị khóa)."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+        '409':
+          description: "SLOT_FULL — mốc giờ đã kín (kể cả do đặt đồng thời)."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /hotel/availability:
+    get:
+      tags: ["Lịch hẹn – đặt lịch & truy vấn"]
+      operationId: getHotelAvailability
+      summary: Còn chỗ lưu trú, số đêm, tiền tạm tính
+      description: "Còn ít nhất một chuồng phù hợp loài, nhóm kích cỡ, trống trong toàn bộ các đêm (BR-21). Ngày trả phải sau ngày nhận."
+      x-roles: [KH, LT, QL]
+      x-fr: [FR-HTL-04]
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+        - name: petId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Kết quả kiểm tra.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HotelAvailability' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /appointments/hotel:
+    post:
+      tags: ["Lịch hẹn – đặt lịch & truy vấn"]
+      operationId: createHotelAppointment
+      summary: Tạo lịch lưu trú "Chờ xác nhận"
+      description: "Như đặt lịch spa về quyền và khóa (BR-15). Lưu trú không kèm spa."
+      x-roles: ["KH (của mình)", "LT (thay)"]
+      x-fr: [FR-HTL-04]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HotelBookingRequest' }
+      responses:
+        '201':
+          description: Đã tạo lịch hẹn.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HotelBookingCreated' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: "FORBIDDEN hoặc BOOKING_LOCKED (KH tự đặt khi tài khoản bị khóa)."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+        '409':
+          description: "NO_CAPACITY — hết chuồng phù hợp (kể cả do đặt đồng thời)."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /appointments:
+    get:
+      tags: ["Lịch hẹn – đặt lịch & truy vấn"]
+      operationId: listAppointments
+      summary: Danh sách lịch hẹn, lịch sử, tổng quan tiến độ
+      description: "Lọc theo phạm vi vai trò ở backend: KH của mình; LT, QL toàn cửa hàng; NVS được phân công / công việc của mình (BR-16)."
+      x-roles: [KH, LT, NVS, QL]
+      x-fr: [FR-BOOK-04, FR-BOOK-05, FR-EXE-01, FR-EXE-06, FR-EXE-08]
+      parameters:
+        - name: type
+          in: query
+          schema: { $ref: '#/components/schemas/AppointmentType' }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/AppointmentStatus' }
+        - name: date
+          in: query
+          schema: { type: string, format: date }
+        - name: petId
+          in: query
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: Danh sách phân trang.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppointmentPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /appointments/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/AppointmentId' }
+    get:
+      tags: ["Lịch hẹn – đặt lịch & truy vấn"]
+      operationId: getAppointment
+      summary: Chi tiết lịch hẹn
+      description: Kiểm tra phạm vi theo id; ngoài phạm vi → 403, không trả thông tin (BR-16).
+      x-roles: [KH, LT, NVS, QL]
+      x-fr: [FR-BOOK-04]
+      responses:
+        '200':
+          description: Chi tiết lịch hẹn.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppointmentDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: ["Lịch hẹn – xác nhận, đổi, hủy"]
+      operationId: updateAppointment
+      summary: Đổi lịch hẹn
+      description: "Spa: `slotStart`, `petId`, `serviceIds`. Lưu trú: `plannedCheckIn`, `plannedCheckOut`, `petId`. KH đổi trong hạn Booking.ChangeCancelDeadlineMinutes → lịch về Pending, phân công/chuồng bị bỏ (BR-26). QL đổi vẫn kiểm tra BR-13, BR-04, BR-21; QL được gửi thêm `staffIds` (spa) hoặc `cageId` (lưu trú) và `confirmOutOfShift` để đổi nhân viên/chuồng (UC-15, đề xuất)."
+      x-roles: ["KH (trong hạn)", QL]
+      x-fr: [FR-CHG-01, FR-CHG-03]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateAppointmentRequest' }
+      responses:
+        '200':
+          description: "Đã đổi. KH đổi → status = Pending."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StatusResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: "CHANGE_WINDOW_CLOSED (quá hạn tự đổi, hướng dẫn hotline); SLOT_FULL; NO_CAPACITY; INVALID_TRANSITION; khi QL đổi nhân viên/chuồng: STAFF_CONFLICT, CAGE_CONFLICT, STAFF_COUNT_MISMATCH, STAFF_OUT_OF_SHIFT (đề xuất)."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  # ───────────── Lịch hẹn – xác nhận, đổi, hủy ─────────────
+  /appointments/{id}/suggestions:
+    get:
+      tags: ["Lịch hẹn – xác nhận, đổi, hủy"]
+      operationId: getSuggestions
+      summary: Đề xuất nhân viên (spa) hoặc chuồng (lưu trú)
+      description: "Spa: đủ số nhân viên cần — nhân viên spa đang hoạt động, có ca phủ khoảng giữ chỗ, chưa có lịch trùng, xếp theo ít lịch nhất trong Suggest.LookbackDays ngày. Lưu trú: chuồng đang sử dụng, cùng loài và nhóm kích cỡ, không trùng đêm."
+      x-roles: [QL]
+      x-fr: [FR-ASG-01, FR-HTL-05]
+      parameters:
+        - { $ref: '#/components/parameters/AppointmentId' }
+      responses:
+        '200':
+          description: Đề xuất.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - { $ref: '#/components/schemas/SpaSuggestions' }
+                  - { $ref: '#/components/schemas/HotelSuggestions' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: "INVALID_TRANSITION — lịch hẹn không ở Chờ xác nhận."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  /appointments/{id}/confirm:
+    post:
+      tags: ["Lịch hẹn – xác nhận, đổi, hủy"]
+      operationId: confirmAppointment
+      summary: Xác nhận lịch hẹn kèm nhân viên hoặc chuồng
+      description: "Spa: `staffIds` đủ số nhân viên cần. Lưu trú: `cageId`. Lịch từng do khách đổi → tính lại số tiền (BR-26). Chọn tay nhân viên ngoài ca mà chưa gửi `confirmOutOfShift = true` → 409 STAFF_OUT_OF_SHIFT kèm danh sách nhân viên (đề xuất, Backend-Conventions 5.4)."
+      x-roles: [QL]
+      x-fr: [FR-ASG-02, FR-ASG-03, FR-HTL-05]
+      parameters:
+        - { $ref: '#/components/parameters/AppointmentId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - { $ref: '#/components/schemas/ConfirmSpaRequest' }
+                - { $ref: '#/components/schemas/ConfirmHotelRequest' }
+      responses:
+        '200':
+          description: "Đã xác nhận (status = Confirmed)."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StatusResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: "STAFF_CONFLICT; CAGE_CONFLICT; STAFF_COUNT_MISMATCH; INVALID_TRANSITION; STAFF_OUT_OF_SHIFT (đề xuất)."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  /appointments/{id}/reject:
+    post:
+      tags: ["Lịch hẹn – xác nhận, đổi, hủy"]
+      operationId: rejectAppointment
+      summary: Từ chối lịch hẹn (cửa hàng không thể đáp ứng)
+      description: "Không có body. Lịch Pending → Cancelled, lý do StoreUnable; giải phóng phân công/chuồng."
+      x-roles: [QL]
+      x-fr: [FR-ASG-04, FR-HTL-06]
+      parameters:
+        - { $ref: '#/components/parameters/AppointmentId' }
+      responses:
+        '200':
+          description: Đã từ chối.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RejectResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: "INVALID_TRANSITION — lịch hẹn không ở Chờ xác nhận."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  /appointments/{id}/cancel:
+    post:
+      tags: ["Lịch hẹn – xác nhận, đổi, hủy"]
+      operationId: cancelAppointment
+      summary: Hủy lịch hẹn
+      description: "KH (trong hạn): không gửi `reason`, backend đặt CustomerCancelled. QL: gửi `reason` là StoreUnable hoặc CustomerBeyondDeadline, ở mọi trạng thái trước Completed. Ngoài hạn, KH bị chặn (CHANGE_WINDOW_CLOSED). Hủy khi InProgress/InStay: chỉ QL."
+      x-roles: ["KH (trong hạn)", QL]
+      x-fr: [FR-CHG-01, FR-CHG-02, FR-CHG-03]
+      parameters:
+        - { $ref: '#/components/parameters/AppointmentId' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CancelRequest' }
+      responses:
+        '200':
+          description: "Đã hủy (status = Cancelled)."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StatusResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: "CHANGE_WINDOW_CLOSED; INVALID_TRANSITION."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  # ───────────── Lịch hẹn – thực hiện ─────────────
+  /appointments/{id}/check-in:
+    post:
+      tags: ["Lịch hẹn – thực hiện"]
+      operationId: checkInAppointment
+      summary: Tiếp nhận thú cưng
+      description: "Spa: body `{ actualWeightKg }`, chuyển Received và đối chiếu cân nặng (BR-23); chỉ hợp lệ khi chưa quá Booking.HoldMinutes sau giờ hẹn. Lưu trú: không body; yêu cầu đã đối chiếu cân nặng, không chờ xác nhận chi phí, tiền lưu trú đã thanh toán; chuyển InStay."
+      x-roles: [LT, QL]
+      x-fr: [FR-EXE-02, FR-HTL-07]
+      parameters:
+        - { $ref: '#/components/parameters/AppointmentId' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActualWeightRequest' }
+      responses:
+        '200':
+          description: "Đã tiếp nhận. `weightCheck` chỉ có ở lịch spa."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CheckInResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: "INVALID_TRANSITION; PAYMENT_NOT_DUE (lưu trú: chưa thanh toán tiền lưu trú); COST_CONFIRMATION_PENDING."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  /appointments/{id}/weight-check:
+    post:
+      tags: ["Lịch hẹn – thực hiện"]
+      operationId: weightCheckAppointment
+      summary: Ghi nhận và đối chiếu cân nặng (lưu trú)
+      description: "Thực hiện trước khi thu tiền lưu trú. Lịch Confirmed, thú cưng đã đến, chưa thu tiền lưu trú."
+      x-roles: [LT, QL]
+      x-fr: [FR-EXE-10]
+      parameters:
+        - { $ref: '#/components/parameters/AppointmentId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActualWeightRequest' }
+      responses:
+        '200':
+          description: Kết quả đối chiếu.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WeightCheckResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: "INVALID_TRANSITION."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  /appointments/{id}/cost-confirmation/respond:
+    post:
+      tags: ["Lịch hẹn – thực hiện"]
+      operationId: respondCostConfirmation
+      summary: Xác nhận hoặc từ chối chi phí mới
+      description: "Có yêu cầu Pending, chưa quá hạn CostConfirm.TimeoutMinutes. `accept = false` → lịch Cancelled, lý do CostNotConfirmed. LT ghi nhận thay khách vãng lai hoặc phản hồi trực tiếp."
+      x-roles: ["KH (của mình)", "LT (thay)"]
+      x-fr: [FR-EXE-11]
+      parameters:
+        - { $ref: '#/components/parameters/AppointmentId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CostConfirmationRespondRequest' }
+      responses:
+        '200':
+          description: Đã ghi nhận phản hồi.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StatusResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: "COST_CONFIRMATION_EXPIRED (đề xuất) — phản hồi sau ExpiresAt. Không có yêu cầu Pending → 404."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  /appointments/{id}/start:
+    post:
+      tags: ["Lịch hẹn – thực hiện"]
+      operationId: startAppointment
+      summary: Bắt đầu thực hiện lịch spa
+      description: "Received → InProgress. Cần ảnh Before hợp lệ (BR-20) và không chờ xác nhận chi phí mới."
+      x-roles: ["NVS (được phân công)", QL]
+      x-fr: [FR-EXE-03, FR-EXE-05]
+      parameters:
+        - { $ref: '#/components/parameters/AppointmentId' }
+      responses:
+        '200':
+          description: "status = InProgress."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StatusResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: "PHOTO_REQUIRED; COST_CONFIRMATION_PENDING; INVALID_TRANSITION."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  /appointments/{id}/services/{serviceId}:
+    patch:
+      tags: ["Lịch hẹn – thực hiện"]
+      operationId: updateServiceProgress
+      summary: Đánh dấu dịch vụ trong lịch spa đã xong
+      x-roles: ["NVS (được phân công)", QL]
+      x-fr: [FR-EXE-03]
+      parameters:
+        - { $ref: '#/components/parameters/AppointmentId' }
+        - { $ref: '#/components/parameters/ServiceIdPath' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceProgressRequest' }
+      responses:
+        '200': { description: Đã cập nhật. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: "INVALID_TRANSITION."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  /appointments/{id}/complete:
+    post:
+      tags: ["Lịch hẹn – thực hiện"]
+      operationId: completeAppointment
+      summary: Hoàn tất lịch spa
+      description: "InProgress → Completed khi mọi dịch vụ đã xong (BR-06) và có ảnh After (BR-20). Hình thành khoản thanh toán Spa."
+      x-roles: ["NVS (được phân công)", QL]
+      x-fr: [FR-EXE-04, FR-EXE-05]
+      parameters:
+        - { $ref: '#/components/parameters/AppointmentId' }
+      responses:
+        '200':
+          description: "status = Completed."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StatusResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: "PHOTO_REQUIRED; SERVICES_INCOMPLETE; INVALID_TRANSITION."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  /appointments/{id}/check-out:
+    post:
+      tags: ["Lịch hẹn – thực hiện"]
+      operationId: checkOutAppointment
+      summary: Trả thú cưng lưu trú
+      description: "InStay → Completed; ghi ActualCheckOut, tính phí trả muộn (BR-22), giải phóng chuồng. Có phí phạt chưa thanh toán → 409 PAYMENT_NOT_DUE."
+      x-roles: [LT, QL]
+      x-fr: [FR-HTL-09]
+      parameters:
+        - { $ref: '#/components/parameters/AppointmentId' }
+      responses:
+        '200':
+          description: "status = Completed."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CheckOutResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: "PAYMENT_NOT_DUE (phí phạt chưa thanh toán); INVALID_TRANSITION."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  /appointments/{id}/photos:
+    post:
+      tags: ["Lịch hẹn – thực hiện"]
+      operationId: uploadPhoto
+      summary: Tải ảnh minh chứng trước/sau
+      description: "Chỉ tệp ảnh, tối đa 50 MB. Ảnh Before khi lịch Received; ảnh After khi lịch InProgress. Ảnh lưu ở Supabase Storage (bucket riêng tư), CSDL chỉ lưu StorageKey."
+      x-roles: ["NVS (được phân công)"]
+      x-fr: [FR-EXE-09]
+      parameters:
+        - { $ref: '#/components/parameters/AppointmentId' }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/PhotoUploadRequest' }
+      responses:
+        '201':
+          description: Đã tải lên.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PhotoCreated' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: "INVALID_TRANSITION — lịch không ở Received (ảnh Before) hoặc InProgress (ảnh After)."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+    get:
+      tags: ["Lịch hẹn – thực hiện"]
+      operationId: listPhotos
+      summary: Xem ảnh minh chứng
+      description: Kiểm tra phạm vi (BR-16) rồi trả URL tạm thời.
+      x-roles: ["KH (của mình)", "NVS (được phân công)", QL]
+      x-fr: [FR-EXE-09]
+      parameters:
+        - { $ref: '#/components/parameters/AppointmentId' }
+      responses:
+        '200':
+          description: Danh sách ảnh.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Photo' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  # ───────────── Thanh toán ─────────────
+  /appointments/{id}/payments:
+    get:
+      tags: ["Thanh toán"]
+      operationId: listAppointmentPayments
+      summary: Các khoản thanh toán của một lịch hẹn
+      description: "Spa có 1 khoản (Spa); lưu trú tối đa 2 khoản (Stay, LateFee). Kiểm tra phạm vi (BR-16)."
+      x-roles: [KH, LT, NVS, QL]
+      x-fr: [FR-PAY-04]
+      parameters:
+        - { $ref: '#/components/parameters/AppointmentId' }
+      responses:
+        '200':
+          description: Các khoản thanh toán.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Payment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /payments:
+    get:
+      tags: ["Thanh toán"]
+      operationId: listPayments
+      summary: Tình hình thanh toán toàn cửa hàng
+      x-roles: [QL]
+      x-fr: [FR-PAY-04]
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/PaymentStatus' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: Danh sách phân trang.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /payments/{id}/counter:
+    post:
+      tags: ["Thanh toán"]
+      operationId: payAtCounter
+      summary: Ghi nhận thanh toán tại quầy
+      description: "Đúng thời điểm theo BR-07 và `receivedAmount` ≥ Amount (BR-17). Số tiền phải trả do hệ thống tính (FR-PAY-01), không nhận từ client. Khoản Stay: lịch không có yêu cầu xác nhận chi phí đang Pending (FR-EXE-10)."
+      x-roles: [LT, QL]
+      x-fr: [FR-PAY-02]
+      parameters:
+        - { $ref: '#/components/parameters/PaymentId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CounterPaymentRequest' }
+      responses:
+        '200':
+          description: "status = Paid."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentStatusResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: "PAYMENT_NOT_DUE (sai thời điểm theo BR-07); AMOUNT_MISMATCH (số tiền nhận thấp hơn phải trả); COST_CONFIRMATION_PENDING (khoản Stay khi lịch đang chờ xác nhận chi phí mới – FR-EXE-10)."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  /payments/{id}/online:
+    post:
+      tags: ["Thanh toán"]
+      operationId: payOnline
+      summary: Khởi tạo thanh toán trực tuyến
+      description: "Chỉ lịch spa Completed, Payment Unpaid, thuộc KH (BR-09, BR-16). Tạo PaymentTransaction với TxnRef duy nhất, RequestedAmount = Payment.Amount. Kết quả cuối do webhook của cổng quyết định; web đọc trạng thái bằng GET /appointments/{id}/payments."
+      x-roles: ["KH (của mình)"]
+      x-fr: [FR-PAY-03]
+      parameters:
+        - { $ref: '#/components/parameters/PaymentId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OnlinePaymentRequest' }
+      responses:
+        '200':
+          description: Địa chỉ chuyển khách sang cổng thanh toán.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OnlinePaymentCreated' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: "PAYMENT_NOT_DUE."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  /payments/ipn/vnpay:
+    get:
+      tags: ["Thanh toán"]
+      operationId: vnpayIpn
+      summary: Webhook VNPAY (IPN)
+      description: "Không dùng JWT. Xác minh chữ ký bằng secret của cổng → khóa Payment, bỏ qua nếu TxnRef đã xử lý → đối chiếu số tiền với Amount (BR-17) → Paid (Method = Online). Tham số và phản hồi theo đặc tả VNPAY sandbox (R-05)."
+      security: []
+      x-roles: ["Ẩn danh + chữ ký cổng"]
+      x-fr: [FR-PAY-03]
+      parameters:
+        - name: gatewayParams
+          in: query
+          required: true
+          description: Toàn bộ tham số và chữ ký do VNPAY gửi (query string).
+          style: form
+          explode: true
+          schema: { type: object, additionalProperties: { type: string } }
+      responses:
+        '200': { description: Phản hồi theo đặc tả của cổng. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /payments/ipn/momo:
+    post:
+      tags: ["Thanh toán"]
+      operationId: momoIpn
+      summary: Webhook MoMo (IPN)
+      description: "Không dùng JWT. Xử lý như webhook VNPAY. Nội dung JSON và phản hồi theo đặc tả MoMo sandbox (R-05)."
+      security: []
+      x-roles: ["Ẩn danh + chữ ký cổng"]
+      x-fr: [FR-PAY-03]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200': { description: Phản hồi theo đặc tả của cổng. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  # ───────────── Lưu trú – chuồng & giá ─────────────
+  /hotel/pricing:
+    get:
+      tags: ["Lưu trú – chuồng & giá"]
+      operationId: getHotelPricing
+      summary: Xem giá lưu trú, thức ăn, phí phạt trả muộn
+      x-roles: [KH, LT, QL]
+      x-fr: [FR-HTL-03]
+      responses:
+        '200':
+          description: Giá theo đêm và phí phạt mỗi lần.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HotelPricing' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: ["Lưu trú – chuồng & giá"]
+      operationId: updateHotelPricing
+      summary: Thiết lập giá lưu trú, thức ăn và phí phạt
+      description: "`lateFeePerBlock` (khóa Hotel.LateFeePerBlock) chỉ chỉnh tại đây, không chỉnh qua PUT /config."
+      x-roles: [QL]
+      x-fr: [FR-HTL-03]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HotelPricing' }
+      responses:
+        '200': { description: Đã cập nhật. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /cages:
+    get:
+      tags: ["Lưu trú – chuồng & giá"]
+      operationId: listCages
+      summary: Danh sách chuồng và tình trạng
+      description: "Tình trạng trống / đang chứa; chuồng đang chứa kèm thú cưng, khách hàng và thời điểm trả dự kiến (BR-21)."
+      x-roles: [LT, QL]
+      x-fr: [FR-HTL-08]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: Danh sách phân trang.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CagePage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: ["Lưu trú – chuồng & giá"]
+      operationId: createCage
+      summary: Thêm chuồng
+      x-roles: [QL]
+      x-fr: [FR-HTL-01]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CageCreateRequest' }
+      responses:
+        '201':
+          description: Đã thêm chuồng.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CageCreated' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: "DUPLICATE_CAGE_CODE (đề xuất) — trùng mã chuồng."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  /cages/{id}:
+    put:
+      tags: ["Lưu trú – chuồng & giá"]
+      operationId: updateCage
+      summary: Cập nhật chuồng
+      x-roles: [QL]
+      x-fr: [FR-HTL-02]
+      parameters:
+        - { $ref: '#/components/parameters/CageId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CageUpdateRequest' }
+      responses:
+        '200': { description: Đã cập nhật. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: "DUPLICATE_CAGE_CODE (đề xuất) — trùng mã chuồng."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  /cages/{id}/status:
+    patch:
+      tags: ["Lưu trú – chuồng & giá"]
+      operationId: setCageStatus
+      summary: Ngừng / mở lại sử dụng chuồng
+      description: Chuồng ngừng sử dụng không còn được đề xuất, gán và không tính sức chứa.
+      x-roles: [QL]
+      x-fr: [FR-HTL-02]
+      parameters:
+        - { $ref: '#/components/parameters/CageId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActiveToggleRequest' }
+      responses:
+        '204': { description: Đã cập nhật. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  # ───────────── Lịch làm việc, cấu hình, tác vụ nền ─────────────
+  /work-shifts:
+    get:
+      tags: ["Lịch làm việc, cấu hình, tác vụ nền"]
+      operationId: listWorkShifts
+      summary: Xem ca làm của nhân viên spa
+      x-roles: [QL]
+      x-fr: [FR-STF-04]
+      parameters:
+        - name: staffId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: Danh sách phân trang.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkShiftPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: ["Lịch làm việc, cấu hình, tác vụ nền"]
+      operationId: createWorkShift
+      summary: Thêm ca làm
+      description: "`shiftEnd` sau `shiftStart`; ca của cùng một nhân viên không chồng nhau; chỉ nhân viên spa đang hoạt động (nhân viên đã vô hiệu hóa hoặc là lễ tân → 400 VALIDATION_ERROR)."
+      x-roles: [QL]
+      x-fr: [FR-STF-04]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkShiftCreateRequest' }
+      responses:
+        '201':
+          description: Đã thêm ca.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkShiftCreated' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: "SHIFT_OVERLAP — chồng ca."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  /work-shifts/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/ShiftId' }
+    put:
+      tags: ["Lịch làm việc, cấu hình, tác vụ nền"]
+      operationId: updateWorkShift
+      summary: Sửa ca làm
+      description: "Từ chối nếu còn lịch Confirmed của nhân viên đó trong phần ca bị bỏ."
+      x-roles: [QL]
+      x-fr: [FR-STF-04]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkShiftUpdateRequest' }
+      responses:
+        '200': { description: Đã cập nhật. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: "SHIFT_OVERLAP; SHIFT_HAS_APPOINTMENTS."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+    delete:
+      tags: ["Lịch làm việc, cấu hình, tác vụ nền"]
+      operationId: deleteWorkShift
+      summary: Xóa ca làm
+      description: Cùng kiểm tra như sửa ca.
+      x-roles: [QL]
+      x-fr: [FR-STF-04]
+      responses:
+        '204': { description: Đã xóa. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: "SHIFT_HAS_APPOINTMENTS."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  /config:
+    get:
+      tags: ["Lịch làm việc, cấu hình, tác vụ nền"]
+      operationId: getConfig
+      summary: Xem tham số cấu hình, bảng mốc kích cỡ, dung sai
+      x-roles: [QL]
+      x-fr: [FR-CFG-01]
+      responses:
+        '200':
+          description: Cấu hình hiện hành.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Config' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: ["Lịch làm việc, cấu hình, tác vụ nền"]
+      operationId: updateConfig
+      summary: Cập nhật tham số cấu hình
+      description: "Kiểm tra khoảng hợp lệ; có hiệu lực ngay cho thao tác sau, lịch hẹn đã tạo giữ giá trị đã chốt. Ngưỡng kích cỡ phải tăng dần, dung sai ≥ 0. Gửi phần nào thì cập nhật phần đó. Dạng body 3 phần là đề xuất (SA ghi `{ key: value… }`)."
+      x-roles: [QL]
+      x-fr: [FR-CFG-01]
+      x-proposal: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Config' }
+      responses:
+        '200': { description: Đã cập nhật. }
+        '400':
+          description: "VALIDATION_ERROR — giá trị ngoài khoảng cho phép."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /internal/jobs/run:
+    post:
+      tags: ["Lịch làm việc, cấu hình, tác vụ nền"]
+      operationId: runJobs
+      summary: Kích hoạt tác vụ nền
+      description: "cron-job.org gọi mỗi 5 phút. Không JWT, không nhận dữ liệu; xác minh header X-Job-Secret. Xử lý idempotent: tự hủy vắng mặt (FR-EXE-07), khóa tự đặt lịch (FR-BOOK-06), hết hạn xác nhận chi phí (FR-EXE-11)."
+      security:
+        - jobSecret: []
+      x-roles: ["Bí mật (header X-Job-Secret)"]
+      x-fr: [FR-BOOK-06, FR-EXE-07, FR-EXE-11]
+      responses:
+        '200':
+          description: Số mục đã xử lý.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobsResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /health:
+    get:
+      tags: ["Lịch làm việc, cấu hình, tác vụ nền"]
+      operationId: health
+      summary: Kiểm tra sức khỏe dịch vụ
+      description: "Không JWT, không trả dữ liệu nghiệp vụ."
+      security: []
+      x-roles: [Ẩn danh]
+      x-proposal: true
+      responses:
+        '200': { description: Dịch vụ hoạt động. }
+  # ───────────── Nhân viên ─────────────
+  /staff:
+    get:
+      tags: ["Nhân viên"]
+      operationId: listStaff
+      summary: Danh sách nhân viên
+      x-roles: [QL]
+      x-fr: [FR-STF-02]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: Danh sách phân trang.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StaffPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: ["Nhân viên"]
+      operationId: createStaff
+      summary: Tạo tài khoản, hồ sơ nhân viên
+      description: "Tạo AppUser Role = Staff kèm `staffRole` do QL chọn. Không có chức năng tạo tài khoản quản lý."
+      x-roles: [QL]
+      x-fr: [FR-STF-01]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StaffCreateRequest' }
+      responses:
+        '201':
+          description: Đã tạo nhân viên.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StaffCreated' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: "DUPLICATE_CONTACT — số điện thoại đã được dùng."
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  /staff/{id}:
+    put:
+      tags: ["Nhân viên"]
+      operationId: updateStaff
+      summary: Cập nhật thông tin, vai trò nhân viên
+      x-roles: [QL]
+      x-fr: [FR-STF-02]
+      parameters:
+        - { $ref: '#/components/parameters/StaffId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StaffUpdateRequest' }
+      responses:
+        '200': { description: Đã cập nhật. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /staff/{id}/deactivate:
+    post:
+      tags: ["Nhân viên"]
+      operationId: deactivateStaff
+      summary: Vô hiệu hóa nhân viên
+      description: "IsActive = false, thu hồi refresh token, mất quyền đăng nhập ngay. Nhân viên spa: lịch spa Confirmed có họ về Pending (xóa phân công), khách được thông báo (BR-27)."
+      x-roles: [QL]
+      x-fr: [FR-STF-03]
+      parameters:
+        - { $ref: '#/components/parameters/StaffId' }
+      responses:
+        '200':
+          description: Đã vô hiệu hóa.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeactivateResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  # ───────────── Thông báo ─────────────
+  /notifications:
+    get:
+      tags: ["Thông báo"]
+      operationId: listNotifications
+      summary: Thông báo của chính mình
+      description: "Chỉ KH và NVS có chức năng thông báo; chỉ thấy thông báo gửi cho mình."
+      x-roles: [KH, NVS]
+      x-fr: [FR-NOT-01, FR-NOT-02, FR-NOT-03, FR-NOT-04, FR-NOT-05, FR-NOT-06]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: Danh sách phân trang kèm số chưa đọc.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /notifications/{id}/read:
+    post:
+      tags: ["Thông báo"]
+      operationId: markNotificationRead
+      summary: Đánh dấu đã đọc
+      x-roles: [KH, NVS]
+      x-fr: [FR-NOT-01, FR-NOT-02, FR-NOT-03, FR-NOT-04, FR-NOT-05, FR-NOT-06]
+      parameters:
+        - { $ref: '#/components/parameters/NotificationId' }
+      responses:
+        '204': { description: Đã đánh dấu. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "Authorization: Bearer <accessToken>. Token chứa UserId và Role (Customer | Staff | Manager); StaffRole lấy từ dữ liệu Staff."
+    jobSecret:
+      type: apiKey
+      in: header
+      name: X-Job-Secret
+      description: "Giá trị biến môi trường Jobs__Secret; sai → 401."
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1 }
+    PageSize:
+      name: pageSize
+      in: query
+      schema: { type: integer, minimum: 1 }
+    AppointmentId:
+      name: id
+      in: path
+      required: true
+      description: Mã lịch hẹn (AppointmentId).
+      schema: { type: string, format: uuid }
+    CustomerId:
+      name: id
+      in: path
+      required: true
+      description: Mã khách hàng (CustomerId).
+      schema: { type: string, format: uuid }
+    PetId:
+      name: id
+      in: path
+      required: true
+      description: Mã thú cưng (PetId).
+      schema: { type: string, format: uuid }
+    ServiceId:
+      name: id
+      in: path
+      required: true
+      description: Mã dịch vụ (ServiceId).
+      schema: { type: string, format: uuid }
+    ServiceIdPath:
+      name: serviceId
+      in: path
+      required: true
+      description: Mã dịch vụ trong lịch hẹn (ServiceId).
+      schema: { type: string, format: uuid }
+    PaymentId:
+      name: id
+      in: path
+      required: true
+      description: Mã khoản thanh toán (PaymentId).
+      schema: { type: string, format: uuid }
+    CageId:
+      name: id
+      in: path
+      required: true
+      description: Mã chuồng (CageId).
+      schema: { type: string, format: uuid }
+    ShiftId:
+      name: id
+      in: path
+      required: true
+      description: Mã ca làm (ShiftId).
+      schema: { type: string, format: uuid }
+    StaffId:
+      name: id
+      in: path
+      required: true
+      description: Mã nhân viên (StaffId).
+      schema: { type: string, format: uuid }
+    NotificationId:
+      name: id
+      in: path
+      required: true
+      description: Mã thông báo (NotificationId).
+      schema: { type: string, format: uuid }
+  responses:
+    BadRequest:
+      description: "400 VALIDATION_ERROR — dữ liệu không hợp lệ."
+      content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+    Unauthorized:
+      description: "401 UNAUTHENTICATED — thiếu/sai/hết hạn token; đăng nhập sai; tài khoản bị vô hiệu hóa; webhook sai chữ ký; X-Job-Secret sai."
+      content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+    Forbidden:
+      description: "403 FORBIDDEN — sai vai trò hoặc ngoài phạm vi sở hữu (BR-16); không trả thông tin."
+      content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+    NotFound:
+      description: "404 NOT_FOUND."
+      content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+    RateLimited:
+      description: "429 RATE_LIMITED — vượt giới hạn tần suất."
+      content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
+  schemas:
+    # ── Lỗi, phân trang ──
+    ProblemDetails:
+      type: object
+      required: [status, code, title, detail]
+      properties:
+        status: { type: integer, example: 409 }
+        code: { $ref: '#/components/schemas/ErrorCode' }
+        title: { type: string, example: Khung giờ đã kín }
+        detail: { type: string, example: Vui lòng chọn khung giờ khác. }
+    ErrorCode:
+      type: string
+      description: |
+        Mã lỗi nghiệp vụ (SA 5.1.2). HTTP: 400 VALIDATION_ERROR · 401 UNAUTHENTICATED · 403 FORBIDDEN, BOOKING_LOCKED · 404 NOT_FOUND ·
+        409 DUPLICATE_CONTACT, SLOT_FULL, NO_CAPACITY, STAFF_CONFLICT, CAGE_CONFLICT, INVALID_TRANSITION, CHANGE_WINDOW_CLOSED, PHOTO_REQUIRED, SERVICES_INCOMPLETE, STAFF_COUNT_MISMATCH, SHIFT_OVERLAP, SHIFT_HAS_APPOINTMENTS, COST_CONFIRMATION_PENDING, PAYMENT_NOT_DUE, AMOUNT_MISMATCH, STAFF_OUT_OF_SHIFT, CUSTOMER_NOT_LOCKED, DUPLICATE_CAGE_CODE, COST_CONFIRMATION_EXPIRED (3 mã sau là đề xuất, cần thêm vào SA 5.1.2) · 429 RATE_LIMITED.
+      enum:
+        - VALIDATION_ERROR
+        - UNAUTHENTICATED
+        - FORBIDDEN
+        - BOOKING_LOCKED
+        - NOT_FOUND
+        - DUPLICATE_CONTACT
+        - SLOT_FULL
+        - NO_CAPACITY
+        - STAFF_CONFLICT
+        - CAGE_CONFLICT
+        - INVALID_TRANSITION
+        - CHANGE_WINDOW_CLOSED
+        - PHOTO_REQUIRED
+        - SERVICES_INCOMPLETE
+        - STAFF_COUNT_MISMATCH
+        - SHIFT_OVERLAP
+        - SHIFT_HAS_APPOINTMENTS
+        - COST_CONFIRMATION_PENDING
+        - PAYMENT_NOT_DUE
+        - AMOUNT_MISMATCH
+        - STAFF_OUT_OF_SHIFT
+        - CUSTOMER_NOT_LOCKED
+        - DUPLICATE_CAGE_CODE
+        - COST_CONFIRMATION_EXPIRED
+        - RATE_LIMITED
+    PageInfo:
+      type: object
+      required: [page, pageSize, total]
+      properties:
+        page: { type: integer }
+        pageSize: { type: integer }
+        total: { type: integer }
+    # ── Enum dùng chung ──
+    Role: { type: string, enum: [Customer, Staff, Manager] }
+    StaffRole: { type: string, enum: [Receptionist, SpaStaff] }
+    Species: { type: string, enum: [Dog, Cat, Rabbit, GuineaPig] }
+    SizeGroup: { type: string, enum: [Small, Medium, Large] }
+    Temperament: { type: string, enum: [Calm, Normal, Difficult], description: "Difficult ⇒ lịch spa cần tối thiểu 2 nhân viên." }
+    AppointmentType: { type: string, enum: [Spa, Hotel] }
+    AppointmentStatus:
+      type: string
+      enum: [Pending, Confirmed, Received, InProgress, InStay, Completed, Cancelled]
+      description: "Received, InProgress chỉ lịch Spa; InStay chỉ lịch Hotel (BR-14)."
+    CancelReason:
+      type: string
+      enum: [CustomerCancelled, StoreUnable, CustomerBeyondDeadline, NoShow, CostNotConfirmed]
+    ManagerCancelReason:
+      type: string
+      enum: [StoreUnable, CustomerBeyondDeadline]
+      description: Lý do duy nhất client được gửi (chỉ QL); các lý do khác do backend đặt.
+    PaymentKind: { type: string, enum: [Spa, Stay, LateFee] }
+    PaymentStatus: { type: string, enum: [Unpaid, Paid] }
+    PaymentMethod: { type: string, enum: [Cash, BankQR, Online] }
+    CounterPaymentMethod: { type: string, enum: [Cash, BankQR] }
+    Gateway: { type: string, enum: [VNPAY, MoMo] }
+    PhotoKind: { type: string, enum: [Before, After] }
+    NotificationType:
+      type: string
+      enum: [BookingReceived, ConfirmedAssigned, StatusChanged, Cancelled, PaymentRecorded, CostConfirmation]
+    WeightCheckResult: { type: string, enum: [OK, PRICE_DECREASED, NEEDS_CONFIRMATION] }
+    SlotStatus:
+      type: string
+      enum: [Available, Full, NotAccepted]
+      description: "NotAccepted: muộn hơn mốc bắt đầu muộn nhất của dịch vụ."
+    CostConfirmationStatus: { type: string, enum: [Pending, Accepted, Rejected, Expired] }
+    # ── Xác thực & tài khoản ──
+    RegisterRequest:
+      type: object
+      required: [userName, fullName, password]
+      properties:
+        userName: { type: string, maxLength: 20, description: Số điện thoại; được chuẩn hóa. }
+        fullName: { type: string, maxLength: 150 }
+        password: { type: string, format: password }
+        email: { type: string, maxLength: 150 }
+    RegisterResponse:
+      type: object
+      required: [userId]
+      properties:
+        userId: { type: string, format: uuid }
+    LoginRequest:
+      type: object
+      required: [userName, password]
+      properties:
+        userName: { type: string, description: Số điện thoại. }
+        password: { type: string, format: password }
+    TokenPair:
+      type: object
+      required: [accessToken, refreshToken]
+      properties:
+        accessToken: { type: string, description: JWT, mặc định 15 phút (Jwt__AccessTokenMinutes). }
+        refreshToken: { type: string, description: Mặc định 7 ngày (Jwt__RefreshTokenDays); lưu băm ở backend. }
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken: { type: string }
+    Me:
+      type: object
+      required: [userId, userName, role]
+      properties:
+        userId: { type: string, format: uuid }
+        userName: { type: string, description: Số điện thoại. }
+        role: { $ref: '#/components/schemas/Role' }
+        staffRole:
+          allOf: [{ $ref: '#/components/schemas/StaffRole' }]
+          nullable: true
+          description: Chỉ có khi role = Staff.
+        fullName: { type: string, nullable: true }
+        phone: { type: string, nullable: true, description: "Khách hàng: Customer.Phone (= userName)." }
+        email: { type: string, nullable: true }
+    UpdateMeRequest:
+      type: object
+      properties:
+        fullName: { type: string, maxLength: 150 }
+        phone: { type: string, maxLength: 20 }
+        email: { type: string, maxLength: 150 }
+    # ── Khách hàng ──
+    Customer:
+      type: object
+      required: [customerId, fullName, phone, isBookingLocked]
+      properties:
+        customerId: { type: string, format: uuid }
+        fullName: { type: string }
+        phone: { type: string }
+        email: { type: string, nullable: true }
+        isBookingLocked: { type: boolean }
+    CustomerPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/Customer' } }
+    WalkInRequest:
+      type: object
+      required: [fullName, phone]
+      properties:
+        fullName: { type: string, maxLength: 150 }
+        phone: { type: string, maxLength: 20 }
+    WalkInCreated:
+      type: object
+      required: [customerId]
+      properties:
+        customerId: { type: string, format: uuid }
+    # ── Thú cưng ──
+    Pet:
+      type: object
+      required: [petId, customerId, name, species, breed, temperament, weightKg, sizeGroup, isActive]
+      properties:
+        petId: { type: string, format: uuid }
+        customerId: { type: string, format: uuid }
+        name: { type: string }
+        species: { $ref: '#/components/schemas/Species' }
+        breed: { type: string }
+        temperament: { $ref: '#/components/schemas/Temperament' }
+        weightKg: { type: number }
+        heightCm: { type: number, nullable: true }
+        coatNote: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        sizeGroup: { $ref: '#/components/schemas/SizeGroup' }
+        isActive: { type: boolean }
+    PetPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/Pet' } }
+    PetRequest:
+      type: object
+      description: "Không có `sizeGroup` (hệ thống xác định, nếu gửi sẽ bị bỏ qua)."
+      required: [name, species, breed, weightKg]
+      properties:
+        name: { type: string, maxLength: 100 }
+        species: { $ref: '#/components/schemas/Species' }
+        breed: { type: string, maxLength: 100 }
+        temperament: { $ref: '#/components/schemas/Temperament' }
+        weightKg: { type: number, minimum: 0, exclusiveMinimum: true }
+        heightCm: { type: number, description: Bắt buộc khi species = Dog. }
+        coatNote: { type: string, maxLength: 255 }
+        notes: { type: string }
+        customerId: { type: string, format: uuid, description: Bắt buộc với LT; KH bỏ qua. }
+    PetSizeResult:
+      type: object
+      required: [sizeGroup]
+      properties:
+        petId: { type: string, format: uuid, description: Chỉ có ở phản hồi tạo hồ sơ. }
+        sizeGroup: { $ref: '#/components/schemas/SizeGroup' }
+    # ── Danh mục dịch vụ ──
+    PricingRow:
+      type: object
+      required: [species, sizeGroup, price, durationMinutes, staffRequired]
+      properties:
+        species: { $ref: '#/components/schemas/Species' }
+        sizeGroup: { $ref: '#/components/schemas/SizeGroup' }
+        price: { type: integer, minimum: 0, description: VND. }
+        durationMinutes: { type: integer, minimum: 1 }
+        staffRequired: { type: integer, enum: [1, 2] }
+    Service:
+      type: object
+      required: [serviceId, name, latestStartTime, isActive, pricing]
+      properties:
+        serviceId: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        latestStartTime: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$', example: "18:00" }
+        isActive: { type: boolean }
+        pricing: { type: array, items: { $ref: '#/components/schemas/PricingRow' } }
+    ServiceRequest:
+      type: object
+      required: [name, latestStartTime, pricing]
+      properties:
+        name: { type: string, maxLength: 150 }
+        description: { type: string }
+        latestStartTime: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$', example: "18:00", description: Thuộc danh sách Booking.SlotTimes. }
+        pricing:
+          type: array
+          minItems: 1
+          description: "Đủ mọi nhóm kích cỡ của từng loài áp dụng (chuột lang chỉ Small, Large)."
+          items: { $ref: '#/components/schemas/PricingRow' }
+    ServiceCreated:
+      type: object
+      required: [serviceId]
+      properties:
+        serviceId: { type: string, format: uuid }
+    ActiveToggleRequest:
+      type: object
+      required: [isActive]
+      properties:
+        isActive: { type: boolean }
+    # ── Đặt lịch ──
+    SlotInfo:
+      type: object
+      required: [time, group, status]
+      properties:
+        time: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$', example: "09:00" }
+        group: { type: string, example: Morning, description: "Nhóm Sáng / Trưa / Chiều-tối; SA chỉ minh họa Morning, Evening." }
+        status: { $ref: '#/components/schemas/SlotStatus' }
+    SpaSlots:
+      type: object
+      required: [durationMinutes, staffRequired, bufferMinutes, slots]
+      properties:
+        durationMinutes: { type: integer }
+        staffRequired: { type: integer, enum: [1, 2] }
+        bufferMinutes: { type: integer }
+        slots: { type: array, items: { $ref: '#/components/schemas/SlotInfo' } }
+    SpaBookingRequest:
+      type: object
+      required: [petId, serviceIds, slotStart]
+      properties:
+        petId: { type: string, format: uuid }
+        serviceIds: { type: array, minItems: 1, items: { type: string, format: uuid } }
+        slotStart: { type: string, format: date-time, example: "2026-10-06T09:00:00+07:00" }
+        customerId: { type: string, format: uuid, description: Bắt buộc với LT đặt thay; KH bỏ qua. }
+    SpaBookingCreated:
+      type: object
+      required: [appointmentId, status, slotEnd, staffRequired, estimatedAmount]
+      properties:
+        appointmentId: { type: string, format: uuid }
+        type: { $ref: '#/components/schemas/AppointmentType' }
+        status: { $ref: '#/components/schemas/AppointmentStatus' }
+        sizeGroup: { $ref: '#/components/schemas/SizeGroup' }
+        slotStart: { type: string, format: date-time }
+        slotEnd: { type: string, format: date-time }
+        staffRequired: { type: integer, enum: [1, 2] }
+        estimatedAmount: { type: integer, description: VND. }
+    HotelAvailability:
+      type: object
+      required: [available, nights, estimatedAmount]
+      properties:
+        available: { type: boolean }
+        nights: { type: integer }
+        estimatedAmount: { type: integer, description: VND. }
+    HotelBookingRequest:
+      type: object
+      required: [petId, plannedCheckIn, plannedCheckOut]
+      properties:
+        petId: { type: string, format: uuid }
+        plannedCheckIn: { type: string, format: date-time }
+        plannedCheckOut: { type: string, format: date-time, description: Phải sau ngày nhận. }
+        customerId: { type: string, format: uuid, description: Bắt buộc với LT đặt thay; KH bỏ qua. }
+    HotelBookingCreated:
+      type: object
+      required: [appointmentId, status, nights, estimatedAmount]
+      properties:
+        appointmentId: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/AppointmentStatus' }
+        nights: { type: integer }
+        estimatedAmount: { type: integer, description: VND. }
+    # ── Lịch hẹn ──
+    Appointment:
+      type: object
+      required: [appointmentId, type, customerId, petId, status, sizeGroup, createdAt, updatedAt]
+      properties:
+        appointmentId: { type: string, format: uuid }
+        type: { $ref: '#/components/schemas/AppointmentType' }
+        customerId: { type: string, format: uuid }
+        petId: { type: string, format: uuid }
+        customerName: { type: string, description: "Họ tên khách hàng (đề xuất, để hiển thị danh sách)." }
+        petName: { type: string, description: "Tên thú cưng (đề xuất, để hiển thị danh sách)." }
+        status: { $ref: '#/components/schemas/AppointmentStatus' }
+        cancelReason:
+          allOf: [{ $ref: '#/components/schemas/CancelReason' }]
+          nullable: true
+          description: Có giá trị ⇔ status = Cancelled.
+        cancelledAt: { type: string, format: date-time, nullable: true }
+        sizeGroup: { $ref: '#/components/schemas/SizeGroup' }
+        actualWeightKg: { type: number, nullable: true }
+        slotStart: { type: string, format: date-time, nullable: true, description: Chỉ lịch Spa. }
+        slotEnd: { type: string, format: date-time, nullable: true, description: Chỉ lịch Spa. }
+        staffRequired: { type: integer, enum: [1, 2], nullable: true, description: Chỉ lịch Spa. }
+        plannedCheckIn: { type: string, format: date-time, nullable: true, description: Chỉ lịch Hotel. }
+        plannedCheckOut: { type: string, format: date-time, nullable: true, description: Chỉ lịch Hotel. }
+        actualCheckOut: { type: string, format: date-time, nullable: true, description: Chỉ lịch Hotel. }
+        cageId: { type: string, format: uuid, nullable: true, description: Chỉ lịch Hotel. }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    AppointmentPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/Appointment' } }
+    AppointmentServiceItem:
+      type: object
+      required: [serviceId, isDone]
+      properties:
+        serviceId: { type: string, format: uuid }
+        name: { type: string, description: "Tên dịch vụ (đề xuất)." }
+        isDone: { type: boolean }
+        doneAt: { type: string, format: date-time, nullable: true }
+        note: { type: string, nullable: true }
+    AppointmentStaffItem:
+      type: object
+      required: [staffId, isHolding]
+      properties:
+        staffId: { type: string, format: uuid }
+        fullName: { type: string, description: "Họ tên nhân viên (đề xuất)." }
+        isHolding: { type: boolean }
+        assignedAt: { type: string, format: date-time }
+    CostConfirmation:
+      type: object
+      required: [actualWeightKg, newSizeGroup, oldAmount, newAmount, status, expiresAt]
+      properties:
+        actualWeightKg: { type: number }
+        newSizeGroup: { $ref: '#/components/schemas/SizeGroup' }
+        oldAmount: { type: integer }
+        newAmount: { type: integer }
+        status: { $ref: '#/components/schemas/CostConfirmationStatus' }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        respondedAt: { type: string, format: date-time, nullable: true }
+    AppointmentDetail:
+      allOf:
+        - $ref: '#/components/schemas/Appointment'
+        - type: object
+          properties:
+            services:
+              type: array
+              description: Chỉ lịch Spa.
+              items: { $ref: '#/components/schemas/AppointmentServiceItem' }
+            staff:
+              type: array
+              description: Chỉ lịch Spa; rỗng khi chưa xác nhận.
+              items: { $ref: '#/components/schemas/AppointmentStaffItem' }
+            pendingCostConfirmation:
+              allOf: [{ $ref: '#/components/schemas/CostConfirmation' }]
+              nullable: true
+              description: Yêu cầu xác nhận chi phí đang Pending (tối đa một mỗi lịch).
+    UpdateAppointmentRequest:
+      type: object
+      description: "Spa: slotStart, petId, serviceIds. Lưu trú: plannedCheckIn, plannedCheckOut, petId. Không có status, amount. `staffIds`, `cageId`, `confirmOutOfShift` chỉ QL gửi, KH gửi thì bị bỏ qua (đề xuất)."
+      properties:
+        slotStart: { type: string, format: date-time }
+        plannedCheckIn: { type: string, format: date-time }
+        plannedCheckOut: { type: string, format: date-time }
+        petId: { type: string, format: uuid }
+        serviceIds: { type: array, minItems: 1, items: { type: string, format: uuid } }
+        staffIds: { type: array, minItems: 1, maxItems: 2, items: { type: string, format: uuid }, x-proposal: true, description: "Chỉ QL, lịch spa: đổi nhân viên phụ trách; đủ số nhân viên cần." }
+        cageId: { type: string, format: uuid, x-proposal: true, description: "Chỉ QL, lịch lưu trú: đổi chuồng." }
+        confirmOutOfShift: { type: boolean, x-proposal: true, description: "Chỉ QL: true để xác nhận nhân viên ngoài ca." }
+    StatusResult:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/AppointmentStatus' }
+    RejectResult:
+      type: object
+      required: [status, reason]
+      properties:
+        status: { type: string, enum: [Cancelled] }
+        reason: { type: string, enum: [StoreUnable] }
+    CancelRequest:
+      type: object
+      description: "KH không gửi `reason`; QL gửi `reason`."
+      properties:
+        reason: { $ref: '#/components/schemas/ManagerCancelReason' }
+    StaffSuggestion:
+      type: object
+      required: [staffId, fullName]
+      properties:
+        staffId: { type: string, format: uuid }
+        fullName: { type: string }
+        recentAssignmentCount: { type: integer, description: Số lịch được phân công trong Suggest.LookbackDays ngày gần nhất. }
+    SpaSuggestions:
+      type: object
+      required: [staffRequired, suggested, alternatives]
+      properties:
+        staffRequired: { type: integer, enum: [1, 2] }
+        suggested: { type: array, items: { $ref: '#/components/schemas/StaffSuggestion' }, description: Đủ staffRequired người. }
+        alternatives: { type: array, items: { $ref: '#/components/schemas/StaffSuggestion' } }
+    HotelSuggestions:
+      type: object
+      required: [cage]
+      properties:
+        cage: { $ref: '#/components/schemas/Cage' }
+    ConfirmSpaRequest:
+      type: object
+      required: [staffIds]
+      properties:
+        staffIds: { type: array, minItems: 1, maxItems: 2, items: { type: string, format: uuid }, description: Đủ số nhân viên cần của lịch hẹn. }
+        confirmOutOfShift: { type: boolean, x-proposal: true, description: "Gửi true để xác nhận nhân viên chọn tay nằm ngoài ca làm (UC-12)." }
+    ConfirmHotelRequest:
+      type: object
+      required: [cageId]
+      properties:
+        cageId: { type: string, format: uuid }
+    ActualWeightRequest:
+      type: object
+      required: [actualWeightKg]
+      properties:
+        actualWeightKg: { type: number, minimum: 0, exclusiveMinimum: true, example: 11.2 }
+    WeightCheck:
+      type: object
+      required: [result]
+      properties:
+        result: { $ref: '#/components/schemas/WeightCheckResult' }
+        newSizeGroup: { $ref: '#/components/schemas/SizeGroup' }
+        oldAmount: { type: integer }
+        newAmount: { type: integer }
+        expiresAt: { type: string, format: date-time, description: Hạn phản hồi (+ CostConfirm.TimeoutMinutes); khi result = NEEDS_CONFIRMATION. }
+    CheckInResult:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/AppointmentStatus' }
+        weightCheck: { $ref: '#/components/schemas/WeightCheck' }
+    WeightCheckResponse:
+      type: object
+      required: [weightCheck]
+      properties:
+        weightCheck: { $ref: '#/components/schemas/WeightCheck' }
+    CostConfirmationRespondRequest:
+      type: object
+      required: [accept]
+      properties:
+        accept: { type: boolean }
+    ServiceProgressRequest:
+      type: object
+      required: [isDone]
+      properties:
+        isDone: { type: boolean }
+        note: { type: string }
+    CheckOutResult:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/AppointmentStatus' }
+        lateFee: { type: integer, description: Phí phạt trả muộn (VND), nếu có. }
+    PhotoUploadRequest:
+      type: object
+      required: [kind, file]
+      properties:
+        kind: { $ref: '#/components/schemas/PhotoKind' }
+        file: { type: string, format: binary }
+    PhotoCreated:
+      type: object
+      required: [photoId]
+      properties:
+        photoId: { type: string, format: uuid }
+    Photo:
+      type: object
+      required: [photoId, kind, url, uploadedAt]
+      properties:
+        photoId: { type: string, format: uuid }
+        kind: { $ref: '#/components/schemas/PhotoKind' }
+        url: { type: string, format: uri, description: URL tạm thời. }
+        uploadedAt: { type: string, format: date-time }
+    # ── Thanh toán ──
+    Payment:
+      type: object
+      required: [paymentId, appointmentId, kind, amount, status]
+      properties:
+        paymentId: { type: string, format: uuid }
+        appointmentId: { type: string, format: uuid }
+        kind: { $ref: '#/components/schemas/PaymentKind' }
+        amount: { type: integer, minimum: 0, description: Số tiền phải trả (VND), do hệ thống tính. }
+        status: { $ref: '#/components/schemas/PaymentStatus' }
+        method:
+          allOf: [{ $ref: '#/components/schemas/PaymentMethod' }]
+          nullable: true
+        receivedAmount: { type: integer, nullable: true }
+        paidAt: { type: string, format: date-time, nullable: true }
+    PaymentPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/Payment' } }
+    CounterPaymentRequest:
+      type: object
+      required: [method, receivedAmount]
+      properties:
+        method: { $ref: '#/components/schemas/CounterPaymentMethod' }
+        receivedAmount: { type: integer, minimum: 0, description: Số tiền thực nhận (VND); phải ≥ Amount. }
+    PaymentStatusResult:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/PaymentStatus' }
+    OnlinePaymentRequest:
+      type: object
+      required: [gateway]
+      properties:
+        gateway: { $ref: '#/components/schemas/Gateway' }
+    OnlinePaymentCreated:
+      type: object
+      required: [paymentUrl, txnRef]
+      properties:
+        paymentUrl: { type: string, format: uri }
+        txnRef: { type: string, maxLength: 64 }
+    # ── Lưu trú ──
+    HotelPricingRow:
+      type: object
+      required: [species, sizeGroup, pricePerNight, foodPerNight]
+      properties:
+        species: { $ref: '#/components/schemas/Species' }
+        sizeGroup: { $ref: '#/components/schemas/SizeGroup' }
+        pricePerNight: { type: integer, minimum: 0 }
+        foodPerNight: { type: integer, minimum: 0 }
+    HotelPricing:
+      type: object
+      required: [pricing, lateFeePerBlock]
+      properties:
+        pricing: { type: array, items: { $ref: '#/components/schemas/HotelPricingRow' } }
+        lateFeePerBlock: { type: integer, minimum: 0, description: "Phí phạt mỗi lần (Hotel.LateFeePerBlock), VND." }
+    CageOccupant:
+      type: object
+      required: [petId, petName, customerId, customerName, plannedCheckOut]
+      properties:
+        petId: { type: string, format: uuid }
+        petName: { type: string }
+        customerId: { type: string, format: uuid }
+        customerName: { type: string }
+        plannedCheckOut: { type: string, format: date-time }
+    Cage:
+      type: object
+      required: [cageId, code, species, sizeGroup, isActive]
+      properties:
+        cageId: { type: string, format: uuid }
+        code: { type: string, maxLength: 20 }
+        species: { $ref: '#/components/schemas/Species' }
+        sizeGroup: { $ref: '#/components/schemas/SizeGroup' }
+        isActive: { type: boolean }
+        occupant:
+          allOf: [{ $ref: '#/components/schemas/CageOccupant' }]
+          nullable: true
+          description: null = chuồng trống.
+    CagePage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/Cage' } }
+    CageCreateRequest:
+      type: object
+      required: [code, species, sizeGroup]
+      properties:
+        code: { type: string, maxLength: 20 }
+        species: { $ref: '#/components/schemas/Species' }
+        sizeGroup: { $ref: '#/components/schemas/SizeGroup' }
+    CageUpdateRequest:
+      type: object
+      properties:
+        code: { type: string, maxLength: 20 }
+        species: { $ref: '#/components/schemas/Species' }
+        sizeGroup: { $ref: '#/components/schemas/SizeGroup' }
+    CageCreated:
+      type: object
+      required: [cageId]
+      properties:
+        cageId: { type: string, format: uuid }
+    # ── Ca làm, cấu hình, tác vụ nền ──
+    WorkShift:
+      type: object
+      required: [shiftId, staffId, shiftStart, shiftEnd]
+      properties:
+        shiftId: { type: string, format: uuid }
+        staffId: { type: string, format: uuid }
+        shiftStart: { type: string, format: date-time }
+        shiftEnd: { type: string, format: date-time }
+    WorkShiftPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/WorkShift' } }
+    WorkShiftCreateRequest:
+      type: object
+      required: [staffId, shiftStart, shiftEnd]
+      properties:
+        staffId: { type: string, format: uuid }
+        shiftStart: { type: string, format: date-time }
+        shiftEnd: { type: string, format: date-time }
+    WorkShiftUpdateRequest:
+      type: object
+      required: [shiftStart, shiftEnd]
+      properties:
+        shiftStart: { type: string, format: date-time }
+        shiftEnd: { type: string, format: date-time }
+    WorkShiftCreated:
+      type: object
+      required: [shiftId]
+      properties:
+        shiftId: { type: string, format: uuid }
+    ConfigSettings:
+      type: object
+      description: "Tham số nghiệp vụ (bảng SystemConfig, SA 7.2 A). Khoảng cho phép và mặc định theo SA 7.2."
+      additionalProperties: false
+      properties:
+        Booking.ChangeCancelDeadlineMinutes: { type: integer, minimum: 60, maximum: 120, default: 60, description: "Hạn tự đổi/hủy trước giờ hẹn (BR-08)." }
+        Booking.HoldMinutes: { type: integer, minimum: 1, default: 15, description: "Thời gian giữ chỗ sau giờ hẹn (BR-08)." }
+        Booking.BufferMinutes: { type: integer, minimum: 15, maximum: 20, default: 15, description: Thời gian dọn dẹp sau lịch spa. }
+        Booking.SlotTimes:
+          type: array
+          description: "Danh sách mốc giờ HH:mm, tăng dần."
+          default: ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00"]
+          items: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$' }
+        Suggest.LookbackDays: { type: integer, minimum: 1, default: 30 }
+        NoShow.LockThreshold: { type: integer, minimum: 1, default: 3, description: "Khóa khi vắng mặt quá ngưỡng này trong NoShow.WindowDays (BR-15)." }
+        NoShow.WindowDays: { type: integer, minimum: 1, default: 30 }
+        CostConfirm.TimeoutMinutes: { type: integer, minimum: 1, default: 30 }
+        Hotel.LateGraceMinutes: { type: integer, minimum: 1, default: 30 }
+        Hotel.LateBlockMinutes: { type: integer, minimum: 1, default: 60 }
+        Photo.ValidityDays: { type: integer, minimum: 1, default: 7 }
+        Hotel.LateFeePerBlock: { type: integer, minimum: 0, readOnly: true, description: "Chỉ xem; chỉnh tại PUT /hotel/pricing." }
+    SizeRule:
+      type: object
+      required: [species, criterion, smallUpper]
+      properties:
+        species: { $ref: '#/components/schemas/Species' }
+        criterion: { type: string, enum: [Weight, Height], description: Height chỉ dùng cho Dog. }
+        smallUpper: { type: number, description: Cận trên (không gồm) của nhóm Small. }
+        mediumUpper: { type: number, nullable: true, description: Cận trên (không gồm) của nhóm Medium; null = loài không có nhóm Medium (GuineaPig). }
+    WeightTolerance:
+      type: object
+      required: [species, fromGroup, toGroup, toleranceKg]
+      properties:
+        species: { $ref: '#/components/schemas/Species' }
+        fromGroup: { $ref: '#/components/schemas/SizeGroup' }
+        toGroup: { $ref: '#/components/schemas/SizeGroup' }
+        toleranceKg: { type: number, minimum: 0 }
+    Config:
+      type: object
+      description: "GET trả đủ ba phần; PUT gửi phần nào cập nhật phần đó. Ngưỡng SizeRule phải tăng dần."
+      properties:
+        settings: { $ref: '#/components/schemas/ConfigSettings' }
+        sizeRules: { type: array, items: { $ref: '#/components/schemas/SizeRule' } }
+        weightTolerances: { type: array, items: { $ref: '#/components/schemas/WeightTolerance' } }
+    JobsResult:
+      type: object
+      required: [processed]
+      properties:
+        processed: { type: integer }
+    # ── Nhân viên ──
+    Staff:
+      type: object
+      required: [staffId, userName, fullName, staffRole, isActive]
+      properties:
+        staffId: { type: string, format: uuid }
+        userName: { type: string, description: Số điện thoại. }
+        fullName: { type: string }
+        staffRole: { $ref: '#/components/schemas/StaffRole' }
+        isActive: { type: boolean }
+    StaffPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/Staff' } }
+    StaffCreateRequest:
+      type: object
+      required: [userName, fullName, staffRole, password]
+      properties:
+        userName: { type: string, maxLength: 20, description: Số điện thoại. }
+        fullName: { type: string, maxLength: 150 }
+        staffRole: { $ref: '#/components/schemas/StaffRole' }
+        password: { type: string, format: password }
+    StaffUpdateRequest:
+      type: object
+      required: [fullName, staffRole]
+      properties:
+        fullName: { type: string, maxLength: 150 }
+        staffRole: { $ref: '#/components/schemas/StaffRole' }
+    StaffCreated:
+      type: object
+      required: [staffId]
+      properties:
+        staffId: { type: string, format: uuid }
+    DeactivateResult:
+      type: object
+      required: [returnedToPending]
+      properties:
+        returnedToPending: { type: integer, description: Số lịch spa Confirmed đã về Pending. }
+    # ── Thông báo ──
+    Notification:
+      type: object
+      required: [notificationId, type, message, isRead, createdAt]
+      properties:
+        notificationId: { type: string, format: uuid }
+        type: { $ref: '#/components/schemas/NotificationType' }
+        appointmentId: { type: string, format: uuid, nullable: true }
+        message: { type: string, maxLength: 500 }
+        isRead: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    NotificationPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items, unread]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/Notification' } }
+            unread: { type: integer, description: Số thông báo chưa đọc. }
