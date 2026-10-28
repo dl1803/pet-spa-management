@@ -1,3 +1,8 @@
+plan/
+*.docx
+*.xlsx
+*.pptx
+
 # Node modules & dependencies
 node_modules/
 .pnp/
