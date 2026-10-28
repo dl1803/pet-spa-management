@@ -42,10 +42,30 @@ Pet-Spa-Management-SE310/
 ### 1. Backend (ASP.NET Core)
 ```bash
 cd backend
-dotnet restore
-dotnet run
+dotnet restore PetSpa.sln
+dotnet run --project src/PetSpa.Api --launch-profile http
 ```
-> API Swagger mặc định: `http://localhost:5000/swagger`
+> Yêu cầu .NET SDK 9.0.305 trở lên trong dòng 9.0 (xem `backend/global.json`).
+> Swagger mặc định: `http://localhost:5000/swagger`; OpenAPI JSON: `http://localhost:5000/swagger/v1/swagger.json`.
+
+Backend gồm 4 project trong `backend/src`: `PetSpa.Domain` không phụ thuộc tầng khác; `PetSpa.Application` tham chiếu Domain; `PetSpa.Infrastructure` tham chiếu Application; `PetSpa.Api` tham chiếu Application và Infrastructure tại composition root.
+
+Hiện tại backend mới có nền tảng ứng dụng, chưa có endpoint nghiệp vụ nên tài liệu OpenAPI chưa có operation. Swagger bật trong môi trường `Development`; môi trường khác chỉ bật khi cấu hình `Swagger__Enabled=true`. Để chạy HTTPS cục bộ, dùng profile `https` (cổng 7000) sau khi cấu hình chứng chỉ phát triển bằng `dotnet dev-certs https --trust`.
+
+Kiểm tra build và định dạng mã:
+
+```bash
+dotnet build PetSpa.sln
+dotnet format PetSpa.sln --verify-no-changes --no-restore
+```
+
+Validation request dùng FluentValidation: validator công khai trong assembly API được đăng ký tự động; action filter chạy luật bất đồng bộ trước khi gọi action và truyền `RequestAborted`. Request không hợp lệ ném `ValidationException`, giữ nguyên lỗi từng trường. Ánh xạ exception sang HTTP 400/error envelope thuộc D02; hiện chưa có DTO hoặc endpoint nghiệp vụ sử dụng pipeline này. Kiểm tra model binding mặc định của MVC vẫn được giữ.
+
+Chạy bộ kiểm tra validation dạng console (trả exit code khác 0 khi có lỗi, không cần thêm test framework):
+
+```bash
+dotnet run --project tests/PetSpa.Api.Tests --no-restore
+```
 
 ### 2. Frontend (Next.js)
 ```bash
