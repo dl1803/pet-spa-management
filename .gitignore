@@ -1,50 +1,61 @@
+# ==========================================
+# 1. Kế hoạch / Tài liệu nội bộ
+# ==========================================
 plan/
 *.docx
 *.xlsx
 *.pptx
 
-# Node modules & dependencies
-node_modules/
-.pnp/
-.pnp.js
+# ==========================================
+# 2. File hệ điều hành & Editor / IDE
+# ==========================================
+.DS_Store
+Thumbs.db
+desktop.ini
 
-# Build outputs
-dist/
-build/
-out/
-.next/
+# Visual Studio / VS Code / JetBrains Rider
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
 
-# .NET build outputs and local IDE settings
+# ==========================================
+# 3. Backend (ASP.NET Core / C# / .NET)
+# ==========================================
 **/bin/
 **/obj/
-.vs/
-*.user
+**/TestResults/
+[Dd]ebug/
+[Rr]elease/
 
-# Environment files
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+# File cấu hình chứa secret cá nhân (nếu có)
+**/appsettings.Development.json
+**/appsettings.Local.json
 
-# Logs
-logs/
-*.log
+# ==========================================
+# 4. Frontend (Node.js / React / Vite / Vue)
+# ==========================================
+**/node_modules/
+**/dist/
+**/build/
+**/.next/
+**/.output/
+**/.turbo/
+
+# Log của npm/yarn/pnpm
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
-# IDE & OS
-.vscode/
-.idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-!backend/PetSpa.sln
-*.sw?
-.DS_Store
-Thumbs.db
-
-# Internal documents (tài liệu nội bộ, không đưa lên repo)
-internal-docs/
+# File môi trường biến bí mật
+.env
+.env.local
+.env.*.local
+!.env.example
