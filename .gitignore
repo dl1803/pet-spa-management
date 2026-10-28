@@ -14,6 +14,12 @@ build/
 out/
 .next/
 
+# .NET build outputs and local IDE settings
+**/bin/
+**/obj/
+.vs/
+*.user
+
 # Environment files
 .env
 .env.local
@@ -35,6 +41,7 @@ yarn-error.log*
 *.ntvs*
 *.njsproj
 *.sln
+!backend/PetSpa.sln
 *.sw?
 .DS_Store
 Thumbs.db
