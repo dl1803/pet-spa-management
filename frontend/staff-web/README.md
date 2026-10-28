@@ -1,8 +1,7 @@
 # Web Nhân viên
 
 Ứng dụng Next.js độc lập cho lễ tân và nhân viên spa.
-D01 / S120-01: khởi tạo TypeScript, TailwindCSS, Axios, TanStack Query và React Hook Form.
-Layout nghiệp vụ và adapter dùng chung thuộc S120-02 (D08); đăng nhập thuộc ID121.
+Khởi tạo TypeScript, TailwindCSS, Axios, TanStack Query và React Hook Form.
 
 Yêu cầu Node.js >= 20.9 và npm. Chạy các lệnh sau tại `frontend/staff-web`:
 
