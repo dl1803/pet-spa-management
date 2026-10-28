@@ -1,0 +1,101 @@
+@import "tailwindcss";
+
+/*
+  Token thiết kế dùng chung – System Analysis & UI Design v1.3, mục 6.1
+  (giá trị lấy đúng theo ui-demo/SE358_PetSpa_UI_Demo.html).
+*/
+@theme {
+  --color-lagoon: #0b6e78;
+  --color-lagoon-700: #084f57;
+  --color-lagoon-800: #063f45;
+  --color-lagoon-50: #ddf1f2;
+  --color-lagoon-25: #eef8f8;
+  --color-apricot: #f5a524;
+  --color-apricot-50: #fff4dc;
+  --color-apricot-100: #fce6b6;
+  --color-apricot-700: #7a4b00;
+  --color-ink: #14323a;
+  --color-muted: #5b7178;
+  --color-mist: #f5f9fa;
+  --color-line: #d6e4e7;
+  --color-line-soft: #e8f0f2;
+  --color-success: #237a47;
+  --color-success-50: #e4f3e9;
+  --color-danger: #b3372b;
+  --color-danger-50: #fbeae8;
+  --color-info: #2f6fb5;
+  --color-info-50: #e7effa;
+
+  /* Màu trạng thái lịch hẹn – luôn đi kèm chữ */
+  --color-st-pending-bg: #fff1cc;
+  --color-st-pending: #7a4b00;
+  --color-st-confirmed-bg: #dce9f8;
+  --color-st-confirmed: #1f4e8c;
+  --color-st-received-bg: #e6e4fa;
+  --color-st-received: #3e3a8f;
+  --color-st-active-bg: #ddf1f2;
+  --color-st-active: #0b6e78;
+  --color-st-completed-bg: #ddf1dd;
+  --color-st-completed: #1e6b3c;
+  --color-st-cancelled-bg: #f8dada;
+  --color-st-cancelled: #8a1f16;
+
+  --shadow-pop: 0 18px 40px -12px rgba(20, 50, 58, 0.28), 0 2px 8px rgba(20, 50, 58, 0.08);
+
+  --animate-toast-in: toast-in 0.2s ease-out;
+
+  @keyframes toast-in {
+    from {
+      transform: translateY(8px);
+      opacity: 0;
+    }
+    to {
+      transform: none;
+      opacity: 1;
+    }
+  }
+}
+
+@theme inline {
+  --font-sans: var(--font-be-vietnam-pro), system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-mist);
+    color: var(--color-ink);
+    font-size: 14px;
+    line-height: 22px;
+  }
+
+  /* Cỡ chữ: H1 24/32 đậm · H2 17/24 · H3 14/20 (mục 6.1) */
+  h1 {
+    font-size: 24px;
+    line-height: 32px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  h2 {
+    font-size: 17px;
+    line-height: 24px;
+    font-weight: 600;
+  }
+  h3 {
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 600;
+  }
+
+  :focus-visible {
+    outline: 3px solid rgba(11, 110, 120, 0.4);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      transition: none !important;
+      animation: none !important;
+    }
+  }
+}
