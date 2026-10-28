@@ -59,6 +59,14 @@ dotnet build PetSpa.sln
 dotnet format PetSpa.sln --verify-no-changes --no-restore
 ```
 
+Validation request dùng FluentValidation: validator công khai trong assembly API được đăng ký tự động; action filter chạy luật bất đồng bộ trước khi gọi action và truyền `RequestAborted`. Request không hợp lệ ném `ValidationException`, giữ nguyên lỗi từng trường. Ánh xạ exception sang HTTP 400/error envelope thuộc D02; hiện chưa có DTO hoặc endpoint nghiệp vụ sử dụng pipeline này. Kiểm tra model binding mặc định của MVC vẫn được giữ.
+
+Chạy bộ kiểm tra validation dạng console (trả exit code khác 0 khi có lỗi, không cần thêm test framework):
+
+```bash
+dotnet run --project tests/PetSpa.Api.Tests --no-restore
+```
+
 ### 2. Frontend (Next.js)
 ```bash
 cd frontend
