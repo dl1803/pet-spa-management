@@ -4,8 +4,15 @@ using Microsoft.OpenApi.Models;
 using PetSpa.Api.Filters;
 using PetSpa.Api.Middleware;
 using PetSpa.Domain.Exceptions;
+using Serilog;
+using Serilog.Events;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Host.UseSerilog((context, configuration) => configuration
+    .ReadFrom.Configuration(context.Configuration)
+    .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+    .WriteTo.Console());
 
 builder.Services.AddControllers(options =>
     {

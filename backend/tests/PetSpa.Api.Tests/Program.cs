@@ -6,11 +6,14 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using PetSpa.Api.Filters;
 using PetSpa.Api.Middleware;
 using PetSpa.Domain.Exceptions;
+using Serilog;
+using Serilog.Events;
 
 var filter = new ValidationFilter();
 var tests = new (string Name, Func<Task> Run)[]
@@ -129,6 +132,27 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(root.GetProperty("title").GetString() == "Lỗi hệ thống", "Title must be 'Lỗi hệ thống'.");
         var detail = root.GetProperty("detail").GetString()!;
         Check(!detail.Contains("secret_pwd"), "Detail must not leak internal exception details.");
+    }),
+    ("Serilog logger can be built from configuration with minimum level", () =>
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Serilog:MinimumLevel:Default"] = "Information",
+                ["Serilog:MinimumLevel:Override:Microsoft.AspNetCore"] = "Warning"
+            })
+            .Build();
+
+        using var logger = new LoggerConfiguration()
+            .ReadFrom.Configuration(config)
+            .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+            .WriteTo.Console()
+            .CreateLogger();
+
+        Check(logger.IsEnabled(LogEventLevel.Information), "Information level must be enabled.");
+        Check(!logger.IsEnabled(LogEventLevel.Debug), "Debug level must be disabled when MinimumLevel is Information.");
+
+        return Task.CompletedTask;
     })
 };
 
