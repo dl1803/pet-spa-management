@@ -2,10 +2,12 @@ using System.Reflection;
 using FluentValidation;
 using Microsoft.OpenApi.Models;
 using PetSpa.Api.Filters;
+using PetSpa.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers(options => options.Filters.Add<ValidationFilter>());
+builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddValidatorsFromAssemblyContaining<ValidationFilter>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
