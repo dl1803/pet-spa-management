@@ -1,16 +1,22 @@
 using System.Text.Json;
+using System.Threading.RateLimiting;
 using FluentValidation;
 using FluentValidation.Results;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using PetSpa.Api.Filters;
 using PetSpa.Api.Middleware;
+using PetSpa.Api.Security;
 using PetSpa.Domain.Exceptions;
 using Serilog;
 using Serilog.Events;
@@ -151,6 +157,78 @@ var tests = new (string Name, Func<Task> Run)[]
 
         Check(logger.IsEnabled(LogEventLevel.Information), "Information level must be enabled.");
         Check(!logger.IsEnabled(LogEventLevel.Debug), "Debug level must be disabled when MinimumLevel is Information.");
+
+        return Task.CompletedTask;
+    }),
+    ("RateLimitPolicies registers rate limiting and configures rejection to throw RATE_LIMITED BusinessException", () =>
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["RateLimit:AuthPermitPerMinute"] = "10"
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddPetSpaRateLimiting(config);
+        using var provider = services.BuildServiceProvider();
+
+        var options = provider.GetRequiredService<IOptions<RateLimiterOptions>>().Value;
+        Check(options.OnRejected != null, "OnRejected callback must be configured.");
+
+        var threwExpected = false;
+        try
+        {
+            options.OnRejected!(null!, CancellationToken.None).AsTask().GetAwaiter().GetResult();
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.RateLimited)
+        {
+            threwExpected = true;
+        }
+
+        Check(threwExpected, "OnRejected must throw BusinessException with ErrorCodes.RateLimited.");
+        return Task.CompletedTask;
+    }),
+    ("RateLimitPolicies rejects invalid AuthPermitPerMinute configuration", () =>
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["RateLimit:AuthPermitPerMinute"] = "0"
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        var threw = false;
+        try
+        {
+            services.AddPetSpaRateLimiting(config);
+        }
+        catch (InvalidOperationException)
+        {
+            threw = true;
+        }
+
+        Check(threw, "AddPetSpaRateLimiting must throw InvalidOperationException when AuthPermitPerMinute <= 0.");
+        return Task.CompletedTask;
+    }),
+    ("ForwardedHeadersOptions is configured to trust XForwardedFor behind reverse proxy", () =>
+    {
+        var services = new ServiceCollection();
+        services.Configure<ForwardedHeadersOptions>(options =>
+        {
+            options.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+            options.KnownNetworks.Clear();
+            options.KnownProxies.Clear();
+        });
+
+        using var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<IOptions<ForwardedHeadersOptions>>().Value;
+
+        Check((options.ForwardedHeaders & ForwardedHeaders.XForwardedFor) == ForwardedHeaders.XForwardedFor,
+            "ForwardedHeaders must include XForwardedFor.");
+        Check(options.KnownNetworks.Count == 0, "KnownNetworks must be cleared.");
+        Check(options.KnownProxies.Count == 0, "KnownProxies must be cleared.");
 
         return Task.CompletedTask;
     })
