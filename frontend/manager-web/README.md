@@ -10,8 +10,21 @@ npm ci
 npm run dev -- --port 3002
 ```
 
-Mở http://localhost:3002. Trang gốc giới thiệu ứng dụng; chưa có màn nghiệp vụ hay kết nối backend.
+Mở http://localhost:3002. Trang gốc giới thiệu ứng dụng trong khung quản lý; chưa kết nối backend.
 Dừng server bằng Ctrl+C trong terminal đã khởi chạy.
+
+Khung quản lý dùng Be Vietnam Pro, token màu chung với Web Khách hàng và thanh bên rộng 248px.
+Dưới 980px, menu chuyển thành thanh ngang cuộn được. Liên kết “Đến nội dung chính” hỗ trợ bàn phím.
+
+- `app/(main)`: layout có thanh bên và trang giới thiệu.
+- `components/layout`: sidebar, menu và đánh dấu mục đang chọn; phần đọc đường dẫn nằm trong `Suspense`.
+- `components/icons.tsx`: biểu tượng SVG và logo theo UI demo.
+- `lib/routes.ts`: đường dẫn quản lý; lịch spa và lưu trú dùng chung `/lich-hen`.
+
+Chỉ liên kết Tổng quan đang khả dụng. Các mục chưa có màn hình được vô hiệu hóa, có mô tả
+“Chức năng chưa khả dụng”; bật `available` trong menu khi đã có trang đích.
+Khối tài khoản chưa đọc phiên đăng nhập; nút Đăng xuất bị vô hiệu hóa. Huy hiệu chờ xác nhận
+nhận `pendingCount`, đang để `null` nên ẩn; không hiển thị số liệu giả.
 
 Kiểm tra trước khi commit:
 
@@ -30,7 +43,8 @@ npm run start -- --port 3002
 Trong terminal khác, kiểm tra trang gốc của server đang chạy:
 
 ```powershell
-node --input-type=module -e 'import assert from "node:assert/strict"; const r = await fetch("http://localhost:3002"); assert.equal(r.status, 200); assert.match(await r.text(), /Web Quản lý/); console.log("HTTP smoke test PASS");'
+node --test tests/shell.test.mjs
 ```
 
-Build cần truy cập Google Fonts để tải Geist theo cấu hình khởi tạo.
+Smoke test kiểm tra trang gốc, menu khả dụng, nút đăng xuất bị khóa, icon và đường dẫn không tồn tại.
+Build cần truy cập Google Fonts để tải Be Vietnam Pro.
