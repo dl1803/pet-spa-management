@@ -127,4 +127,3 @@ export function getErrorMessage(error: unknown): string {
 
   return apiError.detail?.trim() || apiError.title?.trim() || ERROR_MESSAGES.server;
 }
-

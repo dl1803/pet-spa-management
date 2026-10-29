@@ -12,4 +12,3 @@ export function ForbiddenState({ className = "" }: { className?: string }) {
     </div>
   );
 }
-

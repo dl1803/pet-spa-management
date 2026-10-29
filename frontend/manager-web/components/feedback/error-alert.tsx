@@ -21,4 +21,3 @@ export function ErrorAlert({ error, className = "" }: { error: unknown; classNam
     </div>
   );
 }
-

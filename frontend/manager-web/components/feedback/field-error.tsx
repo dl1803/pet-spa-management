@@ -10,4 +10,3 @@ export function FieldError({ id, message }: { id?: string; message?: string }) {
     </p>
   );
 }
-
