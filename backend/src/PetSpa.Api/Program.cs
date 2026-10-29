@@ -6,6 +6,7 @@ using PetSpa.Api.Filters;
 using PetSpa.Api.Middleware;
 using PetSpa.Api.Security;
 using PetSpa.Domain.Exceptions;
+using PetSpa.Infrastructure;
 using Serilog;
 using Serilog.Events;
 
@@ -28,18 +29,14 @@ builder.Services.AddControllers(options =>
         options.InvalidModelStateResponseFactory = _ =>
             throw new BusinessException(ErrorCodes.ValidationError, "Dữ liệu gửi lên không hợp lệ hoặc sai định dạng.");
     });
-using PetSpa.Infrastructure;
 
-var builder = WebApplication.CreateBuilder(args);
-
-builder.Services.AddControllers(options => options.Filters.Add<ValidationFilter>());
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddValidatorsFromAssemblyContaining<ValidationFilter>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddPetSpaRateLimiting(builder.Configuration);
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
-    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
     options.KnownNetworks.Clear();
     options.KnownProxies.Clear();
 });
@@ -59,6 +56,7 @@ builder.Services.AddSwaggerGen(options =>
 var app = builder.Build();
 
 app.UseForwardedHeaders();
+app.UseSerilogRequestLogging();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Swagger:Enabled"))
