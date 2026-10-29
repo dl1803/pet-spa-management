@@ -28,6 +28,12 @@ builder.Services.AddControllers(options =>
         options.InvalidModelStateResponseFactory = _ =>
             throw new BusinessException(ErrorCodes.ValidationError, "Dữ liệu gửi lên không hợp lệ hoặc sai định dạng.");
     });
+using PetSpa.Infrastructure;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddControllers(options => options.Filters.Add<ValidationFilter>());
+builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddValidatorsFromAssemblyContaining<ValidationFilter>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddPetSpaRateLimiting(builder.Configuration);
