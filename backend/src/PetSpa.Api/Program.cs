@@ -2,10 +2,23 @@ using System.Reflection;
 using FluentValidation;
 using Microsoft.OpenApi.Models;
 using PetSpa.Api.Filters;
+using PetSpa.Api.Middleware;
+using PetSpa.Domain.Exceptions;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers(options => options.Filters.Add<ValidationFilter>());
+builder.Services.AddControllers(options =>
+    {
+        options.Filters.Add<ValidationFilter>();
+        // Để FluentValidation là nơi duy nhất kiểm tra trường bắt buộc.
+        options.SuppressImplicitRequiredAttributeForNonNullableReferenceTypes = true;
+    })
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        // Body sai định dạng JSON hoặc sai kiểu dữ liệu: trả cùng error envelope VALIDATION_ERROR qua middleware.
+        options.InvalidModelStateResponseFactory = _ =>
+            throw new BusinessException(ErrorCodes.ValidationError, "Dữ liệu gửi lên không hợp lệ hoặc sai định dạng.");
+    });
 builder.Services.AddValidatorsFromAssemblyContaining<ValidationFilter>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
@@ -22,6 +35,8 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 var app = builder.Build();
+
+app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Swagger:Enabled"))
 {
