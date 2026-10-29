@@ -1,14 +1,22 @@
 "use client";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { ToastProvider } from "@/components/feedback/toast";
+import { makeQueryClient } from "@/lib/query-client";
+
+let browserQueryClient: QueryClient | undefined;
+
+function getQueryClient() {
+  if (typeof window === "undefined") return makeQueryClient();
+  browserQueryClient ??= makeQueryClient();
+  return browserQueryClient;
+}
 
 export function Providers({ children }: { children: ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient());
-
   return (
-    <QueryClientProvider client={queryClient}>
-      {children}
+    <QueryClientProvider client={getQueryClient()}>
+      <ToastProvider>{children}</ToastProvider>
     </QueryClientProvider>
   );
 }
