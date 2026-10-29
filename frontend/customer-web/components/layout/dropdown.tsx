@@ -5,11 +5,18 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 type DropdownProps = {
   label: ReactNode;
   buttonClassName: string;
+  menuClassName?: string;
   align?: "left" | "right";
   children: ReactNode;
 };
 
-export function Dropdown({ label, buttonClassName, align = "left", children }: DropdownProps) {
+export function Dropdown({
+  label,
+  buttonClassName,
+  menuClassName,
+  align = "left",
+  children,
+}: DropdownProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -59,9 +66,9 @@ export function Dropdown({ label, buttonClassName, align = "left", children }: D
             setOpen(false);
           }
         }}
-        className={`absolute top-[calc(100%+6px)] z-[70] min-w-[220px] rounded-xl border border-line bg-white p-1.5 shadow-pop ${
+        className={`absolute top-[calc(100%+6px)] z-[70] min-w-[220px] max-w-[calc(100vw-24px)] rounded-xl border border-line bg-white p-1.5 shadow-pop ${
           align === "right" ? "right-0" : "left-0"
-        }`}
+        } ${menuClassName ?? ""}`}
       >
         {children}
       </div>

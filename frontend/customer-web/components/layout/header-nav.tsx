@@ -25,7 +25,7 @@ export function HeaderNav({ pathname }: { pathname: string | null }) {
 
   return (
     <>
-      <nav aria-label="Menu chính" className="flex items-center gap-1 max-[860px]:gap-0">
+      <nav aria-label="Menu chính" className="order-3 flex w-full items-center justify-around border-t border-line/60 pt-1.5 max-[860px]:gap-0 sm:order-2 sm:w-auto sm:justify-start sm:border-0 sm:pt-0 sm:gap-1">
         <Link
           href={ROUTES.home}
           aria-current={pathname === ROUTES.home ? "page" : undefined}
@@ -44,6 +44,7 @@ export function HeaderNav({ pathname }: { pathname: string | null }) {
         </Link>
         <Dropdown
           buttonClassName={`${navItemClass} cursor-pointer ${bookingActive ? navItemActiveClass : ""}`}
+          menuClassName="max-[640px]:left-1/2 max-[640px]:-translate-x-1/2 sm:left-0 sm:translate-x-0"
           label={
             <>
               <Icon name="calendar-plus" />
@@ -77,7 +78,7 @@ export function HeaderNav({ pathname }: { pathname: string | null }) {
         </Link>
       </nav>
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="order-2 ml-auto flex items-center gap-2 sm:order-3">
         <Link
           href={ROUTES.notifications}
           aria-label="Thông báo"

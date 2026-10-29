@@ -15,10 +15,10 @@ export function BrandMark() {
 export function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-white">
-      <div className="mx-auto flex h-[68px] max-w-[1200px] items-center gap-7 px-8 max-[980px]:gap-3 max-[980px]:px-4 max-[860px]:gap-1.5">
+      <div className="mx-auto flex min-h-[60px] max-w-[1200px] flex-wrap items-center justify-between gap-y-1.5 px-3 py-1.5 sm:h-[68px] sm:flex-nowrap sm:justify-start sm:gap-7 sm:px-4 sm:py-0 md:px-8 max-[980px]:gap-3 max-[860px]:gap-1.5">
         <Link
           href={ROUTES.home}
-          className="flex items-center gap-2.5 whitespace-nowrap text-base font-bold text-ink hover:text-ink max-[860px]:gap-0"
+          className="order-1 flex items-center gap-2.5 whitespace-nowrap text-base font-bold text-ink hover:text-ink max-[860px]:gap-0"
         >
           <BrandMark />
           <span className="max-[860px]:sr-only">Spa thú cưng</span>
