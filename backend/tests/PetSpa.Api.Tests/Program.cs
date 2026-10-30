@@ -1,6 +1,15 @@
+using System.Security.Claims;
+using System.Text;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
+using PetSpa.Application.Security;
+using PetSpa.Infrastructure.Identity;
 using System.Text.Json;
 using System.Threading.RateLimiting;
 using FluentValidation;
+using ValidationFailure = FluentValidation.Results.ValidationFailure;
 using FluentValidation.Results;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -231,7 +240,148 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(options.KnownProxies.Count == 0, "KnownProxies must be cleared.");
 
         return Task.CompletedTask;
+    }),
+    ("AddInfrastructure rejects missing or short (<32 bytes) Jwt__SigningKey", () =>
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:Default"] = "Host=localhost;Database=petspa;Username=test;Password=test",
+                ["Jwt:SigningKey"] = "short-key-less-than-32-bytes"
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        var threw = false;
+        try
+        {
+            PetSpa.Infrastructure.DependencyInjection.AddInfrastructure(services, config);
+        }
+        catch (InvalidOperationException)
+        {
+            threw = true;
+        }
+
+        Check(threw, "AddInfrastructure must throw InvalidOperationException when Jwt__SigningKey is < 32 bytes.");
+        return Task.CompletedTask;
+    }),
+    ("AddInfrastructure rejects non-positive AccessTokenMinutes or RefreshTokenDays", () =>
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:Default"] = "Host=localhost;Database=petspa;Username=test;Password=test",
+                ["Jwt:SigningKey"] = "this-is-a-valid-32-byte-secret-key-12345",
+                ["Jwt:AccessTokenMinutes"] = "0",
+                ["Jwt:RefreshTokenDays"] = "7"
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        var threw = false;
+        try
+        {
+            PetSpa.Infrastructure.DependencyInjection.AddInfrastructure(services, config);
+        }
+        catch (InvalidOperationException)
+        {
+            threw = true;
+        }
+
+        Check(threw, "AddInfrastructure must throw InvalidOperationException when AccessTokenMinutes <= 0.");
+        return Task.CompletedTask;
+    }),
+    ("JWT Bearer authentication succeeds with valid token and extracts sub and role claims", async () =>
+    {
+        var signingKey = "this-is-a-valid-32-byte-secret-key-12345";
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:Default"] = "Host=localhost;Database=petspa;Username=test;Password=test",
+                ["Jwt:SigningKey"] = signingKey,
+                ["Jwt:AccessTokenMinutes"] = "15",
+                ["Jwt:RefreshTokenDays"] = "7"
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        PetSpa.Infrastructure.DependencyInjection.AddInfrastructure(services, config);
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+
+        var userId = Guid.NewGuid();
+        var role = "Customer";
+        var token = CreateTestJwt(signingKey, userId, role, TimeSpan.FromMinutes(15));
+
+        var context = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
+        context.Request.Headers.Authorization = $"Bearer {token}";
+
+        var authService = scope.ServiceProvider.GetRequiredService<IAuthenticationService>();
+        var result = await authService.AuthenticateAsync(context, JwtBearerDefaults.AuthenticationScheme);
+
+        Check(result.Succeeded, "Valid token must succeed authentication.");
+        Check(result.Principal != null, "Principal must not be null.");
+        Check(result.Principal!.Identity?.IsAuthenticated == true, "Identity must be authenticated.");
+        Check(result.Principal!.FindFirst(TokenClaims.UserId)?.Value == userId.ToString(), "sub claim must match UserId.");
+        Check(result.Principal!.FindFirst(TokenClaims.Role)?.Value == role, "role claim must match Role.");
+    }),
+    ("JWT Bearer authentication rejects invalid or tampered token", async () =>
+    {
+        var signingKey = "this-is-a-valid-32-byte-secret-key-12345";
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:Default"] = "Host=localhost;Database=petspa;Username=test;Password=test",
+                ["Jwt:SigningKey"] = signingKey,
+                ["Jwt:AccessTokenMinutes"] = "15",
+                ["Jwt:RefreshTokenDays"] = "7"
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        PetSpa.Infrastructure.DependencyInjection.AddInfrastructure(services, config);
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+
+        var wrongKeyToken = CreateTestJwt("another-different-valid-key-32-bytes!", Guid.NewGuid(), "Customer", TimeSpan.FromMinutes(15));
+
+        var context = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
+        context.Request.Headers.Authorization = $"Bearer {wrongKeyToken}";
+
+        var authService = scope.ServiceProvider.GetRequiredService<IAuthenticationService>();
+        var result = await authService.AuthenticateAsync(context, JwtBearerDefaults.AuthenticationScheme);
+
+        Check(!result.Succeeded, "Token signed with different key must fail authentication.");
+    }),
+    ("JWT Bearer authentication rejects expired token", async () =>
+    {
+        var signingKey = "this-is-a-valid-32-byte-secret-key-12345";
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:Default"] = "Host=localhost;Database=petspa;Username=test;Password=test",
+                ["Jwt:SigningKey"] = signingKey,
+                ["Jwt:AccessTokenMinutes"] = "15",
+                ["Jwt:RefreshTokenDays"] = "7"
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        PetSpa.Infrastructure.DependencyInjection.AddInfrastructure(services, config);
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+
+        var expiredToken = CreateTestJwt(signingKey, Guid.NewGuid(), "Customer", TimeSpan.FromMinutes(-5));
+
+        var context = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
+        context.Request.Headers.Authorization = $"Bearer {expiredToken}";
+
+        var authService = scope.ServiceProvider.GetRequiredService<IAuthenticationService>();
+        var result = await authService.AuthenticateAsync(context, JwtBearerDefaults.AuthenticationScheme);
+
+        Check(!result.Succeeded, "Expired token must fail authentication.");
     })
+
 };
 
 var failures = 0;
@@ -319,6 +469,25 @@ static void Check(bool condition, string message)
     }
 }
 
+static string CreateTestJwt(string signingKey, Guid userId, string role, TimeSpan lifetime)
+{
+    var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey));
+    var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+    var claims = new[]
+    {
+        new Claim(TokenClaims.UserId, userId.ToString()),
+        new Claim(TokenClaims.Role, role)
+    };
+    var tokenDescriptor = new SecurityTokenDescriptor
+    {
+        Subject = new ClaimsIdentity(claims),
+        Expires = DateTime.UtcNow.Add(lifetime),
+        SigningCredentials = credentials
+    };
+    var handler = new JsonWebTokenHandler();
+    return handler.CreateToken(tokenDescriptor);
+}
+
 public sealed record SampleRequest(string Name);
 
 public sealed class SampleRequestValidator : AbstractValidator<SampleRequest>
@@ -333,3 +502,4 @@ public sealed class SampleRequestValidator : AbstractValidator<SampleRequest>
         });
     }
 }
+
