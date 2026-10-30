@@ -31,9 +31,16 @@ nhận `pendingCount`, đang để `null` nên ẩn; không hiển thị số li
 
 Để gọi backend, sao chép `.env.example` thành `.env.local` và điền `NEXT_PUBLIC_API_BASE_URL`
 gồm tiền tố `/api/v1`. Biến này công khai trong bundle trình duyệt; không chứa secret.
-Nếu thiếu URL, client dừng trước khi gửi request. Trang giới thiệu hiện chưa gọi API.
+Nếu thiếu URL, client dừng trước khi gửi request và trả `ApiError` loại `configuration`, không retry.
+Development hiển thị tên biến cần cấu hình; production hiển thị câu lỗi chung.
+Trang giới thiệu hiện chưa gọi API.
 
-Mọi lời gọi backend dùng `apiClient`. Lỗi mất mạng và 5xx hiển thị câu chung; 429 hiển thị cảnh báo
+`apiClient` và `setAccessTokenProvider` chỉ dùng trong trình duyệt, sau khi component đã mount hoặc
+trong event handler; gọi khi SSR/Server Component/Server Action sẽ bị chặn trước khi đọc token hay gửi request.
+Module có ranh giới `use client` và kiểm tra runtime, vì Client Component vẫn có thể được render trên server.
+Chưa cung cấp API client phía server.
+
+Mọi lời gọi backend từ trình duyệt dùng `apiClient`. Lỗi mất mạng và 5xx hiển thị câu chung; 429 hiển thị cảnh báo
 thử lại sau; 403 `FORBIDDEN` dùng `ForbiddenState`, khác với 403 `BOOKING_LOCKED` là lỗi nghiệp vụ.
 Các lỗi còn lại ưu tiên `detail`, rồi `title`. Query không retry 4xx; mạng/5xx retry tối đa 3 lần;
 mutation không tự retry. `setAccessTokenProvider` nhận hàm lấy token trong bộ nhớ; chưa có luồng đăng nhập/làm mới phiên.

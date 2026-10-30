@@ -48,7 +48,7 @@ export function isErrorEnvelope(data: unknown): data is ErrorEnvelope {
   );
 }
 
-export type ApiErrorKind = "http" | "network" | "unknown";
+export type ApiErrorKind = "http" | "network" | "configuration" | "unknown";
 
 export class ApiError extends Error {
   readonly kind: ApiErrorKind;
@@ -118,6 +118,9 @@ export function isRateLimitedError(error: unknown) {
 export function getErrorMessage(error: unknown): string {
   const apiError = toApiError(error);
 
+  if (apiError.kind === "configuration") {
+    return process.env.NODE_ENV === "development" ? apiError.message : ERROR_MESSAGES.server;
+  }
   if (apiError.kind === "network") return ERROR_MESSAGES.network;
   if (apiError.kind === "unknown" || apiError.status === null || apiError.status >= 500) {
     return ERROR_MESSAGES.server;

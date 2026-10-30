@@ -14,8 +14,8 @@ export function makeQueryClient() {
     defaultOptions: {
       queries: {
         retry: (failureCount, error) => {
-          const { status } = toApiError(error);
-          if (status !== null && status >= 400 && status < 500) {
+          const { kind, status } = toApiError(error);
+          if (kind === "configuration" || (status !== null && status >= 400 && status < 500)) {
             return false;
           }
           return failureCount < DEFAULT_QUERY_RETRY;

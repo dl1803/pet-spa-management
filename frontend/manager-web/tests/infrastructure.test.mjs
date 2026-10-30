@@ -13,6 +13,7 @@ import { FieldError } from "../components/feedback/field-error.tsx";
 import { ForbiddenState } from "../components/feedback/forbidden-state.tsx";
 const hits = new Map();
 let baseURL;
+const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 
 const server = createServer((request, response) => {
   const url = new URL(request.url, "http://localhost");
@@ -31,11 +32,14 @@ const server = createServer((request, response) => {
 });
 
 before(async () => {
+  Object.defineProperty(globalThis, "window", { value: {}, configurable: true, writable: true });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   baseURL = `http://127.0.0.1:${server.address().port}/api/v1`;
 });
 after(async () => {
   setAccessTokenProvider(() => null);
+  if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+  else delete globalThis.window;
   await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 });
 
@@ -61,6 +65,68 @@ test("phân biệt 403 quyền truy cập, khóa đặt lịch và 429", () => {
   assert.equal(getErrorMessage(forbidden), ERROR_MESSAGES.forbiddenTitle);
   assert.equal(getErrorMessage(locked), "Tài khoản bị khóa đặt lịch");
   assert.equal(getErrorMessage(new ApiError({ kind: "http", status: 429 })), ERROR_MESSAGES.rateLimited);
+});
+
+test("server không thể đặt token provider hoặc gửi request dùng token trình duyệt", async () => {
+  let tokenReads = 0;
+  let dispatched = 0;
+  const browserWindow = globalThis.window;
+  setAccessTokenProvider(() => { tokenReads++; return "browser-token"; });
+  delete globalThis.window;
+  try {
+    assert.throws(() => setAccessTokenProvider(() => "server-token"), /chỉ được sử dụng trong trình duyệt/);
+    await Promise.all([1, 2].map(() => assert.rejects(apiClient.get("/echo", {
+      baseURL,
+      adapter: async (config) => { dispatched++; return { data: {}, status: 200, statusText: "OK", headers: {}, config }; },
+    }), (error) => {
+      assert.ok(error instanceof ApiError);
+      assert.match(error.cause.message, /chỉ được sử dụng trong trình duyệt/);
+      return true;
+    })));
+    assert.equal(tokenReads, 0);
+    assert.equal(dispatched, 0);
+  } finally {
+    globalThis.window = browserWindow;
+  }
+  try {
+    assert.equal((await apiClient.get("/echo", { baseURL })).data.authorization, "Bearer browser-token");
+  } finally {
+    setAccessTokenProvider(() => null);
+  }
+});
+
+test("thiếu URL có thông báo cấu hình trong development, câu chung trong production và không retry", async () => {
+  const originalMode = process.env.NODE_ENV;
+  const client = makeQueryClient();
+  try {
+    for (const mode of ["development", "production"]) {
+      process.env.NODE_ENV = mode;
+      let attempts = 0;
+      let dispatched = false;
+      await assert.rejects(client.fetchQuery({
+        queryKey: ["missing-config", mode],
+        queryFn: () => {
+          attempts++;
+          return apiClient.get("/echo", { baseURL: " ", adapter: async () => { dispatched = true; } });
+        },
+        retryDelay: 0,
+      }), (error) => {
+        assert.ok(error instanceof ApiError);
+        assert.equal(error.kind, "configuration");
+        assert.match(error.message, /NEXT_PUBLIC_API_BASE_URL/);
+        if (mode === "development") assert.match(getErrorMessage(error), /NEXT_PUBLIC_API_BASE_URL/);
+        else assert.equal(getErrorMessage(error), ERROR_MESSAGES.server);
+        assert.equal(getErrorMessage(new Error("PRIVATE_DETAIL")), ERROR_MESSAGES.server);
+        return true;
+      });
+      assert.equal(attempts, 1);
+      assert.equal(dispatched, false);
+    }
+  } finally {
+    if (originalMode === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = originalMode;
+    client.clear();
+  }
 });
 
 test("Axios không gửi request khi thiếu baseURL; token lấy mới mỗi request", async () => {
