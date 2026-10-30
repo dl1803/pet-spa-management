@@ -20,6 +20,8 @@ public class AppDbContext : IdentityUserContext<AppUser, Guid>
     {
         base.OnModelCreating(builder);
 
+        builder.HasPostgresExtension("btree_gist");
+
         // Thiết kế CSDL không có các bảng này; phải Ignore SAU base.OnModelCreating
         builder.Ignore<IdentityUserClaim<Guid>>();
         builder.Ignore<IdentityUserLogin<Guid>>();
