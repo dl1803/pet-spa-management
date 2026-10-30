@@ -244,13 +244,14 @@ var tests = new (string Name, Func<Task> Run)[]
 
         return Task.CompletedTask;
     }),
-    ("AddInfrastructure rejects missing or short (<32 bytes) Jwt__SigningKey", () =>
+    ("AddInfrastructure rejects missing or short (<32 bytes) Jwt__SigningKey in Production", () =>
     {
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:Default"] = "Host=localhost;Database=petspa;Username=test;Password=test",
-                ["Jwt:SigningKey"] = "short-key-less-than-32-bytes"
+                ["Jwt:SigningKey"] = "short-key-less-than-32-bytes",
+                ["ASPNETCORE_ENVIRONMENT"] = "Production"
             })
             .Build();
 
@@ -265,7 +266,27 @@ var tests = new (string Name, Func<Task> Run)[]
             threw = true;
         }
 
-        Check(threw, "AddInfrastructure must throw InvalidOperationException when Jwt__SigningKey is < 32 bytes.");
+        Check(threw, "AddInfrastructure must throw InvalidOperationException when Jwt__SigningKey is < 32 bytes in Production.");
+        return Task.CompletedTask;
+    }),
+    ("AddInfrastructure uses fallback signing key in Development when Jwt__SigningKey is missing or short", () =>
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:Default"] = "Host=localhost;Database=petspa;Username=test;Password=test",
+                ["Jwt:SigningKey"] = "",
+                ["Jwt:AccessTokenMinutes"] = "15",
+                ["Jwt:RefreshTokenDays"] = "7",
+                ["ASPNETCORE_ENVIRONMENT"] = "Development"
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        PetSpa.Infrastructure.DependencyInjection.AddInfrastructure(services, config);
+        using var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<JwtOptions>();
+        Check(Encoding.UTF8.GetByteCount(options.SigningKey) >= 32, "Fallback key in Development must be at least 32 bytes.");
         return Task.CompletedTask;
     }),
     ("AddInfrastructure rejects non-positive AccessTokenMinutes or RefreshTokenDays", () =>

@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -23,8 +24,25 @@ public static class DependencyInjection
             .AddEntityFrameworkStores<AppDbContext>();
 
         var jwt = config.GetSection("Jwt").Get<JwtOptions>() ?? new JwtOptions();
+
+        var isDevelopmentOrDesignTime =
+            string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(config["ASPNETCORE_ENVIRONMENT"], "Development", StringComparison.OrdinalIgnoreCase) ||
+            Assembly.GetEntryAssembly()?.GetName().Name?.Equals("ef", StringComparison.OrdinalIgnoreCase) == true;
+
         if (Encoding.UTF8.GetByteCount(jwt.SigningKey) < 32)
-            throw new InvalidOperationException("Thiếu hoặc quá ngắn biến môi trường Jwt__SigningKey (tối thiểu 32 ký tự).");
+        {
+            if (isDevelopmentOrDesignTime)
+            {
+                // Fallback key cho môi trường Development / Design-time (dotnet ef) để không phụ thuộc secret
+                jwt.SigningKey = "DevelopmentFallbackSecretKey_MustBeAtLeast32BytesLong!";
+            }
+            else
+            {
+                throw new InvalidOperationException("Thiếu hoặc quá ngắn biến môi trường Jwt__SigningKey (tối thiểu 32 ký tự).");
+            }
+        }
+
         if (jwt.AccessTokenMinutes <= 0 || jwt.RefreshTokenDays <= 0)
             throw new InvalidOperationException("Jwt__AccessTokenMinutes và Jwt__RefreshTokenDays phải lớn hơn 0.");
         services.AddSingleton(jwt);
