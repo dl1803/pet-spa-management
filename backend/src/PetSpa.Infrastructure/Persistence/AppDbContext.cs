@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Conventions;
 using PetSpa.Infrastructure.Identity;
 
 namespace PetSpa.Infrastructure.Persistence;
@@ -8,6 +9,12 @@ namespace PetSpa.Infrastructure.Persistence;
 public class AppDbContext : IdentityUserContext<AppUser, Guid>
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        base.ConfigureConventions(configurationBuilder);
+        configurationBuilder.Conventions.Remove(typeof(ForeignKeyIndexConvention));
+    }
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -19,6 +26,8 @@ public class AppDbContext : IdentityUserContext<AppUser, Guid>
         builder.Ignore<IdentityUserToken<Guid>>();
 
         builder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+
+        foreach (var foreignKey in builder.Model.GetEntityTypes().SelectMany(e => e.GetForeignKeys()))
+            foreignKey.DeleteBehavior = DeleteBehavior.NoAction;
     }
 }
-
