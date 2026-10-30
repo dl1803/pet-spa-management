@@ -6,6 +6,7 @@ import { PetAvatar } from "@/components/domain/pet-avatar";
 import { ServiceOption } from "@/components/domain/service-option";
 import { Stepper } from "@/components/domain/stepper";
 import { FieldError } from "@/components/feedback/field-error";
+import { useToast } from "@/components/feedback/toast";
 import { Icon } from "@/components/icons";
 import { ButtonLink, LinkButton } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
@@ -40,9 +41,10 @@ export function SpaBookingScreen() {
   });
   const petId = useWatch({ control, name: "petId" });
   const serviceIds = useWatch({ control, name: "serviceIds" });
+  const { showSuccess } = useToast();
 
   function handleContinue() {
-    // Chuyển sang bước tiếp theo khi hoàn thành chọn dịch vụ
+    showSuccess("Đã lưu lựa chọn thú cưng và dịch vụ. Bước 2 (chọn khung giờ) đang được phát triển ở task tiếp theo.");
   }
 
   const header = (
