@@ -31,6 +31,16 @@ builder.Services.AddControllers(options =>
     });
 
 builder.Services.AddInfrastructure(builder.Configuration);
+var allowedOrigins = (builder.Configuration["Cors:AllowedOrigins"] ?? string.Empty)
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    .Select(o => o.TrimEnd('/'))
+    .ToArray();
+
+builder.Services.AddCors(options =>
+    options.AddDefaultPolicy(policy => policy
+        .WithOrigins(allowedOrigins)
+        .AllowAnyHeader()
+        .AllowAnyMethod()));
 builder.Services.AddValidatorsFromAssemblyContaining<ValidationFilter>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddPetSpaRateLimiting(builder.Configuration);
@@ -66,6 +76,7 @@ if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Swa
 }
 
 app.UseHttpsRedirection();
+app.UseCors();
 app.UseRateLimiter();
 app.MapControllers();
 
