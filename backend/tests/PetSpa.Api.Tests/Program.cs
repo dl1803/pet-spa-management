@@ -1,3 +1,6 @@
+using Microsoft.EntityFrameworkCore;
+using PetSpa.Domain.Entities;
+using PetSpa.Infrastructure.Persistence;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authentication;
@@ -380,6 +383,64 @@ var tests = new (string Name, Func<Task> Run)[]
         var result = await authService.AuthenticateAsync(context, JwtBearerDefaults.AuthenticationScheme);
 
         Check(!result.Succeeded, "Expired token must fail authentication.");
+    }),
+    ("RefreshToken entity instantiates with valid properties", () =>
+    {
+        var tokenId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        var token = new RefreshToken
+        {
+            TokenId = tokenId,
+            UserId = userId,
+            TokenHash = "abc123hash",
+            CreatedAt = now,
+            ExpiresAt = now.AddDays(7),
+            RevokedAt = null
+        };
+
+        Check(token.TokenId == tokenId, "TokenId must match.");
+        Check(token.UserId == userId, "UserId must match.");
+        Check(token.TokenHash == "abc123hash", "TokenHash must match.");
+        Check(token.RevokedAt == null, "RevokedAt must be null initially.");
+        return Task.CompletedTask;
+    }),
+    ("AppDbContext maps RefreshToken entity with correct table, primary key, indexes and foreign key", () =>
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql("Host=localhost;Database=petspa;Username=test;Password=test")
+            .Options;
+
+        using var db = new AppDbContext(options);
+        var entityType = db.Model.FindEntityType(typeof(RefreshToken));
+        Check(entityType != null, "RefreshToken must be registered in the EF model.");
+        Check(entityType!.GetTableName() == "RefreshToken", "Table name must be RefreshToken.");
+
+        var pk = entityType!.FindPrimaryKey();
+        Check(pk != null && pk.Properties.Count == 1 && pk.Properties[0].Name == nameof(RefreshToken.TokenId),
+            "Primary key must be TokenId.");
+
+        var tokenHashProp = entityType.FindProperty(nameof(RefreshToken.TokenHash));
+        Check(tokenHashProp != null && !tokenHashProp.IsNullable, "TokenHash must be required.");
+
+        var expiresAtProp = entityType.FindProperty(nameof(RefreshToken.ExpiresAt));
+        Check(expiresAtProp != null && !expiresAtProp.IsNullable, "ExpiresAt must be required.");
+
+        var createdAtProp = entityType.FindProperty(nameof(RefreshToken.CreatedAt));
+        Check(createdAtProp != null && !createdAtProp.IsNullable, "CreatedAt must be required.");
+
+        var hashIndex = entityType.GetIndexes().FirstOrDefault(i => i.Properties.Any(p => p.Name == nameof(RefreshToken.TokenHash)));
+        Check(hashIndex != null && hashIndex.IsUnique, "TokenHash must have a unique index.");
+
+        var userIndex = entityType.GetIndexes().FirstOrDefault(i => i.Properties.Any(p => p.Name == nameof(RefreshToken.UserId)));
+        Check(userIndex != null, "UserId must have an index.");
+
+        var fk = entityType.GetForeignKeys().FirstOrDefault(f => f.Properties.Any(p => p.Name == nameof(RefreshToken.UserId)));
+        Check(fk != null, "RefreshToken must have a foreign key on UserId.");
+        Check(fk!.PrincipalEntityType.ClrType == typeof(AppUser), "Foreign key must point to AppUser.");
+        Check(fk.DeleteBehavior == DeleteBehavior.NoAction, "Foreign key must have NoAction delete behavior.");
+
+        return Task.CompletedTask;
     })
 
 };
