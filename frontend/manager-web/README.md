@@ -49,7 +49,7 @@ Kiểm tra trước khi commit:
 npm run lint
 npm run build
 npx tsc --noEmit
-node --test tests/infrastructure.test.mjs
+npm test
 ```
 
 Build sinh kiểu Next.js trước khi kiểm tra TypeScript. Để chạy bản production:
@@ -61,9 +61,20 @@ npm run start -- --port 3002
 Trong terminal khác, kiểm tra trang gốc của server đang chạy:
 
 ```powershell
-node --test tests/shell.test.mjs
+npm run test:smoke
 ```
 
-Smoke test kiểm tra trang gốc, menu khả dụng, nút đăng xuất bị khóa, icon và đường dẫn không tồn tại.
-Test infrastructure chạy HTTP stub trong tiến trình test; không xác nhận backend thật hay đăng nhập thật.
+`npm test` chạy test infrastructure với HTTP stub tự khởi động và tự dừng trong tiến trình test.
+Lệnh này không cần backend, Next.js server hoặc source ngoài thư mục app. Loader ESM của Node
+biên dịch TypeScript/TSX trong bộ nhớ bằng dependency TypeScript đã có, không sinh file build cho test.
+
+`npm run test:smoke` kiểm tra trang gốc, menu khả dụng, nút đăng xuất bị khóa, icon và đường dẫn
+không tồn tại; cần production server đang chạy như hướng dẫn trên. Mặc định dùng
+`http://127.0.0.1:3002`; đặt biến `SMOKE_BASE_URL` để kiểm tra server ở địa chỉ khác.
+
+Khi có đầy đủ repository, chạy `npm run test:contract` để đối chiếu mã lỗi frontend với backend.
+Test này nằm tại `tests/manager-web-contract.test.mjs` ở gốc repository và tách khỏi test mặc định
+của app; không chạy trong bản chỉ chứa frontend.
+
+Các test này không xác nhận backend thật hay đăng nhập thật.
 Build cần truy cập Google Fonts để tải Be Vietnam Pro.

@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --import ./tests/register.mjs --test tests/infrastructure.test.mjs",
+    "test:smoke": "node --test tests/shell.test.mjs",
+    "test:contract": "node --import ./tests/register.mjs --test ../../tests/manager-web-contract.test.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.4",

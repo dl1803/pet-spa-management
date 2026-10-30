@@ -1,40 +1,16 @@
 import assert from "node:assert/strict";
-import { readFileSync, existsSync } from "node:fs";
 import { createServer } from "node:http";
-import { createRequire } from "node:module";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import test, { before, after } from "node:test";
-import ts from "typescript";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-
-const root = fileURLToPath(new URL("../", import.meta.url));
-const require = createRequire(import.meta.url);
-const modules = new Map();
-
-// Biên dịch nguồn trong bộ nhớ bằng TypeScript đã có; không sinh file hay thêm test runner.
-function loadSource(filename) {
-  filename = path.resolve(root, filename);
-  if (!path.extname(filename)) filename += existsSync(`${filename}.ts`) ? ".ts" : ".tsx";
-  if (modules.has(filename)) return modules.get(filename);
-  const code = ts.transpileModule(readFileSync(filename, "utf8"), {
-    fileName: filename,
-    compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 },
-  }).outputText;
-  const compiled = { exports: {} };
-  new Function("require", "module", "exports", code)((name) => {
-    if (name.startsWith("@/")) return loadSource(name.slice(2));
-    if (name.startsWith(".")) return loadSource(path.resolve(path.dirname(filename), name));
-    return require(name);
-  }, compiled, compiled.exports);
-  modules.set(filename, compiled.exports);
-  return compiled.exports;
-}
-
-const { ApiError, ERROR_CODES, ERROR_MESSAGES, isErrorEnvelope, toApiError, getErrorMessage, isForbiddenError } = loadSource("lib/api/errors.ts");
-const { apiClient, setAccessTokenProvider } = loadSource("lib/api/client.ts");
-const { makeQueryClient } = loadSource("lib/query-client.ts");
+import { AxiosError } from "axios";
+import { MutationObserver } from "@tanstack/react-query";
+import { ApiError, ERROR_MESSAGES, isErrorEnvelope, toApiError, getErrorMessage, isForbiddenError } from "../lib/api/errors.ts";
+import { apiClient, setAccessTokenProvider } from "../lib/api/client.ts";
+import { makeQueryClient } from "../lib/query-client.ts";
+import { ErrorAlert } from "../components/feedback/error-alert.tsx";
+import { FieldError } from "../components/feedback/field-error.tsx";
+import { ForbiddenState } from "../components/feedback/forbidden-state.tsx";
 const hits = new Map();
 let baseURL;
 
@@ -61,13 +37,6 @@ before(async () => {
 after(async () => {
   setAccessTokenProvider(() => null);
   await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-});
-
-test("25 mã lỗi khớp contract backend", () => {
-  const backend = readFileSync(path.resolve(root, "../../backend/src/PetSpa.Domain/Exceptions/ErrorCodes.cs"), "utf8");
-  const codes = [...backend.matchAll(/= "([A-Z_]+)"/g)].map((match) => match[1]);
-  assert.equal(ERROR_CODES.length, 25);
-  assert.deepEqual([...ERROR_CODES].sort(), codes.sort());
 });
 
 test("envelope sai kiểu bị từ chối; lỗi lạ và lỗi 500 không lộ chi tiết", () => {
@@ -132,7 +101,6 @@ test("response không có envelope và Axios network dùng câu chung", async ()
     assert.equal(getErrorMessage(error), ERROR_MESSAGES.server);
     return true;
   });
-  const { AxiosError } = require("axios");
   const network = toApiError(new AxiosError("PRIVATE_NETWORK_DETAIL", "ERR_NETWORK"));
   assert.equal(network.kind, "network");
   assert.equal(getErrorMessage(network), ERROR_MESSAGES.network);
@@ -153,7 +121,6 @@ test("Query không retry 4xx; lỗi mạng/5xx tối đa 3 lần; cache độc l
     assert.equal(attempts, 4);
     client.setQueryData(["isolated"], "first");
     assert.equal(other.getQueryData(["isolated"]), undefined);
-    const { MutationObserver } = require("@tanstack/react-query");
     attempts = 0;
     const mutation = new MutationObserver(client, { mutationFn: async () => { attempts++; throw new ApiError({ kind: "http", status: 500 }); } });
     await assert.rejects(mutation.mutate(), ApiError);
@@ -165,9 +132,6 @@ test("Query không retry 4xx; lỗi mạng/5xx tối đa 3 lần; cache độc l
 });
 
 test("feedback có thông báo trợ năng, ID lỗi trường và escape nội dung", () => {
-  const { ErrorAlert } = loadSource("components/feedback/error-alert.tsx");
-  const { FieldError } = loadSource("components/feedback/field-error.tsx");
-  const { ForbiddenState } = loadSource("components/feedback/forbidden-state.tsx");
   assert.equal(renderToStaticMarkup(React.createElement(ErrorAlert, { error: null })), "");
   assert.equal(renderToStaticMarkup(React.createElement(FieldError, {})), "");
   const alert = renderToStaticMarkup(React.createElement(ErrorAlert, { error: new ApiError({ kind: "http", status: 429 }) }));

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const baseURL = "http://localhost:3002";
+const baseURL = (process.env.SMOKE_BASE_URL ?? "http://127.0.0.1:3002").replace(/\/+$/, "");
 
 test("khung quản lý chỉ liên kết tới trang đã có", async () => {
   const response = await fetch(baseURL);
