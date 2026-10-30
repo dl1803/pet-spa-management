@@ -40,6 +40,15 @@
   --color-st-cancelled-bg: #f8dada;
   --color-st-cancelled: #8a1f16;
 
+  /* Sắc nền ô hình thú cưng theo loài */
+  --color-sp-dog: #ffe6b8;
+  --color-sp-cat: #d4eef0;
+  --color-sp-rabbit: #e6e4fa;
+  --color-sp-guinea: #ddf1dd;
+
+  /* Viền ô chọn (nút tròn, ô kiểm) */
+  --color-control: #9db3b8;
+
   --shadow-pop: 0 18px 40px -12px rgba(20, 50, 58, 0.28), 0 2px 8px rgba(20, 50, 58, 0.08);
 
   --animate-toast-in: toast-in 0.2s ease-out;
