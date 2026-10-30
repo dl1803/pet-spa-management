@@ -10,8 +10,45 @@ npm ci
 npm run dev -- --port 3002
 ```
 
-Mở http://localhost:3002. Trang gốc giới thiệu ứng dụng; chưa có màn nghiệp vụ hay kết nối backend.
+Mở http://localhost:3002. Trang gốc giới thiệu ứng dụng trong khung quản lý; chưa kết nối backend.
 Dừng server bằng Ctrl+C trong terminal đã khởi chạy.
+
+Khung quản lý dùng Be Vietnam Pro, token màu chung với Web Khách hàng và thanh bên rộng 248px.
+Dưới 980px, menu chuyển thành thanh ngang cuộn được. Liên kết “Đến nội dung chính” hỗ trợ bàn phím.
+
+- `app/(main)`: layout có thanh bên và trang giới thiệu.
+- `components/layout`: sidebar, menu và đánh dấu mục đang chọn; phần đọc đường dẫn nằm trong `Suspense`.
+- `components/icons.tsx`: biểu tượng SVG và logo theo UI demo.
+- `lib/routes.ts`: đường dẫn quản lý; lịch spa và lưu trú dùng chung `/lich-hen`.
+- `lib/api`: Axios client và chuẩn hóa lỗi thành `ApiError`; đủ 25 mã lỗi theo backend.
+- `app/providers.tsx`, `lib/query-client.ts`: Query Provider và cấu hình retry; cache server tách riêng, trình duyệt giữ cùng client.
+- `components/feedback`: lỗi nội tuyến, lỗi trường, trạng thái không có quyền và toast.
+
+Chỉ liên kết Tổng quan đang khả dụng. Các mục chưa có màn hình được vô hiệu hóa, có mô tả
+“Chức năng chưa khả dụng”; bật `available` trong menu khi đã có trang đích.
+Khối tài khoản chưa đọc phiên đăng nhập; nút Đăng xuất bị vô hiệu hóa. Huy hiệu chờ xác nhận
+nhận `pendingCount`, đang để `null` nên ẩn; không hiển thị số liệu giả.
+
+Để gọi backend, sao chép `.env.example` thành `.env.local` và điền `NEXT_PUBLIC_API_BASE_URL`
+gồm tiền tố `/api/v1`. Biến này công khai trong bundle trình duyệt; không chứa secret.
+Nếu thiếu URL, client dừng trước khi gửi request và trả `ApiError` loại `configuration`, không retry.
+Development hiển thị tên biến cần cấu hình; production hiển thị câu lỗi chung.
+Trang giới thiệu hiện chưa gọi API.
+
+`apiClient` và `setAccessTokenProvider` chỉ dùng trong trình duyệt, sau khi component đã mount hoặc
+trong event handler; gọi khi SSR/Server Component/Server Action sẽ bị chặn trước khi đọc token hay gửi request.
+Module có ranh giới `use client` và kiểm tra runtime, vì Client Component vẫn có thể được render trên server.
+Chưa cung cấp API client phía server.
+
+Mọi lời gọi backend từ trình duyệt dùng `apiClient`. Lỗi mất mạng và 5xx hiển thị câu chung; 429 hiển thị cảnh báo
+thử lại sau; 403 `FORBIDDEN` dùng `ForbiddenState`, khác với 403 `BOOKING_LOCKED` là lỗi nghiệp vụ.
+Các lỗi còn lại ưu tiên `detail`, rồi `title`. Query không retry 4xx; mạng/5xx retry tối đa 3 lần;
+mutation không tự retry. `setAccessTokenProvider` nhận hàm lấy token trong bộ nhớ; chưa có luồng đăng nhập/làm mới phiên.
+
+Form dùng React Hook Form đã cài, luật validation đặt tại form nghiệp vụ.
+Gắn `FieldError` với ô nhập qua `id` và `aria-describedby`, đặt `aria-invalid` khi có lỗi.
+Backend hiện trả validation trong `detail`, chưa có lỗi theo trường: hiển thị bằng `ErrorAlert`, giữ dữ liệu đã nhập.
+`useToast().showSuccess(message)` tự ẩn sau 3,4 giây; `showError(error)` giữ tới khi người dùng đóng.
 
 Kiểm tra trước khi commit:
 
@@ -19,6 +56,7 @@ Kiểm tra trước khi commit:
 npm run lint
 npm run build
 npx tsc --noEmit
+npm test
 ```
 
 Build sinh kiểu Next.js trước khi kiểm tra TypeScript. Để chạy bản production:
@@ -30,7 +68,20 @@ npm run start -- --port 3002
 Trong terminal khác, kiểm tra trang gốc của server đang chạy:
 
 ```powershell
-node --input-type=module -e 'import assert from "node:assert/strict"; const r = await fetch("http://localhost:3002"); assert.equal(r.status, 200); assert.match(await r.text(), /Web Quản lý/); console.log("HTTP smoke test PASS");'
+npm run test:smoke
 ```
 
-Build cần truy cập Google Fonts để tải Geist theo cấu hình khởi tạo.
+`npm test` chạy test infrastructure với HTTP stub tự khởi động và tự dừng trong tiến trình test.
+Lệnh này không cần backend, Next.js server hoặc source ngoài thư mục app. Loader ESM của Node
+biên dịch TypeScript/TSX trong bộ nhớ bằng dependency TypeScript đã có, không sinh file build cho test.
+
+`npm run test:smoke` kiểm tra trang gốc, menu khả dụng, nút đăng xuất bị khóa, icon và đường dẫn
+không tồn tại; cần production server đang chạy như hướng dẫn trên. Mặc định dùng
+`http://127.0.0.1:3002`; đặt biến `SMOKE_BASE_URL` để kiểm tra server ở địa chỉ khác.
+
+Khi có đầy đủ repository, chạy `npm run test:contract` để đối chiếu mã lỗi frontend với backend.
+Test này nằm tại `tests/manager-web-contract.test.mjs` ở gốc repository và tách khỏi test mặc định
+của app; không chạy trong bản chỉ chứa frontend.
+
+Các test này không xác nhận backend thật hay đăng nhập thật.
+Build cần truy cập Google Fonts để tải Be Vietnam Pro.

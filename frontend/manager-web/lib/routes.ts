@@ -1,0 +1,15 @@
+export const ROUTES = {
+  dashboard: "/",
+  appointments: "/lich-hen",
+  appointmentDetail: (appointmentId: string) => `/lich-hen/${encodeURIComponent(appointmentId)}`,
+  pending: "/cho-xac-nhan",
+  services: "/dich-vu",
+  cages: "/chuong-va-gia",
+  staff: "/nhan-vien",
+  workShifts: "/lich-lam-viec",
+  lockedCustomers: "/go-khoa-dat-lich",
+  payments: "/thanh-toan",
+  config: "/cau-hinh",
+  profile: "/ho-so",
+  login: "/dang-nhap",
+} as const;
