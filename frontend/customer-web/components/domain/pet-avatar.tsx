@@ -67,15 +67,20 @@ const ILLUSTRATION: Record<Species, ReactNode> = {
   ),
 };
 
+export function PetGlyph({ species, className }: { species: Species; className: string }) {
+  return (
+    <svg viewBox="0 0 48 48" aria-hidden="true" focusable="false" className={className}>
+      {ILLUSTRATION[species]}
+    </svg>
+  );
+}
+
 export function PetAvatar({ species }: { species: Species }) {
   return (
     <span
       className={`grid size-11 shrink-0 place-items-center overflow-hidden rounded-[14px] ${BACKGROUND_CLASS[species]}`}
     >
-      <svg viewBox="0 0 48 48" aria-hidden="true" focusable="false" className="size-9">
-        {ILLUSTRATION[species]}
-      </svg>
+      <PetGlyph species={species} className="size-9" />
     </span>
   );
 }
-
