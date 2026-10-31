@@ -12,7 +12,7 @@ using PetSpa.Infrastructure.Persistence;
 namespace PetSpa.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20261030112455_AddBusinessExcludeConstraints")]
+    [Migration("20261031023705_AddBusinessExcludeConstraints")]
     partial class AddBusinessExcludeConstraints
     {
         /// <inheritdoc />
@@ -83,6 +83,8 @@ namespace PetSpa.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_Appointment_CancelReason", "\"CancelReason\" IN ('CustomerCancelled', 'StoreUnable', 'CustomerBeyondDeadline', 'NoShow', 'CostNotConfirmed')");
 
                             t.HasCheckConstraint("CK_Appointment_CancelReasonRequired", "(\"Status\" = 'Cancelled' AND \"CancelReason\" IS NOT NULL) OR (\"Status\" <> 'Cancelled' AND \"CancelReason\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_Appointment_PlannedNights", "\"Type\" <> 'Hotel' OR (\"PlannedCheckOut\" AT TIME ZONE 'Asia/Ho_Chi_Minh')::date > (\"PlannedCheckIn\" AT TIME ZONE 'Asia/Ho_Chi_Minh')::date");
 
                             t.HasCheckConstraint("CK_Appointment_SizeGroup", "\"SizeGroup\" IN ('Small', 'Medium', 'Large')");
 
@@ -183,7 +185,10 @@ namespace PetSpa.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("StaffId");
 
-                    b.ToTable("AppointmentStaff", (string)null);
+                    b.ToTable("AppointmentStaff", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AppointmentStaff_BusyRange", "\"BusyUntil\" > \"BusyFrom\"");
+                        });
                 });
 
             modelBuilder.Entity("PetSpa.Domain.Entities.Cage", b =>
@@ -913,6 +918,8 @@ namespace PetSpa.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("CK_Appointment_CancelReasonRequired", "(\"Status\" = 'Cancelled' AND \"CancelReason\" IS NOT NULL) OR (\"Status\" <> 'Cancelled' AND \"CancelReason\" IS NULL)");
 
+                            t.HasCheckConstraint("CK_Appointment_PlannedNights", "\"Type\" <> 'Hotel' OR (\"PlannedCheckOut\" AT TIME ZONE 'Asia/Ho_Chi_Minh')::date > (\"PlannedCheckIn\" AT TIME ZONE 'Asia/Ho_Chi_Minh')::date");
+
                             t.HasCheckConstraint("CK_Appointment_SizeGroup", "\"SizeGroup\" IN ('Small', 'Medium', 'Large')");
 
                             t.HasCheckConstraint("CK_Appointment_StaffRequired", "\"StaffRequired\" IN (1, 2)");
@@ -950,6 +957,8 @@ namespace PetSpa.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_Appointment_CancelReason", "\"CancelReason\" IN ('CustomerCancelled', 'StoreUnable', 'CustomerBeyondDeadline', 'NoShow', 'CostNotConfirmed')");
 
                             t.HasCheckConstraint("CK_Appointment_CancelReasonRequired", "(\"Status\" = 'Cancelled' AND \"CancelReason\" IS NOT NULL) OR (\"Status\" <> 'Cancelled' AND \"CancelReason\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_Appointment_PlannedNights", "\"Type\" <> 'Hotel' OR (\"PlannedCheckOut\" AT TIME ZONE 'Asia/Ho_Chi_Minh')::date > (\"PlannedCheckIn\" AT TIME ZONE 'Asia/Ho_Chi_Minh')::date");
 
                             t.HasCheckConstraint("CK_Appointment_SizeGroup", "\"SizeGroup\" IN ('Small', 'Medium', 'Large')");
 
