@@ -343,3 +343,4 @@ public class AppointmentLifecycleTests
         Assert.Contains(CancelReason.CostNotConfirmed, hotelConfirmedCancels);
     }
 }
+

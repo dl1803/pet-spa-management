@@ -70,3 +70,4 @@ public sealed class AppointmentLifecycle
             throw new BusinessException(ErrorCodes.InvalidTransition);
     }
 }
+
