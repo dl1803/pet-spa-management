@@ -25,6 +25,8 @@ public class AppointmentConfiguration : IEntityTypeConfiguration<Appointment>
                 $"(\"Type\" = 'Spa' AND {spaRequired} AND {hotelNull}) OR (\"Type\" = 'Hotel' AND {hotelRequired} AND {spaNull})");
             t.HasCheckConstraint("CK_Appointment_CancelReasonRequired",
                 "(\"Status\" = 'Cancelled' AND \"CancelReason\" IS NOT NULL) OR (\"Status\" <> 'Cancelled' AND \"CancelReason\" IS NULL)");
+            t.HasCheckConstraint("CK_Appointment_PlannedNights",
+                "\"Type\" <> 'Hotel' OR (\"PlannedCheckOut\" AT TIME ZONE 'Asia/Ho_Chi_Minh')::date > (\"PlannedCheckIn\" AT TIME ZONE 'Asia/Ho_Chi_Minh')::date");
         });
         b.HasKey(a => a.AppointmentId);
 
@@ -48,4 +50,3 @@ public class AppointmentConfiguration : IEntityTypeConfiguration<Appointment>
         b.HasOne<Pet>().WithMany().HasForeignKey(a => a.PetId);
     }
 }
-
