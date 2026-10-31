@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
+using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
 using PetSpa.Infrastructure.Identity;
 using PetSpa.Infrastructure.Persistence;
@@ -66,6 +67,8 @@ public static class DependencyInjection
                     RoleClaimType = TokenClaims.Role,
                 };
             });
+
+        services.AddScoped<IIdentityTokenService, IdentityTokenService>();
 
         return services;
     }
