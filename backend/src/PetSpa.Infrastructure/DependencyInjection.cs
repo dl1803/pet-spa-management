@@ -66,6 +66,23 @@ public static class DependencyInjection
                     NameClaimType = TokenClaims.UserId,
                     RoleClaimType = TokenClaims.Role,
                 };
+
+                // Mỗi request đã xác thực kiểm tra thêm AppUser.IsActive (FR-STF-03).
+                // Token hợp lệ nhưng tài khoản không còn hoạt động -> xác thực thất bại -> 401.
+                options.Events = new JwtBearerEvents
+                {
+                    OnTokenValidated = async context =>
+                    {
+                        var identity = context.HttpContext.RequestServices.GetRequiredService<IIdentityTokenService>();
+                        var userIdText = context.Principal?.FindFirst(TokenClaims.UserId)?.Value;
+
+                        if (!Guid.TryParse(userIdText, out var userId)
+                            || !await identity.IsActiveAsync(userId, context.HttpContext.RequestAborted))
+                        {
+                            context.Fail("Tài khoản không hợp lệ hoặc đã bị vô hiệu hóa.");
+                        }
+                    },
+                };
             });
 
         services.AddScoped<IIdentityTokenService, IdentityTokenService>();
