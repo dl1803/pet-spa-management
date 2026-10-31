@@ -16,7 +16,7 @@ type StaffOptionProps = {
 export function StaffOption({ staff, isSuggested, type, name, isSelected, onSelect }: StaffOptionProps) {
   return (
     <label
-      className={`grid cursor-pointer grid-cols-[auto_auto_1fr_auto] items-center gap-3.5 rounded-xl border px-4 py-3.5 has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-lagoon/40 ${
+      className={`grid cursor-pointer grid-cols-[auto_auto_1fr] items-center gap-x-3.5 gap-y-1 sm:grid-cols-[auto_auto_1fr_auto] rounded-xl border px-4 py-3.5 has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-lagoon/40 ${
         isSelected
           ? "border-lagoon bg-lagoon-25 shadow-[inset_0_0_0_1px_var(--color-lagoon)]"
           : "border-line bg-white hover:border-lagoon/50"
@@ -51,7 +51,7 @@ export function StaffOption({ staff, isSuggested, type, name, isSelected, onSele
         {isSuggested && <Tag tone="suggest">Hệ thống đề xuất</Tag>}
       </span>
       {staff.recentAssignmentCount !== undefined && (
-        <span className="text-right tabular-nums">
+        <span className="col-start-3 tabular-nums sm:col-start-auto sm:text-right">
           <b className="block text-[17px] leading-6">{staff.recentAssignmentCount}</b>
           <small className="text-xs text-muted">lịch / 30 ngày</small>
         </span>
