@@ -31,6 +31,7 @@ builder.Services.AddControllers(options =>
     });
 
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddPetSpaAuthorization();
 var allowedOrigins = (builder.Configuration["Cors:AllowedOrigins"] ?? string.Empty)
     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
     .Select(o => o.TrimEnd('/'))
