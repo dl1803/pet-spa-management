@@ -86,6 +86,7 @@ public static class DependencyInjection
             });
 
         services.AddScoped<IIdentityTokenService, IdentityTokenService>();
+        services.AddScoped<IStaffRoleReader, StaffRoleReader>();
 
         return services;
     }
