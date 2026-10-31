@@ -48,6 +48,8 @@ test("chọn thiếu hoặc thừa người thì báo cần đúng số người
 test("không có nhân viên nào thì không có ô chọn nhưng vẫn báo cần đúng số người", () => {
   const html = render({ staffRequired: 1, suggested: [], alternatives: [] }, []);
   assert.equal((html.match(/<input/g) ?? []).length, 0);
+  assert.doesNotMatch(html, /role="(?:group|radiogroup)"/);
+  assert.ok(html.includes("Chưa có nhân viên phù hợp để chọn cho lịch này."));
   assert.ok(html.includes("Lịch này cần đúng 1 nhân viên."));
   assert.ok(html.includes("Đã chọn 0 / 1"));
 });

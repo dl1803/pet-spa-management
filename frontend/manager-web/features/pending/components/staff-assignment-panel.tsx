@@ -38,6 +38,9 @@ export function StaffAssignmentPanel({ suggestions, selectedStaffIds, onSelected
         Hệ thống đề xuất theo thứ tự: có ca làm phủ khung giờ, đang rảnh, ít lịch nhất trong 30 ngày qua.
         Bạn có thể đổi người khác.
       </p>
+      {choices.length === 0 && (
+        <p className="text-sm text-muted">Chưa có nhân viên phù hợp để chọn cho lịch này.</p>
+      )}
       {choices.length > 0 && (
         <div
           role={staffRequired === 1 ? "radiogroup" : "group"}
