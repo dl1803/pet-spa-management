@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
+using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
 using PetSpa.Infrastructure.Identity;
 using System.Text.Json;
@@ -330,6 +331,7 @@ var tests = new (string Name, Func<Task> Run)[]
 
         var services = new ServiceCollection();
         PetSpa.Infrastructure.DependencyInjection.AddInfrastructure(services, config);
+        services.AddScoped<IIdentityTokenService, FakeActiveIdentityTokenService>();
         using var provider = services.BuildServiceProvider();
         using var scope = provider.CreateScope();
 
@@ -364,6 +366,7 @@ var tests = new (string Name, Func<Task> Run)[]
 
         var services = new ServiceCollection();
         PetSpa.Infrastructure.DependencyInjection.AddInfrastructure(services, config);
+        services.AddScoped<IIdentityTokenService, FakeActiveIdentityTokenService>();
         using var provider = services.BuildServiceProvider();
         using var scope = provider.CreateScope();
 
@@ -392,6 +395,7 @@ var tests = new (string Name, Func<Task> Run)[]
 
         var services = new ServiceCollection();
         PetSpa.Infrastructure.DependencyInjection.AddInfrastructure(services, config);
+        services.AddScoped<IIdentityTokenService, FakeActiveIdentityTokenService>();
         using var provider = services.BuildServiceProvider();
         using var scope = provider.CreateScope();
 
@@ -568,6 +572,16 @@ static string CreateTestJwt(string signingKey, Guid userId, string role, TimeSpa
     };
     var handler = new JsonWebTokenHandler();
     return handler.CreateToken(tokenDescriptor);
+}
+
+public sealed class FakeActiveIdentityTokenService : IIdentityTokenService
+{
+    public Task<Guid?> ValidateCredentialsAsync(string userName, string password) => Task.FromResult<Guid?>(null);
+    public Task<TokenPair> IssueTokensAsync(Guid userId, CancellationToken ct = default) => Task.FromResult(new TokenPair(string.Empty, string.Empty));
+    public Task<TokenPair?> RotateAsync(string refreshToken, CancellationToken ct = default) => Task.FromResult<TokenPair?>(null);
+    public Task RevokeAsync(string refreshToken, CancellationToken ct = default) => Task.CompletedTask;
+    public Task RevokeAllAsync(Guid userId, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<bool> IsActiveAsync(Guid userId, CancellationToken ct = default) => Task.FromResult(true);
 }
 
 public sealed record SampleRequest(string Name);
