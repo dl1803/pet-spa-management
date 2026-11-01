@@ -1,8 +1,11 @@
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
+using PetSpa.Infrastructure.Identity;
 
 namespace PetSpa.Infrastructure.Persistence;
 
@@ -12,11 +15,14 @@ public static class DatabaseSeeder
     {
         await using var scope = services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<AppUser>>();
+        var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
         var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseSeeder");
 
         await SeedSizeRulesAsync(db, logger, ct);
         await SeedWeightTolerancesAsync(db, logger, ct);
         await SeedSystemConfigAsync(db, logger, ct);
+        await SeedManagerAsync(db, userManager, configuration, logger, ct);
     }
 
     private static async Task SeedSizeRulesAsync(AppDbContext db, ILogger logger, CancellationToken ct)
@@ -79,5 +85,35 @@ public static class DatabaseSeeder
         db.Set<SystemConfig>().AddRange(configs);
         await db.SaveChangesAsync(ct);
         logger.LogInformation("Đã seed {Count} dòng SystemConfig.", configs.Length);
+    }
+
+    private static async Task SeedManagerAsync(
+        AppDbContext db,
+        UserManager<AppUser> userManager,
+        IConfiguration configuration,
+        ILogger logger,
+        CancellationToken ct)
+    {
+        if (await db.Users.AnyAsync(u => u.Role == UserRole.Manager, ct)) return;
+
+        var userName = configuration["Seed:ManagerUserName"]?.Trim();
+        var password = configuration["Seed:ManagerPassword"];
+
+        if (string.IsNullOrEmpty(userName) || string.IsNullOrEmpty(password))
+        {
+            logger.LogWarning("Chưa có tài khoản Quản lý và thiếu Seed__ManagerUserName hoặc Seed__ManagerPassword; bỏ qua bước tạo tài khoản Quản lý.");
+            return;
+        }
+
+        if (userName.Length > 20)
+            throw new InvalidOperationException("Seed__ManagerUserName tối đa 20 ký tự.");
+
+        var manager = new AppUser { Id = Guid.NewGuid(), UserName = userName, Role = UserRole.Manager };
+        var result = await userManager.CreateAsync(manager, password);
+        if (!result.Succeeded)
+            throw new InvalidOperationException(
+                "Không tạo được tài khoản Quản lý: " + string.Join("; ", result.Errors.Select(e => e.Description)));
+
+        logger.LogInformation("Đã tạo tài khoản Quản lý đầu tiên.");
     }
 }
