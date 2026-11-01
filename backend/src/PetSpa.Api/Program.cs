@@ -99,15 +99,23 @@ static class DotEnv
 {
     public static void Load()
     {
-        string[] candidates =
-        [
-            Path.Combine(Directory.GetCurrentDirectory(), "backend", ".env"),
-            Path.Combine(Directory.GetCurrentDirectory(), ".env"),
-            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".env"),
-            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "backend", ".env"),
-        ];
+        static string? FindEnvFile(string startPath)
+        {
+            var dir = new DirectoryInfo(startPath);
+            while (dir is not null)
+            {
+                var atDir = Path.Combine(dir.FullName, ".env");
+                if (File.Exists(atDir)) return atDir;
 
-        var envFile = candidates.FirstOrDefault(File.Exists);
+                var atBackend = Path.Combine(dir.FullName, "backend", ".env");
+                if (File.Exists(atBackend)) return atBackend;
+
+                dir = dir.Parent;
+            }
+            return null;
+        }
+
+        var envFile = FindEnvFile(Directory.GetCurrentDirectory()) ?? FindEnvFile(AppContext.BaseDirectory);
         if (envFile is null) return;
 
         foreach (var line in File.ReadAllLines(envFile))
@@ -124,8 +132,7 @@ static class DotEnv
             if (value.Length >= 2 && ((value.StartsWith('"') && value.EndsWith('"')) || (value.StartsWith('\'') && value.EndsWith('\''))))
                 value = value[1..^1];
 
-            if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(key)))
-                Environment.SetEnvironmentVariable(key, value);
+            Environment.SetEnvironmentVariable(key, value);
         }
     }
 }
