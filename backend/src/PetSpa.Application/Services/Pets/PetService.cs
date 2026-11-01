@@ -75,6 +75,24 @@ public sealed class PetService(IPetRepository pets, IStaffRoleReader staffRoles)
         return found.Pet;
     }
 
+    public async Task<Pet> UpdateAsync(CurrentUser user, Guid petId, PetInput input, CancellationToken ct = default)
+    {
+        var actor = await ResolveActorAsync(user, ct);
+        if (actor is not (PetActor.Customer or PetActor.Receptionist))
+            throw new BusinessException(ErrorCodes.Forbidden);
+
+        var found = await pets.FindWithOwnerAsync(petId, ct)
+            ?? throw new BusinessException(ErrorCodes.NotFound);
+
+        if (actor == PetActor.Customer) OwnershipGuard.EnsureOwner(user, found.OwnerUserId);
+
+        Apply(found.Pet, input);
+        found.Pet.DetermineSizeGroup(await pets.GetSizeRulesAsync(found.Pet.Species, ct));
+
+        await pets.SaveChangesAsync(ct);
+        return found.Pet;
+    }
+
     private async Task<PetActor> ResolveActorAsync(CurrentUser user, CancellationToken ct)
     {
         switch (user.Role)

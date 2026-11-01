@@ -42,6 +42,16 @@ public sealed class PetsController(PetService petService) : ControllerBase
         return Ok(PetResponse.From(pet));
     }
 
+    [HttpPut("{id}")]
+    [Authorize(Policy = AuthorizationPolicies.CustomerOrReceptionist)]
+    [EndpointSummary("Cập nhật hồ sơ thú cưng")]
+    [EndpointDescription("Body như POST /pets (customerId bị bỏ qua). Hệ thống xác định lại nhóm kích cỡ.")]
+    public async Task<IActionResult> Update(Guid id, [FromBody] PetRequest request, CancellationToken ct)
+    {
+        var pet = await petService.UpdateAsync(User.ToCurrentUser(), id, ToInput(request), ct);
+        return Ok(new PetSizeResponse(pet.SizeGroup));
+    }
+
     private static PetInput ToInput(PetRequest request) => new(
         request.Name!,
         request.Species!.Value,

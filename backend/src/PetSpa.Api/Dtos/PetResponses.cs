@@ -5,6 +5,8 @@ namespace PetSpa.Api.Dtos;
 
 public sealed record PetCreatedResponse(Guid PetId, SizeGroup SizeGroup);
 
+public sealed record PetSizeResponse(SizeGroup SizeGroup);
+
 public sealed record PetResponse(
     Guid PetId,
     Guid CustomerId,
