@@ -5,6 +5,7 @@ using Microsoft.OpenApi.Models;
 using PetSpa.Api.Filters;
 using PetSpa.Api.Middleware;
 using PetSpa.Api.Security;
+using PetSpa.Application;
 using PetSpa.Domain.Exceptions;
 using PetSpa.Infrastructure;
 using Serilog;
@@ -31,6 +32,7 @@ builder.Services.AddControllers(options =>
     });
 
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddApplication();
 builder.Services.AddPetSpaAuthorization();
 var allowedOrigins = (builder.Configuration["Cors:AllowedOrigins"] ?? string.Empty)
     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
