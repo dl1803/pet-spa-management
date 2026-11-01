@@ -7,3 +7,13 @@ namespace PetSpa.Api.Dtos;
 public sealed record CreateStaffRequest(string UserName, string FullName, StaffRole? StaffRole, string Password);
 
 public sealed record CreateStaffResponse(Guid StaffId);
+
+// FR-STF-02. Không có userName: số điện thoại không đổi ở endpoint này (openapi.yaml, StaffUpdateRequest).
+public sealed record UpdateStaffRequest(string FullName, StaffRole? StaffRole);
+
+// GET /staff?page=&pageSize=
+public sealed class ListStaffQuery
+{
+    public int Page { get; init; } = 1;
+    public int PageSize { get; init; } = 20;
+}

@@ -26,3 +26,30 @@ public sealed class CreateStaffRequestValidator : AbstractValidator<CreateStaffR
             .NotEmpty().WithMessage("Vui lòng nhập mật khẩu.");
     }
 }
+
+public sealed class UpdateStaffRequestValidator : AbstractValidator<UpdateStaffRequest>
+{
+    public UpdateStaffRequestValidator()
+    {
+        RuleFor(x => x.FullName)
+            .Cascade(CascadeMode.Stop)
+            .NotEmpty().WithMessage("Vui lòng nhập họ tên.")
+            .MaximumLength(150).WithMessage("Họ tên tối đa 150 ký tự.");
+
+        RuleFor(x => x.StaffRole)
+            .NotNull().WithMessage("Vui lòng chọn vai trò nhân viên (lễ tân hoặc nhân viên spa).");
+    }
+}
+
+public sealed class ListStaffQueryValidator : AbstractValidator<ListStaffQuery>
+{
+    public ListStaffQueryValidator()
+    {
+        // Giống ListCustomersQueryValidator và PetListQueryValidator đã merge.
+        RuleFor(x => x.Page)
+            .InclusiveBetween(1, 1_000_000).WithMessage("page phải từ 1 đến 1.000.000.");
+
+        RuleFor(x => x.PageSize)
+            .InclusiveBetween(1, 100).WithMessage("pageSize phải từ 1 đến 100.");
+    }
+}

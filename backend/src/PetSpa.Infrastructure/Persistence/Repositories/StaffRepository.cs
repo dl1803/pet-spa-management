@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
@@ -44,6 +45,36 @@ public sealed class StaffRepository(UserManager<AppUser> userManager, AppDbConte
         {
             throw new BusinessException(ErrorCodes.DuplicateContact);
         }
+    }
+
+    public async Task<PagedResult<StaffSummary>> ListAsync(int page, int pageSize, CancellationToken ct = default)
+    {
+        // Số điện thoại và trạng thái hoạt động nằm ở AppUser nên phải nối với bảng Staff.
+        var query = from s in db.Set<Staff>().AsNoTracking()
+                    join u in db.Users.AsNoTracking() on s.UserId equals u.Id
+                    select new { s.StaffId, u.UserName, s.FullName, s.StaffRole, u.IsActive };
+
+        var total = await query.CountAsync(ct);
+        var rows = await query
+            .OrderBy(x => x.FullName).ThenBy(x => x.StaffId)
+            .Skip((page - 1) * pageSize).Take(pageSize)
+            .ToListAsync(ct);
+
+        var items = rows
+            .Select(x => new StaffSummary(x.StaffId, x.UserName!, x.FullName, x.StaffRole, x.IsActive))
+            .ToList();
+
+        return new PagedResult<StaffSummary>(items, page, pageSize, total);
+    }
+
+    public async Task UpdateAsync(Guid staffId, string fullName, StaffRole staffRole, CancellationToken ct = default)
+    {
+        var staff = await db.Set<Staff>().FirstOrDefaultAsync(s => s.StaffId == staffId, ct)
+            ?? throw new BusinessException(ErrorCodes.NotFound);
+
+        staff.FullName = fullName;
+        staff.StaffRole = staffRole;
+        await db.SaveChangesAsync(ct);
     }
 
     // Hai hàm dưới giống AccountRepository (ID 62); không sửa AccountRepository để tách dùng chung vì ngoài phạm vi ID 63.

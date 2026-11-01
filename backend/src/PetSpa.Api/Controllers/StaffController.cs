@@ -20,4 +20,22 @@ public sealed class StaffController(StaffService staffService) : ControllerBase
             request.UserName, request.FullName, request.StaffRole!.Value, request.Password, ct);
         return StatusCode(StatusCodes.Status201Created, new CreateStaffResponse(staffId));
     }
+
+    [HttpGet]
+    [EndpointSummary("Quản lý xem danh sách nhân viên")]
+    [EndpointDescription("Gồm cả nhân viên đã bị vô hiệu hóa (isActive = false). Mặc định page = 1, pageSize = 20 (tối đa 100).")]
+    public async Task<IActionResult> List([FromQuery] ListStaffQuery query, CancellationToken ct)
+    {
+        var result = await staffService.ListAsync(query.Page, query.PageSize, ct);
+        return Ok(result);
+    }
+
+    [HttpPut("{id}")]
+    [EndpointSummary("Quản lý cập nhật thông tin, vai trò nhân viên")]
+    [EndpointDescription("Cập nhật fullName và staffRole. Số điện thoại không đổi ở đây. Không tìm thấy nhân viên trả 404 NOT_FOUND.")]
+    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateStaffRequest request, CancellationToken ct)
+    {
+        await staffService.UpdateAsync(id, request.FullName, request.StaffRole!.Value, ct);
+        return Ok();
+    }
 }
