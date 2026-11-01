@@ -1,10 +1,12 @@
 using System.Reflection;
+using System.Text.Json.Serialization;
 using FluentValidation;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.OpenApi.Models;
 using PetSpa.Api.Filters;
 using PetSpa.Api.Middleware;
 using PetSpa.Api.Security;
+using PetSpa.Application;
 using PetSpa.Domain.Exceptions;
 using PetSpa.Infrastructure;
 using Serilog;
@@ -23,6 +25,10 @@ builder.Services.AddControllers(options =>
         // Để FluentValidation là nơi duy nhất kiểm tra trường bắt buộc.
         options.SuppressImplicitRequiredAttributeForNonNullableReferenceTypes = true;
     })
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    })
     .ConfigureApiBehaviorOptions(options =>
     {
         // Body sai định dạng JSON hoặc sai kiểu dữ liệu: trả cùng error envelope VALIDATION_ERROR qua middleware.
@@ -31,6 +37,7 @@ builder.Services.AddControllers(options =>
     });
 
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddApplication();
 builder.Services.AddPetSpaAuthorization();
 var allowedOrigins = (builder.Configuration["Cors:AllowedOrigins"] ?? string.Empty)
     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
