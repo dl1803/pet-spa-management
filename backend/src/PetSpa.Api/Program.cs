@@ -7,6 +7,7 @@ using PetSpa.Api.Middleware;
 using PetSpa.Api.Security;
 using PetSpa.Domain.Exceptions;
 using PetSpa.Infrastructure;
+using PetSpa.Infrastructure.Persistence;
 using Serilog;
 using Serilog.Events;
 
@@ -65,6 +66,8 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 var app = builder.Build();
+
+await app.Services.SeedDatabaseAsync();
 
 app.UseForwardedHeaders();
 app.UseSerilogRequestLogging();
