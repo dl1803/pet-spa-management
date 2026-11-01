@@ -19,7 +19,9 @@ public sealed class CreateStaffRequestValidator : AbstractValidator<CreateStaffR
             .MaximumLength(150).WithMessage("Họ tên tối đa 150 ký tự.");
 
         RuleFor(x => x.StaffRole)
-            .NotNull().WithMessage("Vui lòng chọn vai trò nhân viên (lễ tân hoặc nhân viên spa).");
+            .Cascade(CascadeMode.Stop)
+            .NotNull().WithMessage("Vui lòng chọn vai trò nhân viên (lễ tân hoặc nhân viên spa).")
+            .IsInEnum().WithMessage("Vai trò nhân viên không hợp lệ.");
 
         // Độ mạnh mật khẩu do ASP.NET Core Identity kiểm tra khi tạo tài khoản.
         RuleFor(x => x.Password)
@@ -37,7 +39,9 @@ public sealed class UpdateStaffRequestValidator : AbstractValidator<UpdateStaffR
             .MaximumLength(150).WithMessage("Họ tên tối đa 150 ký tự.");
 
         RuleFor(x => x.StaffRole)
-            .NotNull().WithMessage("Vui lòng chọn vai trò nhân viên (lễ tân hoặc nhân viên spa).");
+            .Cascade(CascadeMode.Stop)
+            .NotNull().WithMessage("Vui lòng chọn vai trò nhân viên (lễ tân hoặc nhân viên spa).")
+            .IsInEnum().WithMessage("Vai trò nhân viên không hợp lệ.");
     }
 }
 
