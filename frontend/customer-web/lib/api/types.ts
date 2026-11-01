@@ -106,3 +106,20 @@ export type Payment = {
   receivedAmount?: number | null;
   paidAt?: string | null;
 };
+
+export type NotificationType =
+  | "BookingReceived"
+  | "ConfirmedAssigned"
+  | "StatusChanged"
+  | "Cancelled"
+  | "PaymentRecorded"
+  | "CostConfirmation";
+
+export type Notification = {
+  notificationId: string;
+  type: NotificationType;
+  appointmentId?: string | null;
+  message: string;
+  isRead: boolean;
+  createdAt: string;
+};
