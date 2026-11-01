@@ -97,6 +97,15 @@ const ICON_PATHS = {
       <path d="m16 17 5-5-5-5M21 12H9" />
     </>
   ),
+  plus: <path d="M12 5v14M5 12h14" />,
+  edit: <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />,
+  ban: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="m4.9 4.9 14.2 14.2" />
+    </>
+  ),
+  "chev-d": <path d="m6 9 6 6 6-6" />,
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof ICON_PATHS;

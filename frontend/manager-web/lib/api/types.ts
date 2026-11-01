@@ -14,3 +14,32 @@ export type SpaSuggestions = {
   suggested: StaffSuggestion[];
   alternatives: StaffSuggestion[];
 };
+
+export type Species = "Dog" | "Cat" | "Rabbit" | "GuineaPig";
+export type SizeGroup = "Small" | "Medium" | "Large";
+
+export type PricingRow = {
+  species: Species;
+  sizeGroup: SizeGroup;
+  // VND, số nguyên ≥ 0.
+  price: number;
+  durationMinutes: number;
+  staffRequired: 1 | 2;
+};
+
+export type Service = {
+  serviceId: string;
+  name: string;
+  description?: string | null;
+  // HH:mm, thuộc Booking.SlotTimes.
+  latestStartTime: string;
+  isActive: boolean;
+  pricing: PricingRow[];
+};
+
+export type ServiceRequest = {
+  name: string;
+  description?: string;
+  latestStartTime: string;
+  pricing: PricingRow[];
+};

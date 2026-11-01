@@ -1,12 +1,14 @@
 import type { ReactNode } from "react";
 
 type TagProps = {
-  tone: "suggest";
+  tone: "default" | "suggest" | "ok";
   children: ReactNode;
 };
 
 const TONE_CLASS = {
+  default: "bg-line-soft font-medium text-ink",
   suggest: "bg-apricot font-semibold text-ink",
+  ok: "bg-success-50 font-semibold text-success",
 } as const;
 
 export function Tag({ tone, children }: TagProps) {
