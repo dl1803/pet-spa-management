@@ -9,16 +9,22 @@ type DrawerProps = {
   children: ReactNode;
 };
 
-// Ngăn kéo phải 640px (Design-System 4.1). Dùng <dialog> modal: trình duyệt khóa nền, giữ focus trong ngăn kéo
-// và trả focus về nút mở khi đóng. Chỉ đặt vào cây React khi cần mở; gỡ khỏi cây thì đóng.
+// Ngăn kéo phải 640px (Design-System 4.1). Dùng <dialog> modal: trình duyệt khóa nền và giữ focus trong ngăn kéo;
+// khi gỡ khỏi cây, thành phần tự trả focus về nút đã mở. Chỉ đặt vào cây React khi cần mở; gỡ khỏi cây thì đóng.
 export function Drawer({ title, onClose, children }: DrawerProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
   useEffect(() => {
     const dialog = ref.current;
+    // Gỡ <dialog> khỏi cây React làm trình duyệt đưa focus về BODY trước khi close() chạy,
+    // nên phải nhớ nút đã mở và tự trả focus về đó.
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (dialog && !dialog.open) dialog.showModal();
-    return () => dialog?.close();
+    return () => {
+      dialog?.close();
+      if (opener?.isConnected) opener.focus();
+    };
   }, []);
 
   return (
