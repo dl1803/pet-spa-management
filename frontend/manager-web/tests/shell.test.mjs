@@ -15,10 +15,11 @@ test("khung quản lý chỉ liên kết tới trang đã có", async () => {
   // React stream gửi fallback trước; menu cuối là nội dung đã giải quyết Suspense.
   const navigation = [...html.matchAll(/<nav\b[^>]*aria-label="Menu quản lý"[\s\S]*?<\/nav>/g)].at(-1)?.[0];
   assert.ok(navigation, "Thiếu menu quản lý");
-  assert.equal((navigation.match(/<a\b/g) ?? []).length, 2);
+  assert.equal((navigation.match(/<a\b/g) ?? []).length, 3);
   assert.match(navigation, /<a\b[^>]*aria-current="page"[^>]*>[\s\S]*?Tổng quan<\/a>/);
   assert.match(navigation, /<a\b[^>]*href="\/cho-xac-nhan"[^>]*>[\s\S]*?Chờ xác nhận<\/a>/);
-  assert.equal((navigation.match(/aria-disabled="true"/g) ?? []).length, 8);
+  assert.match(navigation, /<a\b[^>]*href="\/dich-vu"[^>]*>[\s\S]*?Dịch vụ<\/a>/);
+  assert.equal((navigation.match(/aria-disabled="true"/g) ?? []).length, 7);
   assert.match(html, /<button\b[^>]*disabled=""[^>]*aria-label="Đăng xuất"/);
 
   // Theo mọi liên kết trang thực sự hiển thị để phát hiện đích 404 trong shell.
