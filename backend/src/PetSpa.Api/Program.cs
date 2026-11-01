@@ -13,6 +13,8 @@ using PetSpa.Infrastructure.Persistence;
 using Serilog;
 using Serilog.Events;
 
+DotEnv.Load();
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Host.UseSerilog((context, configuration) => configuration
@@ -92,3 +94,38 @@ app.UseRateLimiter();
 app.MapControllers();
 
 app.Run();
+
+static class DotEnv
+{
+    public static void Load()
+    {
+        string[] candidates =
+        [
+            Path.Combine(Directory.GetCurrentDirectory(), "backend", ".env"),
+            Path.Combine(Directory.GetCurrentDirectory(), ".env"),
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".env"),
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "backend", ".env"),
+        ];
+
+        var envFile = candidates.FirstOrDefault(File.Exists);
+        if (envFile is null) return;
+
+        foreach (var line in File.ReadAllLines(envFile))
+        {
+            var trimmed = line.Trim();
+            if (string.IsNullOrWhiteSpace(trimmed) || trimmed.StartsWith('#')) continue;
+
+            var separatorIndex = trimmed.IndexOf('=');
+            if (separatorIndex <= 0) continue;
+
+            var key = trimmed[..separatorIndex].Trim();
+            var value = trimmed[(separatorIndex + 1)..].Trim();
+
+            if (value.Length >= 2 && ((value.StartsWith('"') && value.EndsWith('"')) || (value.StartsWith('\'') && value.EndsWith('\''))))
+                value = value[1..^1];
+
+            if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(key)))
+                Environment.SetEnvironmentVariable(key, value);
+        }
+    }
+}
