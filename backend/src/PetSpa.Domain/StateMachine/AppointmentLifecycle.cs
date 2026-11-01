@@ -46,11 +46,19 @@ public sealed class AppointmentLifecycle
             [AppointmentStatus.InStay] = [CancelReason.StoreUnable, CancelReason.CustomerBeyondDeadline],
         });
 
-    public bool CanTransition(AppointmentStatus from, AppointmentStatus to) =>
-        transitions.TryGetValue(from, out var allowed) && allowed.Contains(to);
+    public bool CanCancel(AppointmentStatus from) =>
+        cancelReasons.TryGetValue(from, out var allowed) && allowed.Length > 0;
 
     public bool CanCancel(AppointmentStatus from, CancelReason reason) =>
         cancelReasons.TryGetValue(from, out var allowed) && allowed.Contains(reason);
+
+    public bool CanTransition(AppointmentStatus from, AppointmentStatus to, CancelReason? reason = null)
+    {
+        if (to == AppointmentStatus.Cancelled)
+            return reason.HasValue ? CanCancel(from, reason.Value) : CanCancel(from);
+
+        return transitions.TryGetValue(from, out var allowed) && allowed.Contains(to);
+    }
 
     public IReadOnlyCollection<AppointmentStatus> GetAllowedTransitions(AppointmentStatus from) =>
         transitions.TryGetValue(from, out var allowed) ? allowed : [];

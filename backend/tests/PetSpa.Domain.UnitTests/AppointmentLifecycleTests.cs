@@ -332,6 +332,50 @@ public class AppointmentLifecycleTests
     }
 
     [Fact]
+    public void Hotel_CheckOut_SetsCompletedAndActualCheckOut()
+    {
+        var appointment = Hotel(AppointmentStatus.InStay);
+        var before = DateTimeOffset.UtcNow;
+
+        appointment.CheckOut();
+
+        Assert.Equal(AppointmentStatus.Completed, appointment.Status);
+        Assert.NotNull(appointment.ActualCheckOut);
+        Assert.True(appointment.ActualCheckOut >= before);
+
+        var customTime = new DateTimeOffset(2026, 11, 1, 14, 0, 0, TimeSpan.Zero);
+        var appointment2 = Hotel(AppointmentStatus.InStay);
+        appointment2.CheckOut(customTime);
+
+        Assert.Equal(AppointmentStatus.Completed, appointment2.Status);
+        Assert.Equal(customTime, appointment2.ActualCheckOut);
+    }
+
+    [Fact]
+    public void Guard_CanTransition_ToCancelled_HandlesReasonCorrectly()
+    {
+        var spa = new SpaAppointment { Status = AppointmentStatus.Pending };
+        Assert.True(spa.CanTransitionTo(AppointmentStatus.Cancelled));
+        Assert.True(spa.CanTransitionTo(AppointmentStatus.Cancelled, CancelReason.CustomerCancelled));
+        Assert.False(spa.CanTransitionTo(AppointmentStatus.Cancelled, CancelReason.NoShow));
+        Assert.True(spa.CanCancel());
+
+        var hotel = new HotelAppointment { Status = AppointmentStatus.Confirmed };
+        Assert.True(hotel.CanTransitionTo(AppointmentStatus.Cancelled));
+        Assert.True(hotel.CanTransitionTo(AppointmentStatus.Cancelled, CancelReason.NoShow));
+        Assert.False(hotel.CanTransitionTo(AppointmentStatus.Cancelled, (CancelReason)999));
+        Assert.True(hotel.CanCancel());
+
+        var completedSpa = new SpaAppointment { Status = AppointmentStatus.Completed };
+        Assert.False(completedSpa.CanTransitionTo(AppointmentStatus.Cancelled));
+        Assert.False(completedSpa.CanCancel());
+
+        var cancelledHotel = new HotelAppointment { Status = AppointmentStatus.Cancelled };
+        Assert.False(cancelledHotel.CanTransitionTo(AppointmentStatus.Cancelled));
+        Assert.False(cancelledHotel.CanCancel());
+    }
+
+    [Fact]
     public void Guard_GetAllowedCollections_ReturnAccurateLists()
     {
         var spaPendingTransitions = AppointmentLifecycle.Spa.GetAllowedTransitions(AppointmentStatus.Pending);

@@ -20,5 +20,11 @@ public class HotelAppointment : Appointment
 
     public void CheckIn() => MoveTo(AppointmentStatus.InStay);
 
-    public void CheckOut() => MoveTo(AppointmentStatus.Completed);
+    public void CheckOut() => CheckOut(null);
+
+    public void CheckOut(DateTimeOffset? actualCheckOut)
+    {
+        MoveTo(AppointmentStatus.Completed);
+        ActualCheckOut = actualCheckOut ?? DateTimeOffset.UtcNow;
+    }
 }

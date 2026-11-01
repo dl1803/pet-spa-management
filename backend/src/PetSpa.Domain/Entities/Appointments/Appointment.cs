@@ -18,7 +18,10 @@ public abstract class Appointment
 
     protected abstract AppointmentLifecycle GetLifecycle();
 
-    public bool CanTransitionTo(AppointmentStatus next) => GetLifecycle().CanTransition(Status, next);
+    public bool CanTransitionTo(AppointmentStatus next, CancelReason? reason = null) =>
+        GetLifecycle().CanTransition(Status, next, reason);
+
+    public bool CanCancel() => GetLifecycle().CanCancel(Status);
 
     public bool CanCancelWith(CancelReason reason) => GetLifecycle().CanCancel(Status, reason);
 
