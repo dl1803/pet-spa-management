@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using PetSpa.Api.Dtos;
 using PetSpa.Api.Security;
+using PetSpa.Application.Common;
 using PetSpa.Application.Services.Pets;
 
 namespace PetSpa.Api.Controllers;
@@ -20,6 +21,27 @@ public sealed class PetsController(PetService petService) : ControllerBase
         return StatusCode(StatusCodes.Status201Created, new PetCreatedResponse(pet.PetId, pet.SizeGroup));
     }
 
+    [HttpGet]
+    [Authorize(Policy = AuthorizationPolicies.CustomerOrReceptionist)]
+    [EndpointSummary("Danh sách hồ sơ thú cưng đang hoạt động")]
+    [EndpointDescription("Khách hàng: của mình. Lễ tân: theo customerId. Mặc định page = 1, pageSize = 20 (tối đa 100).")]
+    public async Task<IActionResult> List([FromQuery] PetListQuery query, CancellationToken ct)
+    {
+        var result = await petService.ListAsync(User.ToCurrentUser(), query.CustomerId, query.Page, query.PageSize, ct);
+        var items = result.Items.Select(PetResponse.From).ToList();
+        return Ok(new PagedResult<PetResponse>(items, result.Page, result.PageSize, result.Total));
+    }
+
+    [HttpGet("{id}")]
+    [Authorize]
+    [EndpointSummary("Xem hồ sơ thú cưng trong phạm vi")]
+    [EndpointDescription("Khách hàng: của mình. Lễ tân, quản lý: toàn cửa hàng. Nhân viên spa: thú cưng của lịch hẹn được phân công.")]
+    public async Task<IActionResult> GetById(Guid id, CancellationToken ct)
+    {
+        var pet = await petService.GetAsync(User.ToCurrentUser(), id, ct);
+        return Ok(PetResponse.From(pet));
+    }
+
     private static PetInput ToInput(PetRequest request) => new(
         request.Name!,
         request.Species!.Value,
@@ -30,4 +52,3 @@ public sealed class PetsController(PetService petService) : ControllerBase
         request.CoatNote,
         request.Notes);
 }
-

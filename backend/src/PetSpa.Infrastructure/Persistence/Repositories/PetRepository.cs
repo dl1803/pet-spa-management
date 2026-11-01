@@ -23,8 +23,45 @@ public sealed class PetRepository(AppDbContext db) : IPetRepository
             .Where(r => r.Species == species)
             .ToListAsync(ct);
 
+    public async Task<PetWithOwner?> FindWithOwnerAsync(Guid petId, CancellationToken ct = default)
+    {
+        var row = await (
+            from pet in db.Set<Pet>()
+            join customer in db.Set<Customer>() on pet.CustomerId equals customer.CustomerId
+            where pet.PetId == petId
+            select new { Pet = pet, OwnerUserId = customer.UserId })
+            .FirstOrDefaultAsync(ct);
+
+        return row is null ? null : new PetWithOwner(row.Pet, row.OwnerUserId);
+    }
+
+    public async Task<(IReadOnlyList<Pet> Items, int Total)> ListActiveByCustomerAsync(
+        Guid customerId, int page, int pageSize, CancellationToken ct = default)
+    {
+        var query = db.Set<Pet>()
+            .AsNoTracking()
+            .Where(p => p.CustomerId == customerId && p.IsActive);
+
+        var total = await query.CountAsync(ct);
+        var items = await query
+            .OrderBy(p => p.CreatedAt)
+            .ThenBy(p => p.PetId)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        return (items, total);
+    }
+
+    public Task<bool> IsAssignedToStaffAsync(Guid petId, Guid staffUserId, CancellationToken ct = default) =>
+        (from assignment in db.Set<AppointmentStaff>()
+         join appointment in db.Set<Appointment>() on assignment.AppointmentId equals appointment.AppointmentId
+         join staff in db.Set<Staff>() on assignment.StaffId equals staff.StaffId
+         where appointment.PetId == petId && staff.UserId == staffUserId
+         select assignment.AppointmentId)
+        .AnyAsync(ct);
+
     public void Add(Pet pet) => db.Set<Pet>().Add(pet);
 
     public Task SaveChangesAsync(CancellationToken ct = default) => db.SaveChangesAsync(ct);
 }
-

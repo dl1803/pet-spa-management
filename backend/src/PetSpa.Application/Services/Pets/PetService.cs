@@ -1,3 +1,4 @@
+using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
 using PetSpa.Domain.Entities;
@@ -33,6 +34,45 @@ public sealed class PetService(IPetRepository pets, IStaffRoleReader staffRoles)
         pets.Add(pet);
         await pets.SaveChangesAsync(ct);
         return pet;
+    }
+
+    public async Task<PagedResult<Pet>> ListAsync(CurrentUser user, Guid? requestedCustomerId, int page, int pageSize, CancellationToken ct = default)
+    {
+        var actor = await ResolveActorAsync(user, ct);
+        var customerId = actor switch
+        {
+            PetActor.Customer => await GetOwnCustomerIdAsync(user, ct),
+            PetActor.Receptionist => await GetCustomerIdForReceptionistAsync(requestedCustomerId, ct),
+            _ => throw new BusinessException(ErrorCodes.Forbidden),
+        };
+
+        var (items, total) = await pets.ListActiveByCustomerAsync(customerId, page, pageSize, ct);
+        return new PagedResult<Pet>(items, page, pageSize, total);
+    }
+
+    public async Task<Pet> GetAsync(CurrentUser user, Guid petId, CancellationToken ct = default)
+    {
+        var actor = await ResolveActorAsync(user, ct);
+        var found = await pets.FindWithOwnerAsync(petId, ct)
+            ?? throw new BusinessException(ErrorCodes.NotFound);
+
+        switch (actor)
+        {
+            case PetActor.Customer:
+                OwnershipGuard.EnsureOwner(user, found.OwnerUserId);
+                break;
+            case PetActor.SpaStaff:
+                if (!await pets.IsAssignedToStaffAsync(petId, user.UserId, ct))
+                    throw new BusinessException(ErrorCodes.Forbidden);
+                break;
+            case PetActor.Receptionist:
+            case PetActor.Manager:
+                break;
+            default:
+                throw new BusinessException(ErrorCodes.Forbidden);
+        }
+
+        return found.Pet;
     }
 
     private async Task<PetActor> ResolveActorAsync(CurrentUser user, CancellationToken ct)
@@ -83,4 +123,3 @@ public sealed class PetService(IPetRepository pets, IStaffRoleReader staffRoles)
         pet.Notes = input.Notes;
     }
 }
-
