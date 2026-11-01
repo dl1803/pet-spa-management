@@ -14,3 +14,4 @@ public sealed class PetListQueryValidator : AbstractValidator<PetListQuery>
             .InclusiveBetween(1, 100).WithMessage("pageSize phải từ 1 đến 100.");
     }
 }
+
