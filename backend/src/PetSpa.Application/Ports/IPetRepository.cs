@@ -19,7 +19,11 @@ public interface IPetRepository
 
     Task<bool> IsAssignedToStaffAsync(Guid petId, Guid staffUserId, CancellationToken ct = default);
 
+    Task<bool> HasAppointmentsAsync(Guid petId, CancellationToken ct = default);
+
     void Add(Pet pet);
+
+    void Remove(Pet pet);
 
     Task SaveChangesAsync(CancellationToken ct = default);
 }

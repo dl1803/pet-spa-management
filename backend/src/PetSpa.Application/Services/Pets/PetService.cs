@@ -93,6 +93,23 @@ public sealed class PetService(IPetRepository pets, IStaffRoleReader staffRoles)
         return found.Pet;
     }
 
+    public async Task DeleteAsync(CurrentUser user, Guid petId, CancellationToken ct = default)
+    {
+        if (user.Role != UserRole.Customer) throw new BusinessException(ErrorCodes.Forbidden);
+
+        var found = await pets.FindWithOwnerAsync(petId, ct)
+            ?? throw new BusinessException(ErrorCodes.NotFound);
+
+        OwnershipGuard.EnsureOwner(user, found.OwnerUserId);
+
+        if (await pets.HasAppointmentsAsync(petId, ct))
+            found.Pet.IsActive = false;
+        else
+            pets.Remove(found.Pet);
+
+        await pets.SaveChangesAsync(ct);
+    }
+
     private async Task<PetActor> ResolveActorAsync(CurrentUser user, CancellationToken ct)
     {
         switch (user.Role)

@@ -52,6 +52,16 @@ public sealed class PetsController(PetService petService) : ControllerBase
         return Ok(new PetSizeResponse(pet.SizeGroup));
     }
 
+    [HttpDelete("{id}")]
+    [Authorize(Policy = AuthorizationPolicies.Customer)]
+    [EndpointSummary("Gỡ bỏ hồ sơ thú cưng")]
+    [EndpointDescription("Chưa từng có lịch hẹn: xóa hẳn. Đã có lịch hẹn: xóa mềm (IsActive = false).")]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    {
+        await petService.DeleteAsync(User.ToCurrentUser(), id, ct);
+        return NoContent();
+    }
+
     private static PetInput ToInput(PetRequest request) => new(
         request.Name!,
         request.Species!.Value,

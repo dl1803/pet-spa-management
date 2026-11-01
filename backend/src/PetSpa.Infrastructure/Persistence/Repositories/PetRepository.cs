@@ -61,7 +61,12 @@ public sealed class PetRepository(AppDbContext db) : IPetRepository
          select assignment.AppointmentId)
         .AnyAsync(ct);
 
+    public Task<bool> HasAppointmentsAsync(Guid petId, CancellationToken ct = default) =>
+        db.Set<Appointment>().AnyAsync(a => a.PetId == petId, ct);
+
     public void Add(Pet pet) => db.Set<Pet>().Add(pet);
+
+    public void Remove(Pet pet) => db.Set<Pet>().Remove(pet);
 
     public Task SaveChangesAsync(CancellationToken ct = default) => db.SaveChangesAsync(ct);
 }
