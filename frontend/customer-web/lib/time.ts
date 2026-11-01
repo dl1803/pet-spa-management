@@ -11,6 +11,10 @@ export function getStoreDateKey(value: string | Date) {
   return DATE_KEY_FORMAT.format(new Date(value));
 }
 
+export function getPreviousDateKey(dateKey: string) {
+  return DATE_KEY_FORMAT.format(new Date(Date.parse(`${dateKey}T00:00:00Z`) - 86_400_000));
+}
+
 export function countNights(checkIn: string, checkOut: string) {
   const start = Date.parse(`${getStoreDateKey(checkIn)}T00:00:00Z`);
   const end = Date.parse(`${getStoreDateKey(checkOut)}T00:00:00Z`);

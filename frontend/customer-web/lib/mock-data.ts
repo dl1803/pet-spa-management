@@ -1,4 +1,4 @@
-import type { AppointmentDetail, Payment, Pet } from "@/lib/api/types";
+import type { AppointmentDetail, Notification, Payment, Pet } from "@/lib/api/types";
 
 const CUSTOMER_ID = "c0000000-0000-4000-8000-000000000001";
 
@@ -313,3 +313,63 @@ export const MOCK_PAYMENTS: Payment[] = [
   },
 ];
 
+// Sắp xếp theo thời gian giảm dần, 2 thông báo chưa đọc.
+export const MOCK_NOTIFICATIONS: Notification[] = [
+  {
+    notificationId: "f0000000-0000-4000-8000-000000000001",
+    type: "StatusChanged",
+    appointmentId: "7c0d41e2-0000-4000-8000-000000000002",
+    message: "Bún đã bắt đầu được chăm sóc lúc 10:35 cho lịch spa LH-7C0D41E2.",
+    isRead: false,
+    createdAt: "2026-10-31T10:35:00+07:00",
+  },
+  {
+    notificationId: "f0000000-0000-4000-8000-000000000002",
+    type: "CostConfirmation",
+    appointmentId: "5f1c2a9b-0000-4000-8000-000000000001",
+    message:
+      "Bông nặng 11,2 kg khi cân tại cửa hàng, lên nhóm Vừa. Chi phí mới 330.000đ (trước 270.000đ). Vui lòng phản hồi trước 09:33.",
+    isRead: false,
+    createdAt: "2026-10-31T09:03:00+07:00",
+  },
+  {
+    notificationId: "f0000000-0000-4000-8000-000000000003",
+    type: "BookingReceived",
+    appointmentId: "9a3e6f10-0000-4000-8000-000000000003",
+    message: "Lịch spa LH-9A3E6F10 của Mochi, thứ bảy 31/10, 14:00. Lịch đang chờ cửa hàng xác nhận.",
+    isRead: true,
+    createdAt: "2026-10-30T18:40:00+07:00",
+  },
+  {
+    notificationId: "f0000000-0000-4000-8000-000000000004",
+    type: "ConfirmedAssigned",
+    appointmentId: "c4a92d6e-0000-4000-8000-000000000005",
+    message: "Lịch lưu trú LH-C4A92D6E của Bông, nhận 08:00 06/11, trả 17:00 08/11 đã được xác nhận.",
+    isRead: true,
+    createdAt: "2026-10-30T09:30:00+07:00",
+  },
+  {
+    notificationId: "f0000000-0000-4000-8000-000000000005",
+    type: "StatusChanged",
+    appointmentId: "b8e1d537-0000-4000-8000-000000000004",
+    message: "Mochi đã được nhận vào lưu trú lúc 08:10 cho lịch LH-B8E1D537.",
+    isRead: true,
+    createdAt: "2026-10-30T08:10:00+07:00",
+  },
+  {
+    notificationId: "f0000000-0000-4000-8000-000000000006",
+    type: "Cancelled",
+    appointmentId: "3c9f6a15-0000-4000-8000-000000000012",
+    message: "Lịch spa LH-3C9F6A15 của Mochi, 20/09 16:00 đã hủy. Lý do: khách hàng chủ động hủy.",
+    isRead: true,
+    createdAt: "2026-09-19T10:00:00+07:00",
+  },
+  {
+    notificationId: "f0000000-0000-4000-8000-000000000007",
+    type: "PaymentRecorded",
+    appointmentId: "d2f07b48-0000-4000-8000-000000000006",
+    message: "Đã ghi nhận thanh toán 210.000đ cho lịch spa LH-D2F07B48 của Bông, tiền mặt tại quầy.",
+    isRead: true,
+    createdAt: "2026-09-12T11:30:00+07:00",
+  },
+];

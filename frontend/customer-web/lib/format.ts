@@ -1,4 +1,4 @@
-import { STORE_TIME_ZONE } from "@/lib/time";
+import { getPreviousDateKey, getStoreDateKey, STORE_TIME_ZONE } from "@/lib/time";
 
 const MONEY_FORMAT = new Intl.NumberFormat("vi-VN");
 const WEIGHT_FORMAT = new Intl.NumberFormat("vi-VN", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -45,6 +45,14 @@ export function formatTimeRange(start: string, end: string) {
 
 export function formatWeekday(value: string) {
   return WEEKDAY_FORMAT.format(new Date(value)).toLocaleLowerCase("vi-VN");
+}
+
+// Thời gian của thông báo (UI-Screens CW-12): hôm nay chỉ có giờ, hôm qua có nhãn, còn lại là ngày/tháng kèm giờ.
+export function formatRelativeDay(value: string, todayKey: string) {
+  const dayKey = getStoreDateKey(value);
+  if (dayKey === todayKey) return formatTime(value);
+  if (dayKey === getPreviousDateKey(todayKey)) return `Hôm qua, ${formatTime(value)}`;
+  return `${formatShortDate(value)}, ${formatTime(value)}`;
 }
 
 export function formatAppointmentCode(appointmentId: string) {
