@@ -30,9 +30,18 @@ export const MOCK_STAFF_ASSIGNMENTS: MockStaffAssignment[] = [
 export type MockCageAssignment = {
   appointmentId: string;
   title: string;
+  // Khách (SĐT: UI-Screens G-05, chưa có trong API).
+  customerName: string;
+  customerPhone: string;
+  hasAccount: boolean;
   species: Species;
   sizeGroup: SizeGroup;
-  nights: number;
+  // ISO 8601.
+  plannedCheckIn: string;
+  plannedCheckOut: string;
+  // Đơn giá từ GET /hotel/pricing (pricePerNight, foodPerNight), chỉ để hiển thị tạm tính.
+  pricePerNight: number;
+  foodPerNight: number;
   suggestions: HotelSuggestions;
   cages: Cage[];
 };
@@ -61,9 +70,15 @@ export const MOCK_CAGE_ASSIGNMENTS: MockCageAssignment[] = [
   {
     appointmentId: "5f1c2a9b-7e44-4c0a-9d21-0a1b2c3d4e03",
     title: "Mây, mèo Xiêm, nhóm Vừa",
+    customerName: "Lý Ngọc Hân",
+    customerPhone: "0935 470 218",
+    hasAccount: true,
     species: "Cat",
     sizeGroup: "Medium",
-    nights: 2,
+    plannedCheckIn: "2026-10-08T09:00:00+07:00",
+    plannedCheckOut: "2026-10-10T17:00:00+07:00",
+    pricePerNight: 170000,
+    foodPerNight: 40000,
     suggestions: { cage: CAGE_B3 },
     cages: [CAGE_B1, CAGE_B2, CAGE_B3, CAGE_B4],
   },

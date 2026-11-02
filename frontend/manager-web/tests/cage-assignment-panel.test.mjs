@@ -2,21 +2,22 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { buildCageChoices } from "../features/pending/cage-selection.ts";
 import { CageAssignmentPanel } from "../features/pending/components/cage-assignment-panel.tsx";
 import { MOCK_CAGE_ASSIGNMENTS } from "../features/pending/mock-data.ts";
 
 const noop = () => {};
 const count = (html, pattern) => (html.match(pattern) ?? []).length;
 const may = MOCK_CAGE_ASSIGNMENTS[0];
+const choices = buildCageChoices(may.suggestions, may.cages, may);
 
 function renderPanel(selectedCageId) {
   return renderToStaticMarkup(
     React.createElement(CageAssignmentPanel, {
       species: may.species,
       sizeGroup: may.sizeGroup,
-      nights: may.nights,
-      suggestions: may.suggestions,
-      cages: may.cages,
+      nights: 2,
+      choices,
       selectedCageId,
       onSelectedCageIdChange: noop,
     }),
@@ -40,4 +41,20 @@ test("chọn chuồng khác thì chỉ ô đó được đánh dấu", () => {
   const html = renderPanel("c0000000-0000-4000-8000-000000000001");
   assert.equal(count(html, /checked=""/g), 1);
   assert.ok(html.includes('checked="" value="c0000000-0000-4000-8000-000000000001"'));
+});
+
+test("chuồng còn thú cưng đến sau giờ nhận bị khóa trên giao diện", () => {
+  const busy = { ...may.cages[0], cageId: "busy", code: "B9", occupant: { ...may.cages[0].occupant, plannedCheckOut: "2026-10-09T12:00:00+07:00" } };
+  const html = renderToStaticMarkup(
+    React.createElement(CageAssignmentPanel, {
+      species: may.species,
+      sizeGroup: may.sizeGroup,
+      nights: 2,
+      choices: buildCageChoices(may.suggestions, [busy], may),
+      selectedCageId: may.suggestions.cage.cageId,
+      onSelectedCageIdChange: noop,
+    }),
+  );
+  assert.equal(count(html, /type="radio"[^>]*disabled=""/g), 1);
+  assert.ok(html.includes("Còn thú cưng đến 12:00 ngày 09/10"));
 });

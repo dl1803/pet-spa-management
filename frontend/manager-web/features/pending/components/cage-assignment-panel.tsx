@@ -2,35 +2,33 @@
 
 import { useId } from "react";
 import { CageOption } from "@/components/domain/cage-option";
-import type { Cage, HotelSuggestions, SizeGroup, Species } from "@/lib/api/types";
+import type { SizeGroup, Species } from "@/lib/api/types";
 import { SIZE_GROUP_LABELS, SPECIES_LABELS } from "@/lib/labels";
-import { buildCageChoices, getCageDetail } from "../cage-selection";
+import { getCageDetail, type CageChoice } from "../cage-selection";
 
 type CageAssignmentPanelProps = {
   species: Species;
   sizeGroup: SizeGroup;
   // Số đêm lưu trú của lịch hẹn.
   nights: number;
-  suggestions: HotelSuggestions;
-  cages: Cage[];
+  // Đã lọc và sắp xếp bởi buildCageChoices.
+  choices: CageChoice[];
   selectedCageId: string;
   onSelectedCageIdChange: (cageId: string) => void;
 };
 
-// MW-04 vùng 8 – Chuồng (UI-Screens.md). Chưa có thông tin trống theo đêm của chuồng khác
-// vì API chưa trả (UI-Screens G-08): backend kiểm tra khi xác nhận.
+// MW-04 vùng 8 – Chuồng (UI-Screens.md). Chuồng đã qua bộ lọc loài, nhóm, giờ trả của thú cưng đang ở (buildCageChoices);
+// việc không trùng đêm với lịch khác vẫn do backend kiểm tra khi xác nhận (UI-Screens G-08).
 export function CageAssignmentPanel({
   species,
   sizeGroup,
   nights,
-  suggestions,
-  cages,
+  choices,
   selectedCageId,
   onSelectedCageIdChange,
 }: CageAssignmentPanelProps) {
   const id = useId();
   const titleId = `${id}-title`;
-  const choices = buildCageChoices(suggestions, cages, species, sizeGroup);
 
   return (
     <div>
