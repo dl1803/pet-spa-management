@@ -142,3 +142,31 @@ export type LoginRequest = {
   userName: string;
   password: string;
 };
+
+export type CageOccupant = {
+  petId: string;
+  petName: string;
+  customerId: string;
+  customerName: string;
+  // ISO 8601.
+  plannedCheckOut: string;
+};
+
+export type Cage = {
+  cageId: string;
+  // Tối đa 20 ký tự.
+  code: string;
+  species: Species;
+  sizeGroup: SizeGroup;
+  isActive: boolean;
+  // null hoặc không có = chuồng trống.
+  occupant?: CageOccupant | null;
+};
+
+export type HotelSuggestions = {
+  cage: Cage;
+};
+
+export type ConfirmHotelRequest = {
+  cageId: string;
+};

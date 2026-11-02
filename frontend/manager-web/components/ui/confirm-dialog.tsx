@@ -6,6 +6,8 @@ import { Icon, type IconName } from "@/components/icons";
 
 type ConfirmDialogProps = {
   icon: IconName;
+  // warn: ngừng/tạm dừng (mặc định); danger: hủy, từ chối (UI demo, Frontend-Conventions mục 6).
+  tone?: "warn" | "danger";
   title: string;
   description: string;
   children?: ReactNode;
@@ -15,11 +17,17 @@ type ConfirmDialogProps = {
   onCancel: () => void;
 };
 
+const ICON_TONE_CLASS = {
+  warn: "bg-apricot-50 text-apricot-700",
+  danger: "bg-danger-50 text-danger",
+} as const;
+
 // Hộp thoại xác nhận hành động nguy hiểm (SA 6.6; Design-System 4.1): nút xác nhận danger-solid nêu đúng hậu quả,
 // nút còn lại là “Quay lại”. Dùng <dialog> modal; nút đầu chân hộp thoại nhận focus khi mở.
 // Chỉ đặt vào cây React khi cần mở.
 export function ConfirmDialog({
   icon,
+  tone = "warn",
   title,
   description,
   children,
@@ -57,7 +65,7 @@ export function ConfirmDialog({
       className="m-auto w-[480px] max-w-[calc(100%-32px)] animate-dialog-in rounded-2xl border-0 bg-white p-0 text-ink shadow-pop backdrop:bg-ink/40"
     >
       <div className="flex items-start gap-3.5 px-6 pt-6">
-        <span className="grid size-12 shrink-0 place-items-center rounded-xl bg-apricot-50 text-apricot-700">
+        <span className={`grid size-12 shrink-0 place-items-center rounded-xl ${ICON_TONE_CLASS[tone]}`}>
           <Icon name={icon} className="size-6" />
         </span>
         <div className="min-w-0">
