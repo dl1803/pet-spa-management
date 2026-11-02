@@ -11,6 +11,8 @@ namespace PetSpa.Infrastructure.Persistence;
 
 public static class DatabaseSeeder
 {
+    private const long SeederLockKey = 543210987654321L;
+
     public static async Task SeedDatabaseAsync(this IServiceProvider services, CancellationToken ct = default)
     {
         await using var scope = services.CreateAsyncScope();
@@ -19,10 +21,29 @@ public static class DatabaseSeeder
         var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
         var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseSeeder");
 
-        await SeedSizeRulesAsync(db, logger, ct);
-        await SeedWeightTolerancesAsync(db, logger, ct);
-        await SeedSystemConfigAsync(db, logger, ct);
-        await SeedManagerAsync(db, userManager, configuration, logger, ct);
+        var isPostgreSql = db.Database.ProviderName?.Contains("Npgsql", StringComparison.OrdinalIgnoreCase) == true;
+
+        if (isPostgreSql)
+        {
+            await db.Database.ExecuteSqlRawAsync($"SELECT pg_advisory_lock({SeederLockKey});", ct);
+        }
+
+        try
+        {
+            await db.Database.MigrateAsync(ct);
+
+            await SeedSizeRulesAsync(db, logger, ct);
+            await SeedWeightTolerancesAsync(db, logger, ct);
+            await SeedSystemConfigAsync(db, logger, ct);
+            await SeedManagerAsync(db, userManager, configuration, logger, ct);
+        }
+        finally
+        {
+            if (isPostgreSql)
+            {
+                await db.Database.ExecuteSqlRawAsync($"SELECT pg_advisory_unlock({SeederLockKey});", CancellationToken.None);
+            }
+        }
     }
 
     private static async Task SeedSizeRulesAsync(AppDbContext db, ILogger logger, CancellationToken ct)

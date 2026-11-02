@@ -132,7 +132,10 @@ static class DotEnv
             if (value.Length >= 2 && ((value.StartsWith('"') && value.EndsWith('"')) || (value.StartsWith('\'') && value.EndsWith('\''))))
                 value = value[1..^1];
 
-            Environment.SetEnvironmentVariable(key, value);
+            if (!string.IsNullOrEmpty(value) && Environment.GetEnvironmentVariable(key) is null)
+            {
+                Environment.SetEnvironmentVariable(key, value);
+            }
         }
     }
 }

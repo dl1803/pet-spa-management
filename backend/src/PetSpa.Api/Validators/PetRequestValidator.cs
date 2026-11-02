@@ -26,6 +26,7 @@ public sealed class PetRequestValidator : AbstractValidator<PetRequest>
         RuleFor(x => x.WeightKg)
             .NotNull().WithMessage("Cân nặng là bắt buộc.")
             .GreaterThan(0m).WithMessage("Cân nặng phải lớn hơn 0.")
+            .LessThan(1000m).WithMessage("Cân nặng phải nhỏ hơn 1000 kg.")
             .PrecisionScale(5, 2, true).WithMessage("Cân nặng tối đa 3 chữ số nguyên và 2 chữ số thập phân.");
 
         RuleFor(x => x.HeightCm)
@@ -36,6 +37,7 @@ public sealed class PetRequestValidator : AbstractValidator<PetRequest>
         {
             RuleFor(x => x.HeightCm)
                 .GreaterThan(0m).WithMessage("Chiều cao phải lớn hơn 0.")
+                .LessThan(10000m).WithMessage("Chiều cao phải nhỏ hơn 10000 cm.")
                 .PrecisionScale(5, 1, true).WithMessage("Chiều cao tối đa 4 chữ số nguyên và 1 chữ số thập phân.");
         });
 
@@ -43,4 +45,3 @@ public sealed class PetRequestValidator : AbstractValidator<PetRequest>
             .MaximumLength(255).WithMessage("Đặc điểm lông tối đa 255 ký tự.");
     }
 }
-

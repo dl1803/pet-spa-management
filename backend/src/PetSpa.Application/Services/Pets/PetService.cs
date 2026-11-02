@@ -60,6 +60,8 @@ public sealed class PetService(IPetRepository pets, IStaffRoleReader staffRoles)
         {
             case PetActor.Customer:
                 OwnershipGuard.EnsureOwner(user, found.OwnerUserId);
+                if (!found.Pet.IsActive)
+                    throw new BusinessException(ErrorCodes.NotFound);
                 break;
             case PetActor.SpaStaff:
                 if (!await pets.IsAssignedToStaffAsync(petId, user.UserId, ct))
@@ -84,7 +86,13 @@ public sealed class PetService(IPetRepository pets, IStaffRoleReader staffRoles)
         var found = await pets.FindWithOwnerAsync(petId, ct)
             ?? throw new BusinessException(ErrorCodes.NotFound);
 
+        if (!found.Pet.IsActive)
+            throw new BusinessException(ErrorCodes.NotFound);
+
         if (actor == PetActor.Customer) OwnershipGuard.EnsureOwner(user, found.OwnerUserId);
+
+        if (found.Pet.Species != input.Species && await pets.HasAppointmentsAsync(petId, ct))
+            throw new BusinessException(ErrorCodes.ValidationError, "Không thể thay đổi loài của thú cưng đã có lịch hẹn.");
 
         Apply(found.Pet, input);
         found.Pet.DetermineSizeGroup(await pets.GetSizeRulesAsync(found.Pet.Species, ct));
