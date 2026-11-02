@@ -123,3 +123,22 @@ export type Notification = {
   isRead: boolean;
   createdAt: string;
 };
+
+
+export type Role = "Customer" | "Staff" | "Manager";
+
+export type RegisterRequest = {
+  userName: string;
+  fullName: string;
+  password: string;
+  email?: string;
+};
+
+export type RegisterResponse = {
+  userId: string;
+};
+
+export type LoginRequest = {
+  userName: string;
+  password: string;
+};

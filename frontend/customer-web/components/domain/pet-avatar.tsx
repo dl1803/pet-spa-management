@@ -75,12 +75,17 @@ export function PetGlyph({ species, className }: { species: Species; className: 
   );
 }
 
-export function PetAvatar({ species }: { species: Species }) {
+const SIZE_CLASS = {
+  md: { box: "size-11 rounded-[14px]", glyph: "size-9" },
+  lg: { box: "size-[72px] rounded-[22px]", glyph: "size-[60px]" },
+} as const;
+
+export function PetAvatar({ species, size = "md" }: { species: Species; size?: keyof typeof SIZE_CLASS }) {
   return (
     <span
-      className={`grid size-11 shrink-0 place-items-center overflow-hidden rounded-[14px] ${BACKGROUND_CLASS[species]}`}
+      className={`grid shrink-0 place-items-center overflow-hidden ${SIZE_CLASS[size].box} ${BACKGROUND_CLASS[species]}`}
     >
-      <PetGlyph species={species} className="size-9" />
+      <PetGlyph species={species} className={SIZE_CLASS[size].glyph} />
     </span>
   );
 }

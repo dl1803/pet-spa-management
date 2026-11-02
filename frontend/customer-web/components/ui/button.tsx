@@ -24,10 +24,39 @@ function buttonClass({ variant = "primary", size = "md", block = false }: Button
   return `${baseClass} ${variantClass[variant]} ${sizeClass[size]} ${block ? "w-full" : ""}`;
 }
 
-type ButtonProps = ButtonStyleProps & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className">;
+type ButtonProps = ButtonStyleProps & { loading?: boolean } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className">;
 
-export function Button({ variant, size, block, type = "button", ...rest }: ButtonProps) {
-  return <button type={type} className={`${buttonClass({ variant, size, block })} cursor-pointer`} {...rest} />;
+export function Button({
+  variant,
+  size,
+  block,
+  type = "button",
+  loading = false,
+  disabled,
+  children,
+  ...rest
+}: ButtonProps) {
+  return (
+    <button
+      type={type}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      className={`${buttonClass({ variant, size, block })} ${loading ? "cursor-wait" : "cursor-pointer"}`}
+      {...rest}
+    >
+      {loading ? (
+        <>
+          <span
+            aria-hidden="true"
+            className="size-4 animate-spin rounded-full border-2 border-current/40 border-t-current"
+          />
+          Đang gửi…
+        </>
+      ) : (
+        children
+      )}
+    </button>
+  );
 }
 
 type ButtonLinkProps = ButtonStyleProps & Omit<ComponentProps<typeof Link>, "className">;
@@ -41,4 +70,3 @@ export function LinkButton(props: Omit<ComponentProps<typeof Link>, "className">
     <Link className="inline-flex items-center gap-1.5 text-xs font-semibold text-lagoon hover:text-lagoon-700" {...props} />
   );
 }
-
