@@ -29,6 +29,12 @@ public sealed class ServiceCatalogService(IServiceCatalogRepository repository)
         if (!updated) throw new BusinessException(ErrorCodes.NotFound);
     }
 
+    public async Task SetActiveAsync(Guid serviceId, bool isActive, CancellationToken ct = default)
+    {
+        if (!await repository.SetActiveAsync(serviceId, isActive, ct))
+            throw new BusinessException(ErrorCodes.NotFound);
+    }
+
     private async Task EnsureValidAsync(ServiceInput input, CancellationToken ct)
     {
         var slotTimes = await repository.GetSlotTimesAsync(ct);

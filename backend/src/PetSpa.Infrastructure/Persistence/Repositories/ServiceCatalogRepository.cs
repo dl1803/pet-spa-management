@@ -96,4 +96,13 @@ public sealed class ServiceCatalogRepository(AppDbContext db) : IServiceCatalogR
         await db.SaveChangesAsync(ct);
         return true;
     }
+
+    public async Task<bool> SetActiveAsync(Guid serviceId, bool isActive, CancellationToken ct = default)
+    {
+        var affected = await db.Set<Service>()
+            .Where(s => s.ServiceId == serviceId)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsActive, isActive), ct);
+
+        return affected > 0;
+    }
 }

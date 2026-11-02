@@ -35,4 +35,12 @@ public sealed class ServicesController(ServiceCatalogService catalog) : Controll
         await catalog.UpdateAsync(id, request.ToInput(), ct);
         return Ok();
     }
+
+    [HttpPatch("{id}/status")]
+    [Authorize(Policy = AuthorizationPolicies.Manager)]
+    public async Task<IActionResult> SetStatus(Guid id, ActiveToggleRequest request, CancellationToken ct)
+    {
+        await catalog.SetActiveAsync(id, request.IsActive!.Value, ct);
+        return NoContent();
+    }
 }
