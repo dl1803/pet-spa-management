@@ -19,4 +19,12 @@ public sealed class ServicesController(ServiceCatalogService catalog) : Controll
         var services = await catalog.ListAsync(User.ToCurrentUser(), species, sizeGroup, ct);
         return Ok(services.Select(ServiceResponse.From).ToList());
     }
+
+    [HttpPost]
+    [Authorize(Policy = AuthorizationPolicies.Manager)]
+    public async Task<IActionResult> Create(ServiceRequest request, CancellationToken ct)
+    {
+        var serviceId = await catalog.CreateAsync(request.ToInput(), ct);
+        return StatusCode(StatusCodes.Status201Created, new ServiceCreatedResponse(serviceId));
+    }
 }

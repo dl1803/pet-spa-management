@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using PetSpa.Application.Ports;
 using PetSpa.Domain.Entities;
@@ -33,4 +34,29 @@ public sealed class ServiceCatalogRepository(AppDbContext db) : IServiceCatalogR
 
         return result;
     }
+
+    public async Task AddAsync(Service service, IReadOnlyList<ServicePricing> pricing, CancellationToken ct = default)
+    {
+        db.Set<Service>().Add(service);
+        db.Set<ServicePricing>().AddRange(pricing);
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<TimeOnly>> GetSlotTimesAsync(CancellationToken ct = default)
+    {
+        var value = await db.Set<SystemConfig>().AsNoTracking()
+            .Where(c => c.ConfigKey == "Booking.SlotTimes")
+            .Select(c => c.ConfigValue)
+            .FirstOrDefaultAsync(ct);
+
+        if (value is null) throw new InvalidOperationException("Thiếu cấu hình Booking.SlotTimes.");
+
+        return value
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(t => TimeOnly.ParseExact(t, "HH:mm", CultureInfo.InvariantCulture))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<SizeRule>> GetSizeRulesAsync(CancellationToken ct = default) =>
+        await db.Set<SizeRule>().AsNoTracking().ToListAsync(ct);
 }
