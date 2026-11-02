@@ -9,7 +9,7 @@ public static class OwnershipGuard
     // Ngoài phạm vi -> 403 FORBIDDEN, không kèm thông tin về dữ liệu (mặc định từ chối).
     public static void EnsureOwner(CurrentUser user, Guid? ownerUserId)
     {
-        if (ownerUserId is null || ownerUserId.Value != user.UserId)
+        if (ownerUserId is null || user.UserId != ownerUserId.Value)
             throw new BusinessException(ErrorCodes.Forbidden);
     }
 }

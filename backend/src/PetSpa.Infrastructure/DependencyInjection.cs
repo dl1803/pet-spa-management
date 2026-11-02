@@ -88,6 +88,7 @@ public static class DependencyInjection
 
         services.AddScoped<IIdentityTokenService, IdentityTokenService>();
         services.AddScoped<IStaffRoleReader, StaffRoleReader>();
+        services.AddScoped<IPetRepository, PetRepository>();
         services.AddScoped<IStaffRepository, StaffRepository>();
 
         return services;

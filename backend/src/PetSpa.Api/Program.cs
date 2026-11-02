@@ -9,8 +9,11 @@ using PetSpa.Api.Security;
 using PetSpa.Application;
 using PetSpa.Domain.Exceptions;
 using PetSpa.Infrastructure;
+using PetSpa.Infrastructure.Persistence;
 using Serilog;
 using Serilog.Events;
+
+DotEnv.Load();
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -36,8 +39,8 @@ builder.Services.AddControllers(options =>
             throw new BusinessException(ErrorCodes.ValidationError, "Dữ liệu gửi lên không hợp lệ hoặc sai định dạng.");
     });
 
-builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddApplication();
+builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddPetSpaAuthorization();
 var allowedOrigins = (builder.Configuration["Cors:AllowedOrigins"] ?? string.Empty)
     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -73,6 +76,8 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
+await app.Services.SeedDatabaseAsync();
+
 app.UseForwardedHeaders();
 app.UseSerilogRequestLogging();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
@@ -91,3 +96,48 @@ app.UseRateLimiter();
 app.MapControllers();
 
 app.Run();
+
+static class DotEnv
+{
+    public static void Load()
+    {
+        static string? FindEnvFile(string startPath)
+        {
+            var dir = new DirectoryInfo(startPath);
+            while (dir is not null)
+            {
+                var atDir = Path.Combine(dir.FullName, ".env");
+                if (File.Exists(atDir)) return atDir;
+
+                var atBackend = Path.Combine(dir.FullName, "backend", ".env");
+                if (File.Exists(atBackend)) return atBackend;
+
+                dir = dir.Parent;
+            }
+            return null;
+        }
+
+        var envFile = FindEnvFile(Directory.GetCurrentDirectory()) ?? FindEnvFile(AppContext.BaseDirectory);
+        if (envFile is null) return;
+
+        foreach (var line in File.ReadAllLines(envFile))
+        {
+            var trimmed = line.Trim();
+            if (string.IsNullOrWhiteSpace(trimmed) || trimmed.StartsWith('#')) continue;
+
+            var separatorIndex = trimmed.IndexOf('=');
+            if (separatorIndex <= 0) continue;
+
+            var key = trimmed[..separatorIndex].Trim();
+            var value = trimmed[(separatorIndex + 1)..].Trim();
+
+            if (value.Length >= 2 && ((value.StartsWith('"') && value.EndsWith('"')) || (value.StartsWith('\'') && value.EndsWith('\''))))
+                value = value[1..^1];
+
+            if (!string.IsNullOrEmpty(value) && Environment.GetEnvironmentVariable(key) is null)
+            {
+                Environment.SetEnvironmentVariable(key, value);
+            }
+        }
+    }
+}
