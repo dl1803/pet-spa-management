@@ -1,7 +1,7 @@
 import type { ButtonHTMLAttributes } from "react";
 
 type ButtonProps = {
-  variant?: "primary" | "secondary" | "ghost" | "danger-solid";
+  variant?: "primary" | "secondary" | "ghost" | "danger" | "danger-solid";
   size?: "sm" | "md" | "lg";
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className">;
 
@@ -12,6 +12,8 @@ const variantClass = {
   primary: "border-transparent bg-lagoon text-white enabled:hover:bg-lagoon-700",
   secondary: "border-lagoon bg-white text-lagoon-700 enabled:hover:bg-lagoon-25",
   ghost: "border-transparent bg-transparent text-ink enabled:hover:bg-line-soft",
+  // Nút nguy hiểm ở thao tác chính của màn, như “Từ chối” (Design-System 4.1).
+  danger: "border-danger bg-white text-danger enabled:hover:bg-danger-50",
   // Nút xác nhận trong hộp thoại nguy hiểm (Design-System 4.1).
   "danger-solid": "border-transparent bg-danger text-white enabled:hover:bg-danger/90",
 } as const;

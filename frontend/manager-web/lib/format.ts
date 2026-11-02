@@ -34,3 +34,7 @@ export function formatShortDate(value: string) {
 export function formatTime(value: string) {
   return TIME_FORMAT.format(new Date(value));
 }
+
+export function formatAppointmentCode(appointmentId: string) {
+  return `LH-${appointmentId.slice(0, 8).toUpperCase()}`;
+}

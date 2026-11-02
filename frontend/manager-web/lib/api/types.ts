@@ -67,3 +67,7 @@ export type Cage = {
 export type HotelSuggestions = {
   cage: Cage;
 };
+
+export type ConfirmHotelRequest = {
+  cageId: string;
+};
