@@ -90,6 +90,7 @@ public static class DependencyInjection
         services.AddScoped<IStaffRoleReader, StaffRoleReader>();
         services.AddScoped<IPetRepository, PetRepository>();
         services.AddScoped<IStaffRepository, StaffRepository>();
+        services.AddScoped<IServiceCatalogRepository, ServiceCatalogRepository>();
 
         return services;
     }

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using PetSpa.Application.Services;
 using PetSpa.Application.Services.Pets;
 using PetSpa.Application.Services.StaffManagement;
 
@@ -10,6 +11,7 @@ public static class DependencyInjection
     {
         services.AddScoped<PetService>();
         services.AddScoped<StaffService>();
+        services.AddScoped<ServiceCatalogService>();
         return services;
     }
 }
