@@ -59,4 +59,41 @@ public sealed class ServiceCatalogRepository(AppDbContext db) : IServiceCatalogR
 
     public async Task<IReadOnlyList<SizeRule>> GetSizeRulesAsync(CancellationToken ct = default) =>
         await db.Set<SizeRule>().AsNoTracking().ToListAsync(ct);
+
+    public async Task<bool> UpdateAsync(
+        Service service, IReadOnlyList<ServicePricing> pricing, CancellationToken ct = default)
+    {
+        var existing = await db.Set<Service>().FirstOrDefaultAsync(s => s.ServiceId == service.ServiceId, ct);
+        if (existing is null) return false;
+
+        existing.Name = service.Name;
+        existing.Description = service.Description;
+        existing.LatestStartTime = service.LatestStartTime;
+
+        var currentRows = await db.Set<ServicePricing>()
+            .Where(p => p.ServiceId == service.ServiceId)
+            .ToListAsync(ct);
+
+        foreach (var row in currentRows)
+        {
+            var next = pricing.FirstOrDefault(p => p.Species == row.Species && p.SizeGroup == row.SizeGroup);
+            if (next is null)
+            {
+                db.Set<ServicePricing>().Remove(row);
+                continue;
+            }
+
+            row.Price = next.Price;
+            row.DurationMinutes = next.DurationMinutes;
+            row.StaffRequired = next.StaffRequired;
+        }
+
+        var newRows = pricing
+            .Where(p => !currentRows.Any(c => c.Species == p.Species && c.SizeGroup == p.SizeGroup))
+            .ToList();
+        db.Set<ServicePricing>().AddRange(newRows);
+
+        await db.SaveChangesAsync(ct);
+        return true;
+    }
 }

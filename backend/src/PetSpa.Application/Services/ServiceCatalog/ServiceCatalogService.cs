@@ -21,6 +21,14 @@ public sealed class ServiceCatalogService(IServiceCatalogRepository repository)
         return serviceId;
     }
 
+    public async Task UpdateAsync(Guid serviceId, ServiceInput input, CancellationToken ct = default)
+    {
+        await EnsureValidAsync(input, ct);
+
+        var updated = await repository.UpdateAsync(ToService(serviceId, input), ToPricing(serviceId, input), ct);
+        if (!updated) throw new BusinessException(ErrorCodes.NotFound);
+    }
+
     private async Task EnsureValidAsync(ServiceInput input, CancellationToken ct)
     {
         var slotTimes = await repository.GetSlotTimesAsync(ct);
