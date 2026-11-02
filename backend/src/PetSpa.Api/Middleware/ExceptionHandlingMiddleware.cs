@@ -1,6 +1,7 @@
 using System.Text.Json;
 using FluentValidation;
 using PetSpa.Api.Dtos;
+using PetSpa.Application.Security;
 using PetSpa.Domain.Exceptions;
 
 namespace PetSpa.Api.Middleware;
@@ -39,6 +40,10 @@ public sealed class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Ex
             logger.LogError(exception, "Lỗi hệ thống tại {Method} {Path}", context.Request.Method, context.Request.Path);
             error = ErrorCatalog.Internal();
         }
+        else if (error.Code is ErrorCodes.Unauthenticated or ErrorCodes.Forbidden)
+        {
+            LogSecurityEvent(context, error);
+        }
         else
         {
             logger.LogWarning("Lỗi {ErrorCode} tại {Method} {Path}", error.Code, context.Request.Method, context.Request.Path);
@@ -48,8 +53,18 @@ public sealed class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Ex
         await context.Response.WriteAsJsonAsync(error, (JsonSerializerOptions?)null, "application/problem+json");
     }
 
+    private void LogSecurityEvent(HttpContext context, ErrorResponse error)
+    {
+        var userId = context.User.FindFirst(TokenClaims.UserId)?.Value ?? "anonymous";
+        var role = context.User.FindFirst(TokenClaims.Role)?.Value ?? "none";
+        var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        logger.LogWarning(
+            "Sự kiện bảo mật: request bị từ chối {ErrorCode} tại {Method} {Path}, người dùng {UserId}, vai trò {Role}, IP {ClientIp}",
+            error.Code, context.Request.Method, context.Request.Path, userId, role, clientIp);
+    }
+
     // Gộp thông báo của các rule không đạt thành một câu cho trường detail.
     private static string JoinMessages(ValidationException exception) =>
         string.Join(" ", exception.Errors.Select(failure => failure.ErrorMessage).Distinct());
 }
-
