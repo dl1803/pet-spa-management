@@ -59,6 +59,11 @@ export function formatAppointmentCode(appointmentId: string) {
   return `LH-${appointmentId.slice(0, 8).toUpperCase()}`;
 }
 
+// Chỉ để hiển thị: “0903412678” → “0903 412 678”; API vẫn nhận dạng liền.
+export function formatPhone(value: string) {
+  return /^\d{10}$/.test(value) ? `${value.slice(0, 4)} ${value.slice(4, 7)} ${value.slice(7)}` : value;
+}
+
 export function formatNameList(names: string[]) {
   if (names.length <= 1) return names.join("");
   return `${names.slice(0, -1).join(", ")} và ${names[names.length - 1]}`;

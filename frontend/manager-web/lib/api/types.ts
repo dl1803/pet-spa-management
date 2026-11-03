@@ -71,3 +71,29 @@ export type HotelSuggestions = {
 export type ConfirmHotelRequest = {
   cageId: string;
 };
+
+export type StaffRole = "Receptionist" | "SpaStaff";
+
+export type Staff = {
+  staffId: string;
+  // Số điện thoại, dùng làm tên đăng nhập.
+  userName: string;
+  fullName: string;
+  staffRole: StaffRole;
+  isActive: boolean;
+};
+
+export type StaffCreateRequest = {
+  // Số điện thoại, tối đa 20 ký tự.
+  userName: string;
+  // Tối đa 150 ký tự.
+  fullName: string;
+  staffRole: StaffRole;
+  password: string;
+};
+
+export type StaffUpdateRequest = {
+  // Tối đa 150 ký tự.
+  fullName: string;
+  staffRole: StaffRole;
+};
