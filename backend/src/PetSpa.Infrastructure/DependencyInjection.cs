@@ -91,6 +91,7 @@ public static class DependencyInjection
         services.AddScoped<IPetRepository, PetRepository>();
         services.AddScoped<IStaffRepository, StaffRepository>();
         services.AddScoped<IServiceCatalogRepository, ServiceCatalogRepository>();
+        services.AddScoped<IConcurrencyGuard, PostgresConcurrencyGuard>();
 
         return services;
     }
