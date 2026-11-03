@@ -12,6 +12,8 @@ export const FORM_MESSAGES = {
   phoneInvalid: "Số điện thoại chưa đúng định dạng.",
   staffRoleRequired: "Vui lòng chọn vai trò nhân viên (lễ tân hoặc nhân viên spa).",
   passwordRequired: "Vui lòng nhập mật khẩu.",
+  // 409 DUPLICATE_CONTACT hiện dưới ô số điện thoại (Frontend-Conventions 5.2, UI-Screens MW-08·D1).
+  phoneDuplicate: "Thông tin liên hệ này đã được sử dụng.",
 } as const;
 
 // Số điện thoại: 10 chữ số, bắt đầu bằng 0, sau khi bỏ khoảng trắng, dấu chấm, gạch ngang (Frontend-Conventions 4.2).
@@ -57,8 +59,10 @@ export function validateStaffRole(value: StaffRole | ""): true | string {
 }
 
 // Độ mạnh mật khẩu do backend kiểm tra (Frontend-Conventions 4.2); web chỉ yêu cầu đã nhập.
+// Chuỗi toàn khoảng trắng coi như chưa nhập (backend NotEmpty cũng từ chối). Chỉ dùng trim để KIỂM TRA:
+// mật khẩu gửi đi vẫn giữ nguyên, vì khoảng trắng đầu/cuối có thể là một phần của mật khẩu.
 export function validatePassword(value: string): true | string {
-  return value !== "" || FORM_MESSAGES.passwordRequired;
+  return value.trim() !== "" || FORM_MESSAGES.passwordRequired;
 }
 
 // Form đã qua kiểm tra thì staffRole khác "". Không âm thầm đặt vai trò mặc định: chọn nhầm vai trò là lỗi phân quyền.

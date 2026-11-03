@@ -13,7 +13,7 @@ import { DeactivateStaffDialog } from "../components/deactivate-staff-dialog";
 import { StaffForm } from "../components/staff-form";
 import { StaffTable } from "../components/staff-table";
 import { countStaff, filterStaff, parseStaffFilter, STAFF_FILTERS, type StaffFilter } from "../list";
-import { MOCK_STAFF, buildMockStaff } from "../mock-data";
+import { MOCK_STAFF, createMockStaff, deactivateMockStaff, updateMockStaff } from "../mock-data";
 
 type DrawerState = { mode: "create" } | { mode: "edit"; staff: Staff } | null;
 
@@ -36,16 +36,17 @@ export function StaffScreen() {
 
   function handleCreate(request: StaffCreateRequest) {
     // Chạy trong sự kiện, không chạy lúc render (Cache Components không cho giá trị ngẫu nhiên khi render).
-    const created = buildMockStaff(request, crypto.randomUUID());
-    setStaff((current) => [...current, created]);
+    // Trùng số điện thoại thì createMockStaff ném ApiError 409 DUPLICATE_CONTACT như API thật; StaffForm bắt lỗi và
+    // hiện dưới ô số điện thoại, ngăn kéo vẫn mở, dòng bên dưới không chạy.
+    setStaff(createMockStaff(staff, request, crypto.randomUUID()));
     setDrawer(null);
-    showSuccess(`Đã tạo tài khoản cho ${created.fullName}`);
+    showSuccess(`Đã tạo tài khoản cho ${request.fullName}`);
   }
 
   function handleUpdate(request: StaffUpdateRequest) {
     if (drawer?.mode !== "edit") return;
     const { staffId } = drawer.staff;
-    setStaff((current) => current.map((item) => (item.staffId === staffId ? { ...item, ...request } : item)));
+    setStaff((current) => updateMockStaff(current, staffId, request));
     setDrawer(null);
     showSuccess(`Đã lưu thông tin ${request.fullName}`);
   }
@@ -53,7 +54,7 @@ export function StaffScreen() {
   function handleConfirmDeactivate() {
     if (!deactivating) return;
     const { staffId, fullName } = deactivating;
-    setStaff((current) => current.map((item) => (item.staffId === staffId ? { ...item, isActive: false } : item)));
+    setStaff((current) => deactivateMockStaff(current, staffId));
     setDeactivating(null);
     showSuccess(`Đã vô hiệu hóa ${fullName}.`);
   }

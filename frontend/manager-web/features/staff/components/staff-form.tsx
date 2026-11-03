@@ -1,12 +1,15 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
+import { ErrorAlert } from "@/components/feedback/error-alert";
 import { Button } from "@/components/ui/button";
 import { Field, describedBy } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { toApiError } from "@/lib/api/errors";
 import type { Staff, StaffCreateRequest, StaffUpdateRequest } from "@/lib/api/types";
 import {
+  FORM_MESSAGES,
   createStaffFormValues,
   toStaffCreateRequest,
   toStaffUpdateRequest,
@@ -21,7 +24,8 @@ import { StaffRoleField } from "./staff-role-field";
 type StaffFormProps = {
   // Có staff → sửa; không có → thêm mới.
   staff?: Staff;
-  onCreate: (request: StaffCreateRequest) => void;
+  // Có thể ném (hoặc từ chối Promise) ApiError: 409 DUPLICATE_CONTACT hiện dưới ô số điện thoại, lỗi khác hiện ở đầu form.
+  onCreate: (request: StaffCreateRequest) => void | Promise<void>;
   onUpdate: (request: StaffUpdateRequest) => void;
   onCancel: () => void;
 };
@@ -34,24 +38,43 @@ export function StaffForm({ staff, onCreate, onUpdate, onCancel }: StaffFormProp
     register,
     control,
     handleSubmit,
+    setError,
     formState: { errors },
   } = useForm<StaffFormValues>({
     defaultValues: createStaffFormValues(staff),
     mode: "onTouched",
   });
 
+  // Lỗi gửi không gắn với một ô (Frontend-Conventions 4.1, 5.1): hiện bằng ErrorAlert đầu form.
+  const [submitError, setSubmitError] = useState<unknown>(null);
+
   const fullNameId = `${id}-full-name`;
   const phoneId = `${id}-phone`;
   const passwordId = `${id}-password`;
 
-  function submit(values: StaffFormValues) {
-    if (isEdit) onUpdate(toStaffUpdateRequest(values));
-    else onCreate(toStaffCreateRequest(values));
+  async function submit(values: StaffFormValues) {
+    setSubmitError(null);
+    if (isEdit) {
+      onUpdate(toStaffUpdateRequest(values));
+      return;
+    }
+    try {
+      await onCreate(toStaffCreateRequest(values));
+    } catch (error) {
+      // Lỗi gắn với một trường → setError; giữ nguyên dữ liệu đã nhập (Frontend-Conventions 4.1).
+      if (toApiError(error).code === "DUPLICATE_CONTACT") {
+        setError("phone", { type: "server", message: FORM_MESSAGES.phoneDuplicate }, { shouldFocus: true });
+      } else {
+        setSubmitError(error);
+      }
+    }
   }
 
   return (
     <form noValidate onSubmit={handleSubmit(submit)} className="flex min-h-0 grow flex-col">
       <div className="flex grow flex-col gap-5 overflow-y-auto px-6 py-5">
+        <ErrorAlert error={submitError} />
+
         <Field id={fullNameId} label="Họ tên" required error={errors.fullName?.message}>
           <Input
             id={fullNameId}

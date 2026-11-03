@@ -76,6 +76,12 @@ test("họ tên, vai trò, mật khẩu: bắt buộc; họ tên tối đa 150 k
   assert.equal(validatePassword(" x "), true);
 });
 
+test("mật khẩu toàn khoảng trắng coi như chưa nhập; độ mạnh vẫn do backend kiểm tra", () => {
+  for (const blank of ["   ", " ", "\t", " \n "]) assert.equal(validatePassword(blank), FORM_MESSAGES.passwordRequired, JSON.stringify(blank));
+  // Không có luật độ dài ở web (Frontend-Conventions 4.2): mật khẩu ngắn vẫn qua, backend/Identity sẽ trả lỗi.
+  assert.equal(validatePassword("a"), true);
+});
+
 test("form thêm mới trống, chưa chọn vai trò; form sửa lấy dữ liệu hiện có và không mang mật khẩu", () => {
   assert.deepEqual(createStaffFormValues(), { fullName: "", phone: "", staffRole: "", password: "" });
   assert.deepEqual(createStaffFormValues(MOCK_STAFF[4]), {

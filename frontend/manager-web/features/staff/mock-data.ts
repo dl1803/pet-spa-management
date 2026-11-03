@@ -1,4 +1,6 @@
-import type { Staff, StaffCreateRequest } from "@/lib/api/types";
+import { ApiError } from "@/lib/api/errors";
+import type { Staff, StaffCreateRequest, StaffUpdateRequest } from "@/lib/api/types";
+import { FORM_MESSAGES, normalizePhone } from "./forms";
 
 // Dữ liệu mô phỏng theo UI demo (MW-08), đúng hình dạng Staff của GET /staff (chưa có ngày tạo).
 // Thay bằng dữ liệu API thật khi nối backend.
@@ -22,4 +24,28 @@ export function buildMockStaff(request: StaffCreateRequest, staffId: string): St
     staffRole: request.staffRole,
     isActive: true,
   };
+}
+
+// Mô phỏng POST /staff. Số điện thoại là tên đăng nhập duy nhất (X-02): đã có thì API trả 409 DUPLICATE_CONTACT
+// (openapi createStaff). Hàm ném ApiError giống hệt API thật để StaffForm xử lý một cách duy nhất khi nối backend.
+// So với MỌI tài khoản, kể cả đã vô hiệu hóa, vì tài khoản vô hiệu hóa vẫn giữ tên đăng nhập.
+// Mô phỏng này chỉ thấy danh sách nhân viên; backend còn kiểm tra cả số điện thoại của khách hàng.
+export function createMockStaff(current: Staff[], request: StaffCreateRequest, staffId: string): Staff[] {
+  const userName = normalizePhone(request.userName);
+  if (current.some((item) => item.userName === userName)) {
+    throw new ApiError({ kind: "http", status: 409, code: "DUPLICATE_CONTACT", title: FORM_MESSAGES.phoneDuplicate });
+  }
+  return [...current, buildMockStaff({ ...request, userName }, staffId)];
+}
+
+// Mô phỏng PUT /staff/{id}: chỉ đổi họ tên và vai trò, giữ nguyên số điện thoại và trạng thái.
+export function updateMockStaff(current: Staff[], staffId: string, request: StaffUpdateRequest): Staff[] {
+  return current.map((item) =>
+    item.staffId === staffId ? { ...item, fullName: request.fullName, staffRole: request.staffRole } : item,
+  );
+}
+
+// Mô phỏng POST /staff/{id}/deactivate: IsActive = false, người đó vẫn nằm trong danh sách.
+export function deactivateMockStaff(current: Staff[], staffId: string): Staff[] {
+  return current.map((item) => (item.staffId === staffId ? { ...item, isActive: false } : item));
 }
