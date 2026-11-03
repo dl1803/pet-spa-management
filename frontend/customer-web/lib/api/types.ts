@@ -170,3 +170,18 @@ export type HotelSuggestions = {
 export type ConfirmHotelRequest = {
   cageId: string;
 };
+
+export type Me = {
+  userId: string;
+  userName: string;
+  role: Role;
+  fullName?: string | null;
+  phone?: string | null;
+  email?: string | null;
+};
+
+export type UpdateMeRequest = {
+  fullName?: string;
+  phone?: string;
+  email?: string;
+};
