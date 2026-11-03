@@ -1,10 +1,11 @@
 type AvatarProps = {
   name: string;
-  tone: "teal";
+  tone: "teal" | "apricot";
 };
 
 const TONE_CLASS = {
   teal: "bg-lagoon-50 text-lagoon-700",
+  apricot: "bg-apricot-100 text-apricot-700",
 } as const;
 
 // Chữ cái đầu của họ và tên cuối, theo UI demo: “Lê Minh Tâm” → “LT”.

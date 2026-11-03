@@ -6,12 +6,19 @@ import { Icon } from "@/components/icons";
 type DrawerProps = {
   title: string;
   onClose: () => void;
+  // wide 640px (mặc định); narrow 520px cho form ngắn (Design-System 4.1).
+  size?: "wide" | "narrow";
   children: ReactNode;
 };
 
-// Ngăn kéo phải 640px (Design-System 4.1). Dùng <dialog> modal: trình duyệt khóa nền và giữ focus trong ngăn kéo;
+const SIZE_CLASS = {
+  wide: "w-[640px]",
+  narrow: "w-[520px]",
+} as const;
+
+// Ngăn kéo phải 640px, hoặc 520px cho form ngắn (Design-System 4.1). Dùng <dialog> modal: trình duyệt khóa nền và giữ focus trong ngăn kéo;
 // khi gỡ khỏi cây, thành phần tự trả focus về nút đã mở. Chỉ đặt vào cây React khi cần mở; gỡ khỏi cây thì đóng.
-export function Drawer({ title, onClose, children }: DrawerProps) {
+export function Drawer({ title, onClose, size = "wide", children }: DrawerProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
@@ -40,7 +47,7 @@ export function Drawer({ title, onClose, children }: DrawerProps) {
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
-      className="m-0 ml-auto h-dvh max-h-none w-[640px] max-w-full animate-drawer-in border-0 bg-white p-0 text-ink shadow-pop open:flex open:flex-col backdrop:bg-ink/40"
+      className={`m-0 ml-auto h-dvh max-h-none ${SIZE_CLASS[size]} max-w-full animate-drawer-in border-0 bg-white p-0 text-ink shadow-pop open:flex open:flex-col backdrop:bg-ink/40`}
     >
       <div className="flex shrink-0 items-center gap-3 border-b border-line px-6 py-4">
         <h2 id={titleId} className="grow break-words">{title}</h2>
