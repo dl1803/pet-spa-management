@@ -26,6 +26,8 @@ type SpaBookingSlotStepProps = {
   slotError?: string;
   /** Mốc giờ có thời điểm bắt đầu muộn nhất sớm nhất trong các dịch vụ đã chọn. */
   latestStart: { name: string; time: string } | null;
+  /** Lỗi 409 SLOT_FULL của lần gửi trước; hiện đầu thẻ chọn khung giờ. */
+  notice?: unknown;
 };
 
 export function SpaBookingSlotStep({
@@ -40,6 +42,7 @@ export function SpaBookingSlotStep({
   onRetry,
   slotError,
   latestStart,
+  notice,
 }: SpaBookingSlotStepProps) {
   const hasAvailableSlot = slots?.slots.some((slot) => slot.status === "Available") ?? false;
 
@@ -55,6 +58,7 @@ export function SpaBookingSlotStep({
       <Card>
         <CardHeader title={`Chọn khung giờ, ${formatWeekday(date)} ${formatShortDate(date)}`} />
         <CardBody>
+          {notice ? <ErrorAlert error={notice} className="mb-4" /> : null}
           {loadError ? (
             <div>
               <ErrorAlert error={loadError} />

@@ -23,6 +23,8 @@ import {
   getBookingDates,
   getInitialPetId,
   getLatestStart,
+  isBookingLockedError,
+  isSlotFullError,
   keepApplicableServiceIds,
   parseBookingStep,
   SERVICE_REQUIRED_MESSAGE,
@@ -51,6 +53,7 @@ export function SpaBookingScreen() {
   const queryClient = useQueryClient();
   const { showSuccess } = useToast();
   const [todayKey] = useState(() => getStoreDateKey(new Date()));
+  const [isBookingLocked, setIsBookingLocked] = useState(false);
   const dates = getBookingDates(todayKey);
 
   const {
@@ -112,7 +115,20 @@ export function SpaBookingScreen() {
       await queryClient.invalidateQueries({ queryKey: SPA_SLOTS_QUERY_KEY });
       router.push(ROUTES.appointments);
     },
+    onError: (failure) => {
+      if (isSlotFullError(failure)) {
+        void queryClient.invalidateQueries({ queryKey: SPA_SLOTS_QUERY_KEY });
+        router.replace(withQuery(ROUTES.spaBooking, { step: 2 }));
+        return;
+      }
+      if (isBookingLockedError(failure)) setIsBookingLocked(true);
+    },
   });
+
+  const isSlotFull = submitError !== null && isSlotFullError(submitError);
+  // Lỗi kín mốc và bị khóa có chỗ hiển thị riêng; lỗi còn lại hiện chung trên nút gửi.
+  const generalError =
+    submitError !== null && !isSlotFull && !isBookingLockedError(submitError) ? submitError : null;
 
   function goToStep(next: BookingStep, mode: "push" | "replace" = "push") {
     const href = withQuery(ROUTES.spaBooking, { step: next === 1 ? null : next });
@@ -306,6 +322,7 @@ export function SpaBookingScreen() {
                 onRetry={() => void slotsQuery.refetch()}
                 slotError={errors.slotTime?.message}
                 latestStart={getLatestStart(selected)}
+                notice={isSlotFull ? submitError : null}
               />
             )}
 
@@ -316,6 +333,7 @@ export function SpaBookingScreen() {
                 timeText={`${formatLongDate(date)}, ${formatSlotRange(slotTime, durationMinutes)}`}
                 staffRequired={staffRequired}
                 totalPrice={summary.totalPrice}
+                isLocked={isBookingLocked}
               />
             )}
           </div>
@@ -328,7 +346,8 @@ export function SpaBookingScreen() {
             staffRequired={staffRequired}
             timeText={timeText}
             isSubmitting={isPending}
-            submitError={submitError}
+            submitError={generalError}
+            isLocked={isBookingLocked}
             onBack={handleBack}
           />
         </div>

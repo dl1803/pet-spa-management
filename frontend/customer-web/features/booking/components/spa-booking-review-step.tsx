@@ -1,9 +1,11 @@
 import { PetAvatar } from "@/components/domain/pet-avatar";
+import { Alert } from "@/components/feedback/alert";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import type { ApplicableService } from "@/features/booking/forms";
 import type { Pet } from "@/lib/api/types";
 import { formatMoney, formatWeight, lowerFirst } from "@/lib/format";
 import { SIZE_GROUP_LABELS, SPECIES_LABELS, TEMPERAMENT_LABELS } from "@/lib/labels";
+import { STORE_HOTLINE } from "@/lib/store-info";
 
 // Giờ cụ thể phụ thuộc cấu hình của quản lý nên dùng câu chung.
 const BOOKING_NOTES = [
@@ -20,6 +22,7 @@ type SpaBookingReviewStepProps = {
   timeText: string;
   staffRequired: number;
   totalPrice: number;
+  isLocked: boolean;
 };
 
 function ReviewRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -31,9 +34,22 @@ function ReviewRow({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
-export function SpaBookingReviewStep({ pet, selected, timeText, staffRequired, totalPrice }: SpaBookingReviewStepProps) {
+export function SpaBookingReviewStep({
+  pet,
+  selected,
+  timeText,
+  staffRequired,
+  totalPrice,
+  isLocked,
+}: SpaBookingReviewStepProps) {
   return (
     <>
+      {isLocked && (
+        <Alert tone="danger" icon="lock" title="Tài khoản tạm thời không thể tự đặt lịch">
+          Bạn đã vắng mặt quá 3 lần trong 30 ngày gần đây. Vui lòng liên hệ cửa hàng qua hotline{" "}
+          <strong>{STORE_HOTLINE}</strong> để được hỗ trợ đặt lịch.
+        </Alert>
+      )}
       <Card>
         <CardHeader title="Kiểm tra lại lịch hẹn" />
         <CardBody>

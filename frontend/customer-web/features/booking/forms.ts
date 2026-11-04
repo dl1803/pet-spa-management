@@ -1,3 +1,4 @@
+import { toApiError } from "@/lib/api/errors";
 import type { Pet, PricingRow, Service, SpaBookingRequest } from "@/lib/api/types";
 import { addDaysToDateKey, buildStoreDateTime } from "@/lib/time";
 
@@ -102,3 +103,14 @@ export function toSpaBookingRequest(values: SpaBookingFormValues): SpaBookingReq
     slotStart: buildStoreDateTime(values.date, values.slotTime),
   };
 }
+
+export function isSlotFullError(error: unknown) {
+  const { status, code } = toApiError(error);
+  return status === 409 && code === "SLOT_FULL";
+}
+
+export function isBookingLockedError(error: unknown) {
+  const { status, code } = toApiError(error);
+  return status === 403 && code === "BOOKING_LOCKED";
+}
+

@@ -2,12 +2,15 @@ import { PetAvatar } from "@/components/domain/pet-avatar";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { SumLine, SumTotal, SummaryCard } from "@/components/domain/summary-card";
 import { ErrorAlert } from "@/components/feedback/error-alert";
+import { Icon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Tag } from "@/components/ui/tag";
 import { summarizeSelection, type ApplicableService, type BookingStep } from "@/features/booking/forms";
 import type { Pet } from "@/lib/api/types";
 import { formatWeight } from "@/lib/format";
 import { SIZE_GROUP_LABELS, SPECIES_LABELS } from "@/lib/labels";
+
+const LOCK_REASON_ID = "spa-booking-lock-reason";
 
 type SpaBookingSummaryProps = {
   pet: Pet;
@@ -20,6 +23,7 @@ type SpaBookingSummaryProps = {
   timeText: string | null;
   isSubmitting: boolean;
   submitError: unknown;
+  isLocked: boolean;
   onBack: () => void;
 };
 
@@ -41,6 +45,7 @@ export function SpaBookingSummary({
   timeText,
   isSubmitting,
   submitError,
+  isLocked,
   onBack,
 }: SpaBookingSummaryProps) {
   const { totalPrice } = summarizeSelection(pet, selected);
@@ -68,15 +73,30 @@ export function SpaBookingSummary({
           )}
           {step === 3 && (
             <>
-              <Button type="submit" size="lg" block loading={isSubmitting}>
+              <Button
+                type="submit"
+                size="lg"
+                block
+                loading={isSubmitting}
+                disabled={isLocked}
+                aria-describedby={isLocked ? LOCK_REASON_ID : undefined}
+              >
                 Gửi yêu cầu đặt lịch
               </Button>
+              {isLocked && (
+                <p id={LOCK_REASON_ID} className="flex items-start gap-1.5 text-xs text-muted">
+                  <Icon name="lock" className="mt-px size-3.5" />
+                  Tài khoản tạm thời không thể tự đặt lịch, vui lòng liên hệ cửa hàng qua hotline.
+                </p>
+              )}
               <Button variant="ghost" block onClick={onBack} disabled={isSubmitting}>
                 Quay lại
               </Button>
-              <p className="text-center text-xs text-muted">
-                Lịch hẹn ở trạng thái <StatusBadge status="Pending" /> cho đến khi cửa hàng xác nhận.
-              </p>
+              {!isLocked && (
+                <p className="text-center text-xs text-muted">
+                  Lịch hẹn ở trạng thái <StatusBadge status="Pending" /> cho đến khi cửa hàng xác nhận.
+                </p>
+              )}
             </>
           )}
         </>
