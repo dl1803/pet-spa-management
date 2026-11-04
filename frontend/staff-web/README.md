@@ -14,8 +14,22 @@ Mở http://localhost:3001. Trang gốc chỉ giới thiệu ứng dụng; chưa
 Dừng server bằng Ctrl+C trong terminal đã khởi chạy.
 
 Ứng dụng dùng Be Vietnam Pro và token màu chung với Web Khách hàng, Web Quản lý (`app/globals.css`).
+Lễ tân và Nhân viên spa dùng chung một khung: thanh trên nền `lagoon-700` cao 64px, nội dung tối đa 1320px.
+Dưới 980px menu cuộn ngang được; dưới 640px menu chỉ còn biểu tượng (nhãn vẫn có cho trình đọc màn hình).
+Liên kết “Đến nội dung chính” hỗ trợ bàn phím.
 
-- `components/icons.tsx`: biểu tượng SVG theo UI demo.
+Menu hiển thị theo vai trò: Lễ tân có Lịch hẹn, Tiếp nhận, Trả thú cưng, Khách hàng, Đặt lịch thay, Chuồng,
+Thanh toán; Nhân viên spa có Lịch hẹn, Lịch sử công việc, Dịch vụ và nút Thông báo. Menu tài khoản có Hồ sơ cá nhân,
+Danh mục dịch vụ (chỉ Lễ tân) và Đăng xuất. Chưa có phiên đăng nhập nên `(main)/layout.tsx` truyền `role={null}`:
+khung chỉ hiện logo và khối “Chưa đăng nhập”, chưa hiện mục menu nào. Khi có phiên, truyền vai trò thật vào `SiteHeader`.
+Mọi mục chưa có trang đích bị vô hiệu hóa, có mô tả “Chức năng chưa khả dụng”; bật `available` trong
+`components/layout/header-nav.tsx` khi trang đích đã có. Nút Đăng xuất bị vô hiệu hóa cho tới khi có phiên đăng nhập.
+
+- `app/(main)`: layout có thanh trên và trang giới thiệu.
+- `components/layout`: thanh trên, menu theo vai trò, menu tài khoản; phần đọc đường dẫn nằm trong `Suspense`.
+- `components/icons.tsx`: biểu tượng SVG và logo theo UI demo.
+- `lib/routes.ts`: đường dẫn các màn của Web Nhân viên.
+- `lib/api/types.ts`, `lib/labels.ts`: vai trò nhân viên (`Receptionist`, `SpaStaff`) và nhãn tiếng Việt.
 - `lib/api`: Axios client và chuẩn hóa lỗi thành `ApiError`; đủ 25 mã lỗi, cùng nội dung với Web Quản lý.
 - `app/providers.tsx`, `lib/query-client.ts`: Query Provider và cấu hình retry; cache server tách riêng, trình duyệt giữ cùng client.
 - `components/feedback`: lỗi nội tuyến, lỗi trường, trạng thái không có quyền và toast.
@@ -59,12 +73,16 @@ npm run start -- --port 3001
 Trong terminal khác, kiểm tra trang gốc của server đang chạy:
 
 ```powershell
-node --input-type=module -e 'import assert from "node:assert/strict"; const r = await fetch("http://localhost:3001"); assert.equal(r.status, 200); assert.match(await r.text(), /Web Nhân viên/); console.log("HTTP smoke test PASS");'
+npm run test:smoke
 ```
 
-`npm test` chạy test infrastructure với HTTP stub tự khởi động và tự dừng trong tiến trình test.
-Lệnh này không cần backend, Next.js server hoặc source ngoài thư mục app. Loader ESM của Node
-biên dịch TypeScript/TSX trong bộ nhớ bằng dependency TypeScript đã có, không sinh file build cho test.
+`npm test` chạy test infrastructure với HTTP stub tự khởi động và tự dừng trong tiến trình test, cùng test
+menu theo vai trò của `HeaderNav`. Lệnh này không cần backend, Next.js server hoặc source ngoài thư mục app.
+Loader ESM của Node biên dịch TypeScript/TSX trong bộ nhớ bằng dependency TypeScript đã có, không sinh file build cho test.
+
+`npm run test:smoke` kiểm tra trang gốc, khối “Chưa đăng nhập”, liên kết không dẫn tới 404, icon và đường dẫn
+không tồn tại; cần production server đang chạy như hướng dẫn trên. Mặc định dùng
+`http://127.0.0.1:3001`; đặt biến `SMOKE_BASE_URL` để kiểm tra server ở địa chỉ khác.
 Các test này không xác nhận backend thật hay đăng nhập thật.
 
 Build cần truy cập Google Fonts để tải Be Vietnam Pro.

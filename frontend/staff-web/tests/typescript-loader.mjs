@@ -16,6 +16,8 @@ export async function resolve(specifier, context, nextResolve) {
       if (existsSync(candidate)) return nextResolve(candidate.href, context);
     }
   }
+  // Node ESM không tự thêm đuôi .js cho đường dẫn con của gói CommonJS như next/link.
+  if (/^next\/[^.]+$/.test(specifier)) return nextResolve(`${specifier}.js`, context);
   return nextResolve(alias ? url.href : specifier, context);
 }
 
