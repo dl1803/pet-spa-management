@@ -67,3 +67,17 @@ export function formatNameList(names: string[]) {
 export function lowerFirst(text: string) {
   return text.charAt(0).toLocaleLowerCase("vi-VN") + text.slice(1);
 }
+
+const WEEKDAY_SHORT_LABELS = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"] as const;
+
+// Nhãn thứ viết tắt của dải ngày: "T3", "CN".
+export function formatWeekdayShort(value: string) {
+  return WEEKDAY_SHORT_LABELS[new Date(`${getStoreDateKey(value)}T00:00:00Z`).getUTCDay()];
+}
+
+// Ngày đầy đủ cho tiêu đề, chi tiết: "Thứ ba 06/10/2026".
+export function formatLongDate(value: string) {
+  const weekday = formatWeekday(value);
+  return `${weekday.charAt(0).toLocaleUpperCase("vi-VN")}${weekday.slice(1)} ${formatDate(value)}`;
+}
+
