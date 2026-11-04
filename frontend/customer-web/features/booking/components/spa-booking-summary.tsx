@@ -1,27 +1,105 @@
 import { PetAvatar } from "@/components/domain/pet-avatar";
+import { StatusBadge } from "@/components/domain/status-badge";
 import { SumLine, SumTotal, SummaryCard } from "@/components/domain/summary-card";
+import { ErrorAlert } from "@/components/feedback/error-alert";
+import { Icon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Tag } from "@/components/ui/tag";
+import type { ApplicableService, BookingStep } from "@/features/booking/forms";
 import type { Pet } from "@/lib/api/types";
 import { formatWeight } from "@/lib/format";
 import { SIZE_GROUP_LABELS, SPECIES_LABELS } from "@/lib/labels";
-import { summarizeSelection, type ApplicableService } from "@/features/booking/forms";
+
+const LOCK_REASON_ID = "spa-booking-lock-reason";
 
 type SpaBookingSummaryProps = {
   pet: Pet;
   selected: ApplicableService[];
+  step: BookingStep;
+  /** Bước 1: tính ở web để xem; bước 2–3: lấy từ GET /spa/slots. */
+  durationMinutes: number;
+  staffRequired: number;
+  /** "06/10, 14:00 – 16:00"; null khi chưa chọn mốc giờ. */
+  timeText: string | null;
+  totalPrice: number;
+  isSubmitting: boolean;
+  submitError: unknown;
+  isLocked: boolean;
+  onBack: () => void;
 };
 
-export function SpaBookingSummary({ pet, selected }: SpaBookingSummaryProps) {
-  const { totalPrice, totalMinutes, staffRequired } = summarizeSelection(pet, selected);
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-4 py-[3px]">
+      <span className="text-muted">{label}</span>
+      <span className="font-medium">{value}</span>
+    </div>
+  );
+}
 
+export function SpaBookingSummary({
+  pet,
+  selected,
+  step,
+  durationMinutes,
+  staffRequired,
+  timeText,
+  totalPrice,
+  isSubmitting,
+  submitError,
+  isLocked,
+  onBack,
+}: SpaBookingSummaryProps) {
   return (
     <SummaryCard
       title="Tóm tắt lịch hẹn"
       footer={
-        <Button type="submit" size="lg" block>
-          Tiếp tục: chọn khung giờ
-        </Button>
+        <>
+          {step === 3 && submitError ? <ErrorAlert error={submitError} /> : null}
+          {step === 1 && (
+            <Button type="submit" size="lg" block>
+              Tiếp tục: chọn khung giờ
+            </Button>
+          )}
+          {step === 2 && (
+            <>
+              <Button type="submit" size="lg" block>
+                Tiếp tục: xác nhận
+              </Button>
+              <Button variant="ghost" block onClick={onBack}>
+                Quay lại
+              </Button>
+            </>
+          )}
+          {step === 3 && (
+            <>
+              <Button
+                type="submit"
+                size="lg"
+                block
+                loading={isSubmitting}
+                disabled={isLocked}
+                aria-describedby={isLocked ? LOCK_REASON_ID : undefined}
+              >
+                Gửi yêu cầu đặt lịch
+              </Button>
+              {isLocked && (
+                <p id={LOCK_REASON_ID} className="flex items-start gap-1.5 text-xs text-muted">
+                  <Icon name="lock" className="mt-px size-3.5" />
+                  Tài khoản tạm thời không thể tự đặt lịch, vui lòng liên hệ cửa hàng qua hotline.
+                </p>
+              )}
+              <Button variant="ghost" block onClick={onBack} disabled={isSubmitting}>
+                Quay lại
+              </Button>
+              {!isLocked && (
+                <p className="text-center text-xs text-muted">
+                  Lịch hẹn ở trạng thái <StatusBadge status="Pending" /> cho đến khi cửa hàng xác nhận.
+                </p>
+              )}
+            </>
+          )}
+        </>
       }
     >
       <div className="flex items-center gap-3">
@@ -40,22 +118,12 @@ export function SpaBookingSummary({ pet, selected }: SpaBookingSummaryProps) {
       ) : (
         <>
           {selected.map(({ service, pricing }) => (
-            <SumLine
-              key={service.serviceId}
-              title={service.name}
-              meta={`${pricing.durationMinutes} phút`}
-              amount={pricing.price}
-            />
+            <SumLine key={service.serviceId} title={service.name} meta={`${pricing.durationMinutes} phút`} amount={pricing.price} />
           ))}
           <div className="mt-2 rounded-xl bg-mist px-4 py-2.5 text-xs">
-            <div className="flex justify-between gap-4 py-[3px]">
-              <span className="text-muted">Thời lượng</span>
-              <span className="font-medium">{totalMinutes} phút</span>
-            </div>
-            <div className="flex justify-between gap-4 py-[3px]">
-              <span className="text-muted">Số nhân viên cần</span>
-              <span className="font-medium">{staffRequired}</span>
-            </div>
+            <SummaryRow label="Thời lượng" value={`${durationMinutes} phút`} />
+            <SummaryRow label="Số nhân viên cần" value={String(staffRequired)} />
+            {timeText && <SummaryRow label="Thời gian" value={timeText} />}
           </div>
         </>
       )}
@@ -63,4 +131,3 @@ export function SpaBookingSummary({ pet, selected }: SpaBookingSummaryProps) {
     </SummaryCard>
   );
 }
-

@@ -34,6 +34,41 @@ export type Service = {
   pricing: PricingRow[];
 };
 
+export type SlotStatus = "Available" | "Full" | "NotAccepted";
+
+export type SlotInfo = {
+  // HH:mm theo múi giờ cửa hàng.
+  time: string;
+  // Chuỗi tự do từ API; web chia nhóm theo giờ bắt đầu.
+  group: string;
+  status: SlotStatus;
+};
+
+export type SpaSlots = {
+  durationMinutes: number;
+  staffRequired: 1 | 2;
+  bufferMinutes: number;
+  slots: SlotInfo[];
+};
+
+export type SpaBookingRequest = {
+  petId: string;
+  serviceIds: string[];
+  // ISO 8601 có độ lệch +07:00, dựng bằng buildStoreDateTime.
+  slotStart: string;
+};
+
+export type SpaBookingCreated = {
+  appointmentId: string;
+  type?: AppointmentType;
+  status: AppointmentStatus;
+  sizeGroup?: SizeGroup;
+  slotStart?: string;
+  slotEnd: string;
+  staffRequired: 1 | 2;
+  estimatedAmount: number;
+};
+
 export type AppointmentType = "Spa" | "Hotel";
 export type AppointmentStatus =
   | "Pending"

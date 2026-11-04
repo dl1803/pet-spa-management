@@ -21,3 +21,16 @@ export function countNights(checkIn: string, checkOut: string) {
   return Math.round((end - start) / 86_400_000);
 }
 
+// Múi giờ cửa hàng không có giờ mùa hè nên độ lệch cố định.
+export const STORE_UTC_OFFSET = "+07:00";
+
+export function addDaysToDateKey(dateKey: string, days: number) {
+  return DATE_KEY_FORMAT.format(new Date(Date.parse(`${dateKey}T00:00:00Z`) + days * 86_400_000));
+}
+
+// Dựng giá trị gửi API từ ngày (YYYY-MM-DD) và mốc giờ (HH:mm). Không dùng toISOString vì ra giờ UTC.
+export function buildStoreDateTime(dateKey: string, time: string) {
+  return `${dateKey}T${time}:00${STORE_UTC_OFFSET}`;
+}
+
+

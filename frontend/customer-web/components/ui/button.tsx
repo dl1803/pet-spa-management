@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ButtonHTMLAttributes, ComponentProps } from "react";
 
 type ButtonStyleProps = {
-  variant?: "primary" | "secondary";
+  variant?: "primary" | "secondary" | "ghost";
   size?: "md" | "lg";
   block?: boolean;
 };
@@ -13,6 +13,7 @@ const baseClass =
 const variantClass = {
   primary: "border-transparent bg-lagoon text-white hover:bg-lagoon-700",
   secondary: "border-lagoon bg-white text-lagoon-700 hover:bg-lagoon-25",
+  ghost: "border-transparent bg-transparent text-ink hover:bg-line-soft",
 };
 
 const sizeClass = {
