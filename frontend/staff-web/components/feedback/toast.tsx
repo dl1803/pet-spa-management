@@ -65,11 +65,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             role={toast.type === "error" ? "alert" : "status"}
             className="pointer-events-auto flex min-w-[260px] max-w-[420px] animate-toast-in items-center gap-2.5 rounded-xl bg-ink px-4 py-3 font-medium text-white shadow-pop max-[640px]:min-w-0 max-[640px]:max-w-none"
           >
+            {/* Màu biểu tượng/nút đóng trên nền ink: lấy từ UI demo, chưa có token (Conventions 9). */}
             <Icon
               name={toast.type === "error" ? "x-circle" : "check-circle"}
               className={`size-[18px] ${toast.type === "error" ? "text-[#FF9B8F]" : "text-[#7FD6A0]"}`}
             />
             <span className="min-w-0 grow break-words">{toast.message}</span>
+            {/* Màu biểu tượng/nút đóng trên nền ink: lấy từ UI demo, chưa có token (Conventions 9). */}
             {toast.type === "error" && (
               <button
                 type="button"

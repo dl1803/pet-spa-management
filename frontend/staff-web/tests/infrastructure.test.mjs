@@ -57,6 +57,12 @@ test("envelope sai kiểu bị từ chối; lỗi lạ và lỗi 500 không lộ
   assert.equal(getErrorMessage(error), ERROR_MESSAGES.network);
 });
 
+test("envelope chấp nhận code/detail null và vẫn hiện title nghiệp vụ", () => {
+  assert.equal(isErrorEnvelope({ status: 400, code: null, title: "Dữ liệu không hợp lệ", detail: null }), true);
+  const error = new ApiError({ kind: "http", status: 400, code: null, title: "Dữ liệu không hợp lệ", detail: null });
+  assert.equal(getErrorMessage(error), "Dữ liệu không hợp lệ");
+});
+
 test("phân biệt 403 quyền truy cập, khóa đặt lịch và 429", () => {
   const forbidden = new ApiError({ kind: "http", status: 403, code: "FORBIDDEN" });
   const locked = new ApiError({ kind: "http", status: 403, code: "BOOKING_LOCKED", detail: "Tài khoản bị khóa đặt lịch" });

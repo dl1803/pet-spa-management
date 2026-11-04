@@ -10,7 +10,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
       >
         Đến nội dung chính
       </a>
-      {/* Chưa có phiên đăng nhập nên chưa biết vai trò; vai trò thật được truyền vào khi có phiên. */}
+      {/* Tạm thời null. Nhận vai trò thật ở A-05 (sau ID121/A-04). */}
       <SiteHeader role={null} />
       <main
         id="main-content"

@@ -23,7 +23,8 @@ Thanh toán; Nhân viên spa có Lịch hẹn, Lịch sử công việc, Dịch 
 Danh mục dịch vụ (chỉ Lễ tân) và Đăng xuất. Chưa có phiên đăng nhập nên `(main)/layout.tsx` truyền `role={null}`:
 khung chỉ hiện logo và khối “Chưa đăng nhập”, chưa hiện mục menu nào. Khi có phiên, truyền vai trò thật vào `SiteHeader`.
 Mọi mục chưa có trang đích bị vô hiệu hóa, có mô tả “Chức năng chưa khả dụng”; bật `available` trong
-`components/layout/header-nav.tsx` khi trang đích đã có. Nút Đăng xuất bị vô hiệu hóa cho tới khi có phiên đăng nhập.
+`components/layout/header-nav.tsx` khi trang đích đã có. Người làm trang mới được phép sửa duy nhất cờ `available` trong
+`header-nav.tsx` để bật menu của trang mình. Không sửa phần khác của shell. Nút Đăng xuất bị vô hiệu hóa cho tới khi có phiên đăng nhập.
 
 - `app/(main)`: layout có thanh trên và trang giới thiệu.
 - `components/layout`: thanh trên, menu theo vai trò, menu tài khoản; phần đọc đường dẫn nằm trong `Suspense`.
@@ -43,7 +44,8 @@ Trang giới thiệu hiện chưa gọi API.
 `apiClient` và `setAccessTokenProvider` chỉ dùng trong trình duyệt, sau khi component đã mount hoặc
 trong event handler; gọi khi SSR/Server Component/Server Action sẽ bị chặn trước khi đọc token hay gửi request.
 Module có ranh giới `use client` và kiểm tra runtime, vì Client Component vẫn có thể được render trên server.
-Chưa cung cấp API client phía server.
+Dùng `useQuery`/`useMutation` trong client component. Chưa dùng `useSuspenseQuery` hay prefetch ở
+Server Component với `apiClient` cho tới khi có API client phía server. Chưa cung cấp API client phía server.
 
 Mọi lời gọi backend từ trình duyệt dùng `apiClient`. Lỗi mất mạng và 5xx hiển thị câu chung; 429 hiển thị cảnh báo
 thử lại sau; 403 `FORBIDDEN` dùng `ForbiddenState`, khác với 403 `BOOKING_LOCKED` là lỗi nghiệp vụ.

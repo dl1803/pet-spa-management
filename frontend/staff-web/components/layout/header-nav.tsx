@@ -7,7 +7,7 @@ import type { StaffRole } from "@/lib/api/types";
 import { STAFF_ROLE_LABELS } from "@/lib/labels";
 import { ROUTES } from "@/lib/routes";
 import { Dropdown, dropdownItemClass } from "./dropdown";
-import { onDarkFocusClass } from "./header-styles";
+import { onDarkFocusClass, onDarkMutedTextClass } from "./header-styles";
 
 type MenuItem = {
   href: string;
@@ -60,7 +60,7 @@ function isUnder(pathname: string | null, base: string) {
 const navItemClass = `inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] px-[13px] max-[640px]:gap-0 max-[640px]:px-[11px] ${onDarkFocusClass}`;
 const navItemIdleClass = "font-medium text-[#CFE7E9] hover:bg-white/[.08] hover:text-white";
 const navItemActiveClass = "bg-white font-semibold text-lagoon-700 hover:bg-white hover:text-lagoon-700";
-const navItemDisabledClass = "cursor-not-allowed font-medium text-[#9FD0D4]";
+const navItemDisabledClass = `cursor-not-allowed font-medium ${onDarkMutedTextClass}`;
 
 const iconButtonClass = `relative grid size-11 place-items-center rounded-xl ${onDarkFocusClass}`;
 const chipClass = "flex h-11 items-center gap-2.5 whitespace-nowrap rounded-full border border-white/25 pl-1 pr-2.5 text-sm font-medium text-white max-[860px]:gap-1 max-[860px]:pr-1.5";
@@ -156,7 +156,7 @@ export function HeaderNav({ pathname, role }: HeaderNavProps) {
               aria-label={NOTIFICATION_ITEM.label}
               aria-describedby={UNAVAILABLE_HINT_ID}
               title="Chức năng chưa khả dụng"
-              className={`${iconButtonClass} cursor-not-allowed text-[#9FD0D4]`}
+              className={`${iconButtonClass} cursor-not-allowed ${onDarkMutedTextClass}`}
             >
               <Icon name={NOTIFICATION_ITEM.icon} className="size-[22px]" />
             </span>

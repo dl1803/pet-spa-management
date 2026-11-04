@@ -32,9 +32,9 @@ export type ErrorCode = (typeof ERROR_CODES)[number];
 
 export type ErrorEnvelope = {
   status: number;
-  code?: string;
+  code?: string | null;
   title: string;
-  detail?: string;
+  detail?: string | null;
 };
 
 export function isErrorEnvelope(data: unknown): data is ErrorEnvelope {
@@ -43,8 +43,8 @@ export function isErrorEnvelope(data: unknown): data is ErrorEnvelope {
   return (
     typeof value.status === "number" && Number.isInteger(value.status) && value.status >= 400 && value.status <= 599 &&
     typeof value.title === "string" &&
-    (value.code === undefined || typeof value.code === "string") &&
-    (value.detail === undefined || typeof value.detail === "string")
+    (value.code == null || typeof value.code === "string") &&
+    (value.detail == null || typeof value.detail === "string")
   );
 }
 

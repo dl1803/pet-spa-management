@@ -62,9 +62,11 @@ export function Dropdown({
         id={menuId}
         hidden={!open}
         onClick={(event) => {
-          if ((event.target as HTMLElement).closest("a")) {
-            setOpen(false);
-          }
+          // Đóng menu sau khi chọn liên kết hoặc thao tác (ví dụ Đăng xuất).
+          const item = (event.target as HTMLElement).closest("a, button");
+          if (!item) return;
+          setOpen(false);
+          if (item.tagName === "BUTTON") buttonRef.current?.focus();
         }}
         className={`absolute top-[calc(100%+6px)] z-[70] min-w-[220px] max-w-[calc(100vw-24px)] rounded-xl border border-line bg-white p-1.5 shadow-pop ${
           align === "right" ? "right-0" : "left-0"

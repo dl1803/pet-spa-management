@@ -4,7 +4,7 @@ import { PawLogo } from "@/components/icons";
 import type { StaffRole } from "@/lib/api/types";
 import { ROUTES } from "@/lib/routes";
 import { ActiveHeaderNav, HeaderNav } from "./header-nav";
-import { onDarkFocusClass } from "./header-styles";
+import { onDarkFocusClass, onDarkMutedTextClass } from "./header-styles";
 
 export function BrandMark() {
   return (
@@ -25,7 +25,7 @@ export function SiteHeader({ role }: { role: StaffRole | null }) {
           <BrandMark />
           <span className="max-[640px]:sr-only">
             Spa thú cưng
-            <small className="block text-[11px] font-medium leading-[14px] text-[#9FD0D4] max-[980px]:hidden">
+            <small className={`block text-[11px] font-medium leading-[14px] ${onDarkMutedTextClass} max-[980px]:hidden`}>
               Web nhân viên
             </small>
           </span>
