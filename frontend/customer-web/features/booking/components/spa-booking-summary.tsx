@@ -5,7 +5,7 @@ import { ErrorAlert } from "@/components/feedback/error-alert";
 import { Icon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Tag } from "@/components/ui/tag";
-import { summarizeSelection, type ApplicableService, type BookingStep } from "@/features/booking/forms";
+import type { ApplicableService, BookingStep } from "@/features/booking/forms";
 import type { Pet } from "@/lib/api/types";
 import { formatWeight } from "@/lib/format";
 import { SIZE_GROUP_LABELS, SPECIES_LABELS } from "@/lib/labels";
@@ -21,6 +21,7 @@ type SpaBookingSummaryProps = {
   staffRequired: number;
   /** "06/10, 14:00 – 16:00"; null khi chưa chọn mốc giờ. */
   timeText: string | null;
+  totalPrice: number;
   isSubmitting: boolean;
   submitError: unknown;
   isLocked: boolean;
@@ -43,13 +44,12 @@ export function SpaBookingSummary({
   durationMinutes,
   staffRequired,
   timeText,
+  totalPrice,
   isSubmitting,
   submitError,
   isLocked,
   onBack,
 }: SpaBookingSummaryProps) {
-  const { totalPrice } = summarizeSelection(pet, selected);
-
   return (
     <SummaryCard
       title="Tóm tắt lịch hẹn"

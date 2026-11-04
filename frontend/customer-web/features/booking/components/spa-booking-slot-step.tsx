@@ -63,7 +63,7 @@ export function SpaBookingSlotStep({
             <div>
               <ErrorAlert error={loadError} />
               <div className="mt-4">
-                <Button variant="secondary" onClick={onRetry} disabled={isRetrying}>
+                <Button variant="secondary" onClick={onRetry} loading={isRetrying}>
                   Thử lại
                 </Button>
               </div>

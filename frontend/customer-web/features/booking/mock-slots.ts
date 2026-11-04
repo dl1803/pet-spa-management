@@ -1,7 +1,8 @@
-import { getApplicableServices, summarizeSelection } from "@/features/booking/forms";
+import { addMinutesToTime, getApplicableServices, summarizeSelection } from "@/features/booking/forms";
 import { MOCK_PETS, MOCK_SERVICES } from "@/features/booking/mock-data";
 import { ApiError } from "@/lib/api/errors";
 import type { SlotInfo, SlotStatus, SpaBookingCreated, SpaBookingRequest, SpaSlots } from "@/lib/api/types";
+import { buildStoreDateTime } from "@/lib/time";
 
 // Dữ liệu giả cho bước chọn khung giờ và gửi yêu cầu. Kết quả suy ra từ đầu vào để thử từng trạng thái.
 // Chờ nối API thật: GET /spa/slots, POST /appointments/spa.
@@ -156,7 +157,10 @@ export async function mockCreateSpaAppointment(request: SpaBookingRequest): Prom
     type: "Spa",
     status: "Pending",
     slotStart: request.slotStart,
-    slotEnd: new Date(Date.parse(request.slotStart) + durationMinutes * 60_000).toISOString(),
+    slotEnd: buildStoreDateTime(
+      request.slotStart.slice(0, 10),
+      addMinutesToTime(request.slotStart.slice(11, 16), durationMinutes),
+    ),
     staffRequired,
     estimatedAmount: totalPrice,
   };

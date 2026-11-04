@@ -27,7 +27,14 @@ export function Stepper({ steps, current }: StepperProps) {
                       : "border-line bg-white text-muted"
                 }`}
               >
-                {isDone ? <Icon name="check" className="size-3.5" /> : number}
+                {isDone ? (
+                  <>
+                    <span className="sr-only">Đã hoàn thành bước {number}: </span>
+                    <Icon name="check" className="size-3.5" />
+                  </>
+                ) : (
+                  number
+                )}
               </span>
               <span className={isCurrent ? "" : "max-[640px]:sr-only"}>{label}</span>
             </span>

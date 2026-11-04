@@ -81,7 +81,8 @@ export function formatSlotRange(time: string, durationMinutes: number) {
 export function formatDuration(minutes: number) {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
-  return [hours > 0 ? `${hours} giờ` : "", rest > 0 ? `${rest} phút` : ""].filter(Boolean).join(" ");
+  const text = [hours > 0 ? `${hours} giờ` : "", rest > 0 ? `${rest} phút` : ""].filter(Boolean).join(" ");
+  return text || "0 phút";
 }
 
 // Dịch vụ có mốc bắt đầu muộn nhất sớm nhất; bằng nhau thì lấy dịch vụ đứng trước.

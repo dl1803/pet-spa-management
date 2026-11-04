@@ -92,8 +92,11 @@ export function SpaBookingScreen() {
   const currentStep: BookingStep = isStepReachable ? step : 1;
 
   useEffect(() => {
-    if (!isStepReachable) router.replace(ROUTES.spaBooking);
-  }, [isStepReachable, router]);
+    if (!isStepReachable) {
+      const petIdParam = searchParams.get("petId");
+      router.replace(withQuery(ROUTES.spaBooking, { petId: petIdParam }));
+    }
+  }, [isStepReachable, router, searchParams]);
 
   const slotsQuery = useQuery({
     queryKey: [...SPA_SLOTS_QUERY_KEY, { date, petId, serviceIds: selectedServiceIds }],
@@ -117,8 +120,11 @@ export function SpaBookingScreen() {
     },
     onError: (failure) => {
       if (isSlotFullError(failure)) {
+        setValue("slotTime", "");
+        clearErrors("slotTime");
         void queryClient.invalidateQueries({ queryKey: SPA_SLOTS_QUERY_KEY });
-        router.replace(withQuery(ROUTES.spaBooking, { step: 2 }));
+        const petIdParam = searchParams.get("petId");
+        router.replace(withQuery(ROUTES.spaBooking, { petId: petIdParam, step: 2 }));
         return;
       }
       if (isBookingLockedError(failure)) setIsBookingLocked(true);
@@ -131,7 +137,11 @@ export function SpaBookingScreen() {
     submitError !== null && !isSlotFull && !isBookingLockedError(submitError) ? submitError : null;
 
   function goToStep(next: BookingStep, mode: "push" | "replace" = "push") {
-    const href = withQuery(ROUTES.spaBooking, { step: next === 1 ? null : next });
+    const petIdParam = searchParams.get("petId");
+    const href = withQuery(ROUTES.spaBooking, {
+      petId: petIdParam,
+      step: next === 1 ? null : next,
+    });
     if (mode === "push") router.push(href);
     else router.replace(href);
   }
@@ -161,6 +171,7 @@ export function SpaBookingScreen() {
 
   // Đổi ngày thì mốc giờ cũ không còn ý nghĩa.
   function handleDateChange(next: string) {
+    if (next === date) return;
     setValue("date", next);
     setValue("slotTime", "");
     clearErrors("slotTime");
@@ -345,6 +356,7 @@ export function SpaBookingScreen() {
             durationMinutes={durationMinutes}
             staffRequired={staffRequired}
             timeText={timeText}
+            totalPrice={summary.totalPrice}
             isSubmitting={isPending}
             submitError={generalError}
             isLocked={isBookingLocked}

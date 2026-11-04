@@ -1,4 +1,4 @@
-import { formatShortDate, formatWeekdayShort } from "@/lib/format";
+import { formatLongDate, formatShortDate, formatWeekdayShort } from "@/lib/format";
 
 type DateStripProps = {
   label: string;
@@ -19,6 +19,7 @@ export function DateStrip({ label, dates, value, onChange }: DateStripProps) {
             key={date}
             type="button"
             aria-pressed={isSelected}
+            aria-label={formatLongDate(date)}
             onClick={() => onChange(date)}
             className={`w-[78px] flex-none cursor-pointer rounded-xl border py-2.5 text-center ${
               isSelected ? "border-lagoon bg-lagoon text-white" : "border-line bg-white text-ink hover:border-[#A9C6CB]"
