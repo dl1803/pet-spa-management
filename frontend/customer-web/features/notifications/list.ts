@@ -13,12 +13,6 @@ export function parseNotificationTab(value: string | null): NotificationTab {
   return NOTIFICATION_TABS.find((tab) => tab.value === value)?.value ?? "all";
 }
 
-export function countUnread(items: Notification[]): number {
-  return items.filter((item) => !item.isRead).length;
-}
-
-// Lọc ở web: API chưa có tham số isRead (UI-Screens G-19).
 export function filterNotifications(items: Notification[], tab: NotificationTab): Notification[] {
   return tab === "unread" ? items.filter((item) => !item.isRead) : items;
 }
-
