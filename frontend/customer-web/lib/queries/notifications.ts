@@ -43,24 +43,39 @@ export function useMarkNotificationRead() {
     onMutate: async (notificationId: string) => {
       await queryClient.cancelQueries({ queryKey: notificationKeys.all });
 
-      const wasUnread = queryClient
-        .getQueriesData<NotificationListData>({ queryKey: notificationKeys.lists() })
-        .some(([, data]) => containsUnread(data, notificationId));
-      if (!wasUnread) return;
+      const previousLists = queryClient.getQueriesData<NotificationListData>({ queryKey: notificationKeys.lists() });
+      const previousUnread = queryClient.getQueryData<NotificationPage>(notificationKeys.unread());
+
+      const wasUnread = previousLists.some(([, data]) => containsUnread(data, notificationId));
 
       queryClient.setQueriesData<NotificationListData>({ queryKey: notificationKeys.lists() }, (data) =>
         data && {
           ...data,
           pages: data.pages.map((page) => ({
             ...page,
-            unread: Math.max(0, page.unread - 1),
+            unread: wasUnread ? Math.max(0, page.unread - 1) : page.unread,
             items: page.items.map((item) => (item.notificationId === notificationId ? { ...item, isRead: true } : item)),
           })),
         },
       );
-      queryClient.setQueryData<NotificationPage>(notificationKeys.unread(), (page) =>
-        page && { ...page, unread: Math.max(0, page.unread - 1) },
-      );
+
+      if (wasUnread) {
+        queryClient.setQueryData<NotificationPage>(notificationKeys.unread(), (page) =>
+          page && { ...page, unread: Math.max(0, page.unread - 1) },
+        );
+      }
+
+      return { previousLists, previousUnread };
+    },
+    onError: (_err, _notificationId, context) => {
+      if (context?.previousLists) {
+        for (const [queryKey, data] of context.previousLists) {
+          queryClient.setQueryData(queryKey, data);
+        }
+      }
+      if (context?.previousUnread) {
+        queryClient.setQueryData(notificationKeys.unread(), context.previousUnread);
+      }
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: notificationKeys.all }),
   });

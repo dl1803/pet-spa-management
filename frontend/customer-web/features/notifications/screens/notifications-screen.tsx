@@ -21,7 +21,7 @@ import {
 } from "@/features/notifications/list";
 import { isForbiddenError } from "@/lib/api/errors";
 import type { Notification } from "@/lib/api/types";
-import { useMarkNotificationRead, useNotificationList } from "@/lib/queries/notifications";
+import { useMarkNotificationRead, useNotificationList, useUnreadNotificationCount } from "@/lib/queries/notifications";
 import { ROUTES, withQuery } from "@/lib/routes";
 import { getStoreDateKey } from "@/lib/time";
 
@@ -58,7 +58,7 @@ type NotificationListProps = {
   items: Notification[];
   tab: NotificationTab;
   todayKey: string;
-  hasNextPage: boolean;
+  hasMore: boolean;
   isFetchingNextPage: boolean;
   onRead: (notificationId: string) => void;
   onLoadMore: () => void;
@@ -68,15 +68,14 @@ function NotificationList({
   items,
   tab,
   todayKey,
-  hasNextPage,
+  hasMore,
   isFetchingNextPage,
   onRead,
   onLoadMore,
 }: NotificationListProps) {
   const emptyState = EMPTY_STATES[tab];
 
-  // Tab "Chưa đọc" lọc trên các trang đã tải: còn trang chưa tải thì chưa kết luận là rỗng.
-  if (items.length === 0 && !hasNextPage) {
+  if (items.length === 0 && !hasMore) {
     return (
       <div className="max-w-[860px]">
         <Card>
@@ -99,7 +98,7 @@ function NotificationList({
           </ul>
         </Card>
       )}
-      {hasNextPage && (
+      {hasMore && (
         <div className="mt-5 flex justify-center">
           <Button variant="secondary" disabled={isFetchingNextPage} onClick={onLoadMore}>
             {isFetchingNextPage ? "Đang tải…" : "Xem thêm"}
@@ -118,10 +117,11 @@ export function NotificationsScreen() {
   const todayKey = getStoreDateKey(now);
   const { data, error, isFetching, isFetchingNextPage, hasNextPage, fetchNextPage, refetch } =
     useNotificationList(NOTIFICATIONS_PAGE_SIZE);
+  const { data: bellUnread } = useUnreadNotificationCount();
   const { mutate: markRead } = useMarkNotificationRead();
 
   const tab = parseNotificationTab(searchParams.get("tab"));
-  const unread = data?.pages[0]?.unread;
+  const unread = data?.pages[0]?.unread ?? bellUnread;
   const tabItems = NOTIFICATION_TABS.map((item) => ({
     ...item,
     count: item.value === "unread" ? unread : undefined,
@@ -130,6 +130,15 @@ export function NotificationsScreen() {
   function handleRead(notificationId: string) {
     markRead(notificationId, { onError: (failure) => showError(failure) });
   }
+
+  const allItems = data ? data.pages.flatMap((page) => page.items) : [];
+  const loadedUnreadCount = allItems.filter((item) => !item.isRead).length;
+  const hasMore =
+    tab === "unread"
+      ? unread !== undefined
+        ? loadedUnreadCount < unread && hasNextPage
+        : hasNextPage
+      : hasNextPage;
 
   let body: ReactNode;
   if (data === undefined) {
@@ -153,14 +162,10 @@ export function NotificationsScreen() {
       <>
         {error !== null && <ErrorAlert error={error} className="mb-4" />}
         <NotificationList
-          key={tab}
-          items={filterNotifications(
-            data.pages.flatMap((page) => page.items),
-            tab,
-          )}
+          items={filterNotifications(allItems, tab)}
           tab={tab}
           todayKey={todayKey}
-          hasNextPage={hasNextPage}
+          hasMore={hasMore}
           isFetchingNextPage={isFetchingNextPage}
           onRead={handleRead}
           onLoadMore={() => void fetchNextPage()}

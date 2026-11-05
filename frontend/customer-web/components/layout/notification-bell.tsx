@@ -24,7 +24,7 @@ export function NotificationBell({ active }: { active: boolean }) {
           aria-hidden="true"
           className="absolute right-[3px] top-1 h-[18px] min-w-[18px] rounded-full border-2 border-white bg-danger px-[5px] text-center text-[11px] font-bold leading-[14px] text-white"
         >
-          {unread}
+          {unread > 99 ? "99+" : unread}
         </span>
       )}
     </Link>
