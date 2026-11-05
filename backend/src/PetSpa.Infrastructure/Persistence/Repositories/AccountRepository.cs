@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
@@ -114,6 +115,50 @@ public sealed class AccountRepository(UserManager<AppUser> userManager, AppDbCon
 
         staff.FullName = fullName;
         await db.SaveChangesAsync(ct);
+    }
+
+    public async Task<Guid> CreateWalkInAsync(string fullName, string phone, CancellationToken ct = default)
+    {
+        const string duplicateDetail = "Thông tin liên hệ đã có, vui lòng chọn khách hàng hiện có.";
+
+        if (await db.Set<Customer>().AnyAsync(c => c.Phone == phone, ct))
+            throw new BusinessException(ErrorCodes.DuplicateContact, duplicateDetail);
+
+        var customer = new Customer
+        {
+            CustomerId = Guid.NewGuid(),
+            UserId = null,
+            FullName = fullName,
+            Phone = phone,
+        };
+        db.Set<Customer>().Add(customer);
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+        {
+            throw new BusinessException(ErrorCodes.DuplicateContact, duplicateDetail);
+        }
+
+        return customer.CustomerId;
+    }
+
+    public async Task<PagedResult<CustomerSummary>> SearchCustomersAsync(
+        string? phone, int page, int pageSize, CancellationToken ct = default)
+    {
+        var query = db.Set<Customer>().AsNoTracking();
+        if (phone is not null) query = query.Where(c => c.Phone.Contains(phone));
+
+        var total = await query.CountAsync(ct);
+        var items = await query
+            .OrderBy(c => c.FullName).ThenBy(c => c.CustomerId)
+            .Skip((page - 1) * pageSize).Take(pageSize)
+            .Select(c => new CustomerSummary(c.CustomerId, c.FullName, c.Phone, c.Email, c.IsBookingLocked))
+            .ToListAsync(ct);
+
+        return new PagedResult<CustomerSummary>(items, page, pageSize, total);
     }
 
     private static BusinessException ToBusinessException(IdentityResult result)

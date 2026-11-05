@@ -40,6 +40,17 @@ public sealed class AccountService(IAccountRepository accounts)
         }
     }
 
+    // FR-ACC-04 (BR-01): khách vãng lai không có tài khoản đăng nhập.
+    public Task<Guid> CreateWalkInAsync(string fullName, string phone, CancellationToken ct = default) =>
+        accounts.CreateWalkInAsync(fullName.Trim(), PhoneNumber.Normalize(phone), ct);
+
+    public Task<PagedResult<CustomerSummary>> SearchCustomersAsync(
+        string? search, int page, int pageSize, CancellationToken ct = default)
+    {
+        var term = PhoneNumber.Normalize(search);
+        return accounts.SearchCustomersAsync(term.Length == 0 ? null : term, page, pageSize, ct);
+    }
+
     // fullName bắt buộc với khách hàng và nhân viên; quản lý bỏ qua (API-Notes mục 8 #10).
     private static string RequireFullName(string? fullName) =>
         string.IsNullOrWhiteSpace(fullName)

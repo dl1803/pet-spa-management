@@ -1,3 +1,4 @@
+using PetSpa.Application.Common;
 using PetSpa.Domain.Enums;
 
 namespace PetSpa.Application.Ports;
@@ -6,6 +7,8 @@ namespace PetSpa.Application.Ports;
 public sealed record MeProfile(
     Guid UserId, string UserName, UserRole Role, StaffRole? StaffRole,
     string? FullName, string? Phone, string? Email);
+
+public sealed record CustomerSummary(Guid CustomerId, string FullName, string Phone, string? Email, bool IsBookingLocked);
 
 // Port truy cập dữ liệu tài khoản và hồ sơ khách hàng/nhân viên (Backend-Conventions 3.3).
 public interface IAccountRepository
@@ -23,4 +26,11 @@ public interface IAccountRepository
         Guid userId, string fullName, string? phone, string? email, CancellationToken ct = default);
 
     Task UpdateStaffFullNameAsync(Guid userId, string fullName, CancellationToken ct = default);
+
+    // Customer.UserId = NULL, không tạo AppUser. Trùng số điện thoại -> DUPLICATE_CONTACT.
+    Task<Guid> CreateWalkInAsync(string fullName, string phone, CancellationToken ct = default);
+
+    // phone = null: lấy tất cả. Tìm theo số điện thoại chứa chuỗi tìm.
+    Task<PagedResult<CustomerSummary>> SearchCustomersAsync(
+        string? phone, int page, int pageSize, CancellationToken ct = default);
 }
