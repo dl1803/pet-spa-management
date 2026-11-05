@@ -4,7 +4,7 @@ using PetSpa.Domain.Exceptions;
 
 namespace PetSpa.Application.Services.Auth;
 
-// UC-02 / SD-01: đăng nhập qua port danh tính và token.
+// UC-02 / SD-01: đăng nhập, làm mới token, đăng xuất qua port danh tính và token.
 public sealed class AuthService(IIdentityTokenService identity)
 {
     // Không tồn tại, IsActive = false hoặc sai mật khẩu đều trả cùng một lỗi, không nêu trường sai.
@@ -17,5 +17,11 @@ public sealed class AuthService(IIdentityTokenService identity)
 
         return await identity.IssueTokensAsync(userId.Value, ct);
     }
-}
 
+    // Token đã thu hồi/hết hạn/tài khoản vô hiệu hóa: RotateAsync trả null -> 401.
+    public async Task<TokenPair> RefreshAsync(string refreshToken, CancellationToken ct = default) =>
+        await identity.RotateAsync(refreshToken, ct) ?? throw new BusinessException(ErrorCodes.Unauthenticated);
+
+    public Task LogoutAsync(string refreshToken, CancellationToken ct = default) =>
+        identity.RevokeAsync(refreshToken, ct);
+}

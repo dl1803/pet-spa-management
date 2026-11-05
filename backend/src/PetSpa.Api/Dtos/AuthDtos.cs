@@ -8,3 +8,5 @@ public sealed record RegisterResponse(Guid UserId);
 // FR-ACC-02. userName là số điện thoại.
 public sealed record LoginRequest(string UserName, string Password);
 
+// Dùng cho /auth/refresh và /auth/logout.
+public sealed record RefreshRequest(string RefreshToken);
