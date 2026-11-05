@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { ROUTES } from "@/lib/routes";
 import { Dropdown, dropdownItemClass } from "./dropdown";
+import { NotificationBell } from "./notification-bell";
 
 function isUnder(pathname: string | null, base: string) {
   if (!pathname) return false;
@@ -79,17 +80,7 @@ export function HeaderNav({ pathname }: { pathname: string | null }) {
       </nav>
 
       <div className="order-2 ml-auto flex items-center gap-2 sm:order-3">
-        <Link
-          href={ROUTES.notifications}
-          aria-label="Thông báo"
-          title="Thông báo"
-          aria-current={notificationsActive ? "page" : undefined}
-          className={`relative grid size-10 place-items-center rounded-xl text-ink hover:bg-mist ${
-            notificationsActive ? "bg-lagoon-50 text-lagoon-700 hover:bg-lagoon-50" : ""
-          }`}
-        >
-          <Icon name="bell" className="size-[22px]" />
-        </Link>
+        <NotificationBell active={notificationsActive} />
         <Dropdown
           align="right"
           buttonClassName="flex h-[42px] cursor-pointer items-center gap-2.5 whitespace-nowrap rounded-full border border-line bg-white pl-1 pr-2.5 text-sm font-medium text-ink hover:border-[#B9CED2] max-[860px]:gap-1 max-[860px]:pr-1.5"
@@ -125,4 +116,3 @@ export function HeaderNav({ pathname }: { pathname: string | null }) {
 export function ActiveHeaderNav() {
   return <HeaderNav pathname={usePathname()} />;
 }
-
