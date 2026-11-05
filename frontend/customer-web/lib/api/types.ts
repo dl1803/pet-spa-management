@@ -124,6 +124,15 @@ export type Notification = {
   createdAt: string;
 };
 
+export type NotificationPage = {
+  items: Notification[];
+  page: number;
+  pageSize: number;
+  total: number;
+  // Số thông báo chưa đọc của cả danh sách, không chỉ của trang này.
+  unread: number;
+};
+
 
 export type Role = "Customer" | "Staff" | "Manager";
 
