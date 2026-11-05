@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { Icon, type IconName } from "@/components/icons";
 import type { Notification } from "@/lib/api/types";
 import { formatAppointmentCode, formatRelativeDay } from "@/lib/format";
@@ -37,6 +38,7 @@ type NotificationItemProps = {
 };
 
 export function NotificationItem({ notification, todayKey, onRead }: NotificationItemProps) {
+  const rowRef = useRef<HTMLDivElement>(null);
   const { notificationId, message, isRead, createdAt } = notification;
   const view = getNotificationView(notification);
 
@@ -64,14 +66,23 @@ export function NotificationItem({ notification, todayKey, onRead }: Notificatio
     </>
   );
 
-  if (isRead) {
-    return <div className={ROW_CLASS}>{content}</div>;
-  }
-
   // Nền #FBFEFE: giá trị `.notif.unread` của UI demo, chưa có token. Vùng chạm cao hơn 44px nhờ đệm py-4.
   return (
-    <button type="button" onClick={() => onRead(notificationId)} className={`${ROW_CLASS} cursor-pointer bg-[#FBFEFE]`}>
-      {content}
-    </button>
+    <div ref={rowRef} tabIndex={-1}>
+      {isRead ? (
+        <div className={ROW_CLASS}>{content}</div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            rowRef.current?.focus();
+            onRead(notificationId);
+          }}
+          className={`${ROW_CLASS} cursor-pointer bg-[#FBFEFE]`}
+        >
+          {content}
+        </button>
+      )}
+    </div>
   );
 }

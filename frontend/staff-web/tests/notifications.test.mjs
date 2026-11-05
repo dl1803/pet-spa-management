@@ -17,9 +17,10 @@ test("dữ liệu mô phỏng: 3 thông báo phân công và 1 thông báo hủy
   assert.ok(MOCK_NOTIFICATIONS.every((item) => item.message.length <= 500 && item.appointmentId));
 });
 
-test("phân công chưa đọc: tiêu đề có mã lịch, chấm chưa đọc, là nút, thời gian trong ngày chỉ có giờ", () => {
+test("phân công chưa đọc: tiêu đề có mã lịch, chấm chưa đọc, có nút bên trong phần tử bọc, thời gian trong ngày chỉ có giờ", () => {
   const html = render(MOCK_NOTIFICATIONS[0]);
-  assert.match(html, /^<button type="button"/);
+  assert.match(html, /^<div[^>]*tabindex="-1"/);
+  assert.match(html, /<button type="button"/);
   assert.match(html, /Bạn được phân công lịch LH-1041A0B2/);
   assert.match(html, /\(chưa đọc\)/);
   assert.match(html, /Xíu, chó Chihuahua\. Thứ tư 07\/10, 09:00 – 10:20\. Tắm &amp; sấy lông, Vệ sinh tai &amp; cắt móng\./);
@@ -27,9 +28,10 @@ test("phân công chưa đọc: tiêu đề có mã lịch, chấm chưa đọc,
   assert.match(html, /bg-st-confirmed-bg text-st-confirmed/);
 });
 
-test("phân công đã đọc: không có chấm, không phải nút", () => {
+test("phân công đã đọc: phần tử bọc không có chấm hoặc nút", () => {
   const html = render(MOCK_NOTIFICATIONS[1]);
-  assert.match(html, /^<div class=/);
+  assert.match(html, /^<div[^>]*tabindex="-1"/);
+  assert.doesNotMatch(html, /<button/);
   assert.doesNotMatch(html, /chưa đọc/);
   assert.match(html, /Bạn được phân công lịch LH-1030C4D5/);
   assert.match(html, />04\/10, 17:05</);
