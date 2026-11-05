@@ -38,3 +38,10 @@ public sealed class LoginRequestValidator : AbstractValidator<LoginRequest>
     }
 }
 
+public sealed class RefreshRequestValidator : AbstractValidator<RefreshRequest>
+{
+    public RefreshRequestValidator()
+    {
+        RuleFor(x => x.RefreshToken).NotEmpty().WithMessage("Vui lòng cung cấp refresh token.");
+    }
+}

@@ -33,5 +33,25 @@ public sealed class AuthController(AccountService accountService, AuthService au
         var tokens = await authService.LoginAsync(request.UserName, request.Password, ct);
         return Ok(tokens);
     }
-}
 
+    [HttpPost("refresh")]
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitPolicies.Auth)]
+    [EndpointSummary("Làm mới token")]
+    [EndpointDescription("Thu hồi refresh token cũ và cấp cặp token mới. Refresh token đã thu hồi bị gửi lại thì thu hồi mọi token của tài khoản.")]
+    public async Task<IActionResult> Refresh([FromBody] RefreshRequest request, CancellationToken ct)
+    {
+        var tokens = await authService.RefreshAsync(request.RefreshToken, ct);
+        return Ok(tokens);
+    }
+
+    [HttpPost("logout")]
+    [Authorize]
+    [EndpointSummary("Đăng xuất")]
+    [EndpointDescription("Thu hồi refresh token được gửi lên.")]
+    public async Task<IActionResult> Logout([FromBody] RefreshRequest request, CancellationToken ct)
+    {
+        await authService.LogoutAsync(request.RefreshToken, ct);
+        return NoContent();
+    }
+}

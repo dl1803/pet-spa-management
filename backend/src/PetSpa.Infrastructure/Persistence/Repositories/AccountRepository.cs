@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
@@ -48,6 +49,118 @@ public sealed class AccountRepository(UserManager<AppUser> userManager, AppDbCon
         }
     }
 
+    public async Task<MeProfile?> GetMeAsync(Guid userId, CancellationToken ct = default)
+    {
+        var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct);
+        if (user is null) return null;
+
+        switch (user.Role)
+        {
+            case UserRole.Customer:
+                var customer = await db.Set<Customer>().AsNoTracking()
+                    .FirstOrDefaultAsync(c => c.UserId == userId, ct);
+                return new MeProfile(user.Id, user.UserName!, user.Role, null,
+                    customer?.FullName, customer?.Phone, customer?.Email);
+
+            case UserRole.Staff:
+                var staff = await db.Set<Staff>().AsNoTracking()
+                    .FirstOrDefaultAsync(s => s.UserId == userId, ct);
+                return new MeProfile(user.Id, user.UserName!, user.Role, staff?.StaffRole,
+                    staff?.FullName, null, null);
+
+            default:
+                return new MeProfile(user.Id, user.UserName!, user.Role, null, null, null, null);
+        }
+    }
+
+    public async Task UpdateCustomerProfileAsync(
+        Guid userId, string fullName, string? phone, string? email, CancellationToken ct = default)
+    {
+        var customer = await db.Set<Customer>().FirstOrDefaultAsync(c => c.UserId == userId, ct)
+            ?? throw new BusinessException(ErrorCodes.Forbidden);
+
+        try
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+
+            if (phone is not null && phone != customer.Phone)
+            {
+                if (await db.Set<Customer>().AnyAsync(c => c.Phone == phone, ct))
+                    throw new BusinessException(ErrorCodes.DuplicateContact);
+
+                var user = await userManager.FindByIdAsync(userId.ToString())
+                    ?? throw new BusinessException(ErrorCodes.Unauthenticated);
+                var result = await userManager.SetUserNameAsync(user, phone);
+                if (!result.Succeeded) throw ToBusinessException(result);
+
+                customer.Phone = phone;
+            }
+
+            customer.FullName = fullName;
+            customer.Email = email;
+            await db.SaveChangesAsync(ct);
+
+            await transaction.CommitAsync(ct);
+        }
+        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+        {
+            throw new BusinessException(ErrorCodes.DuplicateContact);
+        }
+    }
+
+    public async Task UpdateStaffFullNameAsync(Guid userId, string fullName, CancellationToken ct = default)
+    {
+        var staff = await db.Set<Staff>().FirstOrDefaultAsync(s => s.UserId == userId, ct)
+            ?? throw new BusinessException(ErrorCodes.Forbidden);
+
+        staff.FullName = fullName;
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task<Guid> CreateWalkInAsync(string fullName, string phone, CancellationToken ct = default)
+    {
+        const string duplicateDetail = "Thông tin liên hệ đã có, vui lòng chọn khách hàng hiện có.";
+
+        if (await db.Set<Customer>().AnyAsync(c => c.Phone == phone, ct))
+            throw new BusinessException(ErrorCodes.DuplicateContact, duplicateDetail);
+
+        var customer = new Customer
+        {
+            CustomerId = Guid.NewGuid(),
+            UserId = null,
+            FullName = fullName,
+            Phone = phone,
+        };
+        db.Set<Customer>().Add(customer);
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+        {
+            throw new BusinessException(ErrorCodes.DuplicateContact, duplicateDetail);
+        }
+
+        return customer.CustomerId;
+    }
+
+    public async Task<PagedResult<CustomerSummary>> SearchCustomersAsync(
+        string? phone, int page, int pageSize, CancellationToken ct = default)
+    {
+        var query = db.Set<Customer>().AsNoTracking();
+        if (phone is not null) query = query.Where(c => c.Phone.Contains(phone));
+
+        var total = await query.CountAsync(ct);
+        var items = await query
+            .OrderBy(c => c.FullName).ThenBy(c => c.CustomerId)
+            .Skip((page - 1) * pageSize).Take(pageSize)
+            .Select(c => new CustomerSummary(c.CustomerId, c.FullName, c.Phone, c.Email, c.IsBookingLocked))
+            .ToListAsync(ct);
+
+        return new PagedResult<CustomerSummary>(items, page, pageSize, total);
+    }
+
     private static BusinessException ToBusinessException(IdentityResult result)
     {
         if (result.Errors.Any(e => e.Code == "DuplicateUserName"))
@@ -63,4 +176,3 @@ public sealed class AccountRepository(UserManager<AppUser> userManager, AppDbCon
     private static bool IsUniqueViolation(DbUpdateException ex) =>
         ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
 }
-

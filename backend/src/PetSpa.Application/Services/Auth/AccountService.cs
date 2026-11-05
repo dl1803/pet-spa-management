@@ -1,5 +1,8 @@
 using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
+using PetSpa.Application.Security;
+using PetSpa.Domain.Enums;
+using PetSpa.Domain.Exceptions;
 
 namespace PetSpa.Application.Services.Auth;
 
@@ -12,7 +15,48 @@ public sealed class AccountService(IAccountRepository accounts)
         accounts.CreateCustomerAccountAsync(
             PhoneNumber.Normalize(userName), fullName.Trim(), NormalizeEmail(email), password, ct);
 
+    // FR-ACC-03: tài khoản lấy từ token, không nhận id từ client (BR-16).
+    public async Task<MeProfile> GetMeAsync(CurrentUser user, CancellationToken ct = default) =>
+        await accounts.GetMeAsync(user.UserId, ct) ?? throw new BusinessException(ErrorCodes.Unauthenticated);
+
+    public async Task UpdateMeAsync(
+        CurrentUser user, string? fullName, string? phone, string? email, CancellationToken ct = default)
+    {
+        switch (user.Role)
+        {
+            case UserRole.Customer:
+                await accounts.UpdateCustomerProfileAsync(
+                    user.UserId,
+                    RequireFullName(fullName),
+                    phone is null ? null : PhoneNumber.Normalize(phone),
+                    NormalizeEmail(email),
+                    ct);
+                break;
+            case UserRole.Staff:
+                // phone và email chỉ áp dụng cho khách hàng (API-Notes mục 8 #10).
+                await accounts.UpdateStaffFullNameAsync(user.UserId, RequireFullName(fullName), ct);
+                break;
+            // Manager: AppUser không có họ tên nên không có gì để cập nhật.
+        }
+    }
+
+    // FR-ACC-04 (BR-01): khách vãng lai không có tài khoản đăng nhập.
+    public Task<Guid> CreateWalkInAsync(string fullName, string phone, CancellationToken ct = default) =>
+        accounts.CreateWalkInAsync(fullName.Trim(), PhoneNumber.Normalize(phone), ct);
+
+    public Task<PagedResult<CustomerSummary>> SearchCustomersAsync(
+        string? search, int page, int pageSize, CancellationToken ct = default)
+    {
+        var term = PhoneNumber.Normalize(search);
+        return accounts.SearchCustomersAsync(term.Length == 0 ? null : term, page, pageSize, ct);
+    }
+
+    // fullName bắt buộc với khách hàng và nhân viên; quản lý bỏ qua (API-Notes mục 8 #10).
+    private static string RequireFullName(string? fullName) =>
+        string.IsNullOrWhiteSpace(fullName)
+            ? throw new BusinessException(ErrorCodes.ValidationError, "Vui lòng nhập họ tên.")
+            : fullName.Trim();
+
     private static string? NormalizeEmail(string? email) =>
         string.IsNullOrWhiteSpace(email) ? null : email.Trim();
 }
-
