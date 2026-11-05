@@ -49,12 +49,29 @@ test("Nhân viên spa thấy 3 mục và thông báo, không có mục của L�
   assert.doesNotMatch(html, /Tiếp nhận|Thanh toán|Đặt lịch thay/);
 });
 
-test("mục chưa có trang đích bị vô hiệu hóa và không tạo liên kết dẫn tới 404", () => {
+// Trang đích đã có theo vai trò. Khi người làm trang mới bật `available` trong header-nav.tsx thì thêm đường dẫn vào đây.
+const AVAILABLE_HREFS = {
+  Receptionist: [],
+  SpaStaff: ["/lich-su-cong-viec", "/thong-bao"],
+};
+
+test("chỉ mục đã có trang đích là liên kết; mục còn lại bị vô hiệu hóa, không dẫn tới 404", () => {
   for (const role of ["Receptionist", "SpaStaff"]) {
     const html = render(role, "/lich-hen");
-    assert.doesNotMatch(html, /<a\b/);
+    const hrefs = [...html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map((match) => match[1]);
+    assert.deepEqual(hrefs, AVAILABLE_HREFS[role]);
     assert.match(html, /aria-disabled="true"/);
     assert.match(html, /Chức năng chưa khả dụng/);
     assert.match(html, /<button\b[^>]*disabled=""[^>]*>[\s\S]*?Đăng xuất/);
   }
+});
+
+test("Nhân viên spa: Lịch sử công việc và Thông báo đánh dấu aria-current khi đang ở trang đó", () => {
+  const history = render("SpaStaff", "/lich-su-cong-viec");
+  assert.match(history, /<a\b[^>]*aria-current="page"[^>]*href="\/lich-su-cong-viec"/);
+  assert.doesNotMatch(history, /<a\b[^>]*aria-label="Thông báo"[^>]*aria-current/);
+
+  const notifications = render("SpaStaff", "/thong-bao");
+  assert.match(notifications, /<a\b[^>]*aria-label="Thông báo"[^>]*aria-current="page"/);
+  assert.doesNotMatch(notifications, /<a\b[^>]*aria-current="page"[^>]*href="\/lich-su-cong-viec"/);
 });

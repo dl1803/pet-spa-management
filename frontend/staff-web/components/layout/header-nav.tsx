@@ -30,7 +30,7 @@ const NAV_ITEMS: MenuItem[] = [
   { href: ROUTES.booking, label: "Đặt lịch thay", icon: "calendar-plus", roles: RECEPTIONIST_ONLY },
   { href: ROUTES.cages, label: "Chuồng", icon: "grid", roles: RECEPTIONIST_ONLY },
   { href: ROUTES.payments, label: "Thanh toán", icon: "wallet", roles: RECEPTIONIST_ONLY },
-  { href: ROUTES.workHistory, label: "Lịch sử công việc", icon: "history", roles: SPA_STAFF_ONLY },
+  { href: ROUTES.workHistory, label: "Lịch sử công việc", icon: "history", roles: SPA_STAFF_ONLY, available: true },
   { href: ROUTES.services, label: "Dịch vụ", icon: "list", roles: SPA_STAFF_ONLY },
 ];
 
@@ -39,6 +39,7 @@ const NOTIFICATION_ITEM: MenuItem = {
   label: "Thông báo",
   icon: "bell",
   roles: SPA_STAFF_ONLY,
+  available: true,
 };
 
 const ACCOUNT_ITEMS: MenuItem[] = [
