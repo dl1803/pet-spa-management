@@ -28,6 +28,8 @@ const ICON_PATHS = {
   shield: <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />,
   x: <path d="M18 6 6 18M6 6l12 12" />,
   "chev-d": <path d="m6 9 6 6 6-6" />,
+  "chev-l": <path d="m15 18-6-6 6-6" />,
+  "chev-r": <path d="m9 18 6-6-6-6" />,
   calendar: (
     <>
       <rect x="3" y="4" width="18" height="18" rx="2" />
@@ -92,6 +94,13 @@ const ICON_PATHS = {
     <>
       <circle cx="12" cy="8" r="4.5" />
       <path d="M20 21a8 8 0 0 0-16 0" />
+    </>
+  ),
+  "user-plus": (
+    <>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M19 8v6M22 11h-6" />
     </>
   ),
   logout: (

@@ -1,0 +1,16 @@
+export const STORE_TIME_ZONE = "Asia/Ho_Chi_Minh";
+
+const DATE_KEY_FORMAT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: STORE_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+export function getStoreDateKey(value: string | Date) {
+  return DATE_KEY_FORMAT.format(new Date(value));
+}
+
+export function getPreviousDateKey(dateKey: string) {
+  return DATE_KEY_FORMAT.format(new Date(Date.parse(`${dateKey}T00:00:00Z`) - 86_400_000));
+}
