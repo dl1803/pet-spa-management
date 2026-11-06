@@ -7,7 +7,9 @@ export function withPhoto(data: ExecutionData, photo: Photo): ExecutionData {
   const flags = getExecutionFlags(data.appointment.status);
   const allowed = photo.kind === "Before" ? flags.canUploadBefore : flags.canUploadAfter;
   if (!allowed) return data;
-  return { ...data, photos: [...data.photos, photo] };
+  // Bỏ ảnh cũ cùng loại để màn luôn hiển thị ảnh vừa chọn, kể cả khi đồng hồ thay đổi.
+  // Khi đó URL xem trước cũ có thể được thu hồi an toàn.
+  return { ...data, photos: [...data.photos.filter((existing) => existing.kind !== photo.kind), photo] };
 }
 
 export function withStarted(data: ExecutionData): ExecutionData {

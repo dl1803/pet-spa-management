@@ -8,7 +8,8 @@ import { PetProfileNote } from "@/features/service-execution/components/pet-prof
 import { ServicesCard } from "@/features/service-execution/components/services-card";
 import { getExecutionFlags, pickLatestPhoto, type ExecutionData } from "@/features/service-execution/execution";
 import { withPhoto, withServiceDone, withStarted } from "@/features/service-execution/local-updates";
-import type { AppointmentServiceItem, PhotoKind } from "@/lib/api/types";
+import { createPhotoUrlTracker } from "@/features/service-execution/photo-urls";
+import type { AppointmentServiceItem, Photo, PhotoKind } from "@/lib/api/types";
 
 type ExecutionWorkspaceProps = {
   initial: ExecutionData;
@@ -24,24 +25,30 @@ const PHOTO_TOAST: Record<PhotoKind, string> = {
 export function ExecutionWorkspace({ initial, todayKey }: ExecutionWorkspaceProps) {
   const { showSuccess } = useToast();
   const [data, setData] = useState(initial);
-  const objectUrls = useRef<string[]>([]);
   const photoCount = useRef(0);
 
-  // Ảnh xem trước tạo từ tệp đã chọn; thu hồi khi rời màn.
+  // URL ảnh xem trước đang dùng theo loại; thu hồi URL cũ khi đổi ảnh, thu hồi hết khi rời màn.
+  const [photoUrls] = useState(() => createPhotoUrlTracker((url) => URL.revokeObjectURL(url)));
+
   useEffect(() => {
-    const urls = objectUrls.current;
-    return () => urls.forEach((url) => URL.revokeObjectURL(url));
-  }, []);
+    return () => photoUrls.revokeAll();
+  }, [photoUrls]);
 
   const { appointment, pet, photos } = data;
   const flags = getExecutionFlags(appointment.status);
 
   function handleUpload(kind: PhotoKind, file: File) {
     const url = URL.createObjectURL(file);
-    objectUrls.current.push(url);
     photoCount.current += 1;
-    const photo = { photoId: `local-photo-${photoCount.current}`, kind, url, uploadedAt: new Date().toISOString() };
-    setData((current) => withPhoto(current, photo));
+    const photo: Photo = { photoId: `local-photo-${photoCount.current}`, kind, url, uploadedAt: new Date().toISOString() };
+    const next = withPhoto(data, photo);
+    if (next === data) {
+      // Lịch không còn cho tải loại ảnh này: không giữ URL vừa tạo, không báo thành công.
+      URL.revokeObjectURL(url);
+      return;
+    }
+    photoUrls.replace(kind, url);
+    setData(next);
     showSuccess(PHOTO_TOAST[kind]);
   }
 

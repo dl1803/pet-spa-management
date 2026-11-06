@@ -17,6 +17,7 @@ import {
 } from "../features/service-execution/execution.ts";
 import { withPhoto, withServiceDone, withStarted } from "../features/service-execution/local-updates.ts";
 import { MOCK_APPOINTMENT_IDS, createMockCompletedExecutions, createMockExecutions, findMockExecution } from "../features/service-execution/mock-data.ts";
+import { createPhotoUrlTracker } from "../features/service-execution/photo-urls.ts";
 import { MOCK_WORK_HISTORY } from "../features/work-history/mock-data.ts";
 import { formatCountdown, formatWeight } from "../lib/format.ts";
 
@@ -130,6 +131,65 @@ test("cập nhật cục bộ: thêm ảnh đúng trạng thái, không sửa d�
   const inProgress = byId(MOCK_APPOINTMENT_IDS.inProgress);
   assert.equal(withPhoto(inProgress, before), inProgress);
   assert.equal(withPhoto(inProgress, photo("After", "2026-11-06T08:00:00Z")).photos.length, 2);
+});
+
+test("theo dõi URL ảnh xem trước: thu hồi URL cũ cùng loại, giữ loại khác, thu hồi hết khi rời màn", () => {
+  const revoked = [];
+  const tracker = createPhotoUrlTracker((url) => revoked.push(url));
+  tracker.replace("Before", "blob:b1");
+  tracker.replace("After", "blob:a1");
+  assert.deepEqual(revoked, []);
+  tracker.replace("Before", "blob:b2");
+  assert.deepEqual(revoked, ["blob:b1"]);
+  tracker.replace("Before", "blob:b2"); // cùng URL: không thu hồi
+  assert.deepEqual(revoked, ["blob:b1"]);
+  tracker.revokeAll();
+  assert.deepEqual([...revoked].sort(), ["blob:a1", "blob:b1", "blob:b2"]);
+  tracker.revokeAll(); // gọi lại không thu hồi lần nữa
+  assert.equal(revoked.length, 3);
+});
+
+test("đổi ảnh: ảnh vừa chọn luôn là ảnh được hiển thị, kể cả khi timestamp bằng hoặc sớm hơn ảnh cũ", () => {
+  const timestamp = "2026-11-06T02:01:00.000Z";
+  const cases = [
+    { kind: "Before", otherKind: "After", id: MOCK_APPOINTMENT_IDS.ready },
+    { kind: "After", otherKind: "Before", id: MOCK_APPOINTMENT_IDS.inProgress },
+  ];
+
+  for (const { kind, otherKind, id } of cases) {
+    const old = { ...photo(kind, timestamp, "old-photo"), url: "blob:old" };
+    const other = { ...photo(otherKind, timestamp, "other-photo"), url: "blob:other" };
+    const data = { ...byId(id), photos: [old, other] };
+
+    for (const uploadedAt of [timestamp, "2026-11-06T02:00:59.999Z"]) {
+      const replacement = { ...photo(kind, uploadedAt, "new-photo"), url: "blob:new" };
+      const next = withPhoto(data, replacement);
+
+      assert.equal(pickLatestPhoto(next.photos, kind)?.url, replacement.url);
+      assert.ok(!next.photos.includes(old));
+      assert.equal(pickLatestPhoto(next.photos, otherKind), other);
+    }
+  }
+});
+
+test("đổi ảnh: URL tracker thu hồi không bao giờ là URL đang được hiển thị", () => {
+  const revoked = [];
+  const tracker = createPhotoUrlTracker((url) => revoked.push(url));
+  let data = byId(MOCK_APPOINTMENT_IDS.ready);
+  const uploads = [
+    { ...photo("Before", "2026-11-06T02:01:00.000Z", "first-photo"), url: "blob:first" },
+    { ...photo("Before", "2026-11-06T02:00:59.999Z", "second-photo"), url: "blob:second" },
+  ];
+
+  for (const upload of uploads) {
+    data = withPhoto(data, upload);
+    tracker.replace(upload.kind, upload.url);
+    const displayed = pickLatestPhoto(data.photos, upload.kind);
+    assert.ok(displayed);
+    assert.ok(!revoked.includes(displayed.url));
+  }
+
+  assert.deepEqual(revoked, ["blob:first"]);
 });
 
 test("cập nhật cục bộ: bắt đầu chỉ khi Received và hết lý do khóa", () => {
