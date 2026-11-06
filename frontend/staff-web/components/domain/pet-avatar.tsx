@@ -75,10 +75,11 @@ export function PetGlyph({ species, className }: { species: Species; className: 
   );
 }
 
-// Cỡ theo Design-System 4.3: sm 34px (bảng), md 44px (mặc định, như Web Khách hàng).
+// Cỡ theo Design-System 4.3: sm 34px (bảng), md 44px (mặc định, như Web Khách hàng), xl 96px (đầu trang chi tiết).
 const SIZE_CLASS = {
   sm: { box: "size-[34px] rounded-[11px]", picture: "size-7" },
   md: { box: "size-11 rounded-[14px]", picture: "size-9" },
+  xl: { box: "size-24 rounded-[28px]", picture: "size-20" },
 } as const;
 
 export function PetAvatar({ species, size = "md" }: { species: Species; size?: keyof typeof SIZE_CLASS }) {

@@ -1,4 +1,4 @@
-import type { AppointmentStatus, AppointmentType, Species, StaffRole } from "@/lib/api/types";
+import type { AppointmentStatus, AppointmentType, SizeGroup, Species, StaffRole, Temperament } from "@/lib/api/types";
 
 export const STAFF_ROLE_LABELS: Record<StaffRole, string> = {
   Receptionist: "Lễ tân",
@@ -10,6 +10,18 @@ export const SPECIES_LABELS: Record<Species, string> = {
   Cat: "Mèo",
   Rabbit: "Thỏ",
   GuineaPig: "Chuột lang",
+};
+
+export const SIZE_GROUP_LABELS: Record<SizeGroup, string> = {
+  Small: "Nhỏ",
+  Medium: "Vừa",
+  Large: "Lớn",
+};
+
+export const TEMPERAMENT_LABELS: Record<Temperament, string> = {
+  Calm: "Hiền",
+  Normal: "Bình thường",
+  Difficult: "Khó tính, dữ",
 };
 
 export const APPOINTMENT_TYPE_LABELS: Record<AppointmentType, string> = {
