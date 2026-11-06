@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ReceptionAppointmentsTable } from "../features/reception-appointments/components/reception-appointments-table.tsx";
 import {
   countByFilter,
   getHotelEvent,
@@ -15,6 +18,7 @@ import { addDaysToDateKey, buildStoreDateTime, countNights } from "../lib/time.t
 const DATE_KEY = "2026-11-06";
 const mockRows = buildMockReceptionAppointments(DATE_KEY);
 const petNames = (rows) => rows.map((r) => r.appointment.petName);
+const countOccurrences = (html, pattern) => (html.match(pattern) ?? []).length;
 
 test("buildMockReceptionAppointments: 8 dòng, ID duy nhất, đúng tên và mốc giờ theo ngày", () => {
   assert.equal(mockRows.length, 8);
@@ -156,4 +160,58 @@ test("hàm dùng chung: formatLongDate, countNights, addDaysToDateKey, buildStor
   assert.equal(countNights("2026-11-06T10:00:00+07:00", "2026-11-08T12:00:00+07:00"), 2);
   assert.equal(addDaysToDateKey("2026-11-30", 1), "2026-12-01");
   assert.equal(buildStoreDateTime("2026-11-06", "09:00"), "2026-11-06T09:00:00+07:00");
+});
+
+test("ReceptionAppointmentsTable: cấu trúc bảng, cột, nút Tiếp nhận và nội dung hiển thị", () => {
+  const sortedRows = sortByTime(mockRows, DATE_KEY);
+  const html = renderToStaticMarkup(React.createElement(ReceptionAppointmentsTable, { rows: sortedRows, dateKey: DATE_KEY }));
+
+  // 7 thẻ th với các tiêu đề đúng thứ tự
+  const thMatches = [...html.matchAll(/<th\b[^>]*>(.*?)<\/th>/g)].map((m) => m[1]);
+  assert.equal(thMatches.length, 7);
+  assert.equal(thMatches[0], "Giờ");
+  assert.equal(thMatches[1], "Thú cưng");
+  assert.equal(thMatches[2], "Khách hàng");
+  assert.equal(thMatches[3], "Loại");
+  assert.equal(thMatches[4], "Nhân viên / chuồng");
+  assert.equal(thMatches[5], "Trạng thái");
+  assert.match(thMatches[6], /<span class="sr-only">Thao tác<\/span>/);
+
+  // Đúng 3 liên kết Tiếp nhận
+  assert.equal(countOccurrences(html, /Tiếp nhận<\/a>/g), 3);
+  assert.match(html, /href="\/tiep-nhan\?appointmentId=a1000000-0000-4000-8000-000000000001"/);
+
+  // Không có liên kết tới /tiep-nhan ở Cốm (a1..04), Tuyết (a1..08), Nâu (a1..02), Mướp (a1..03), Mochi (a1..06)
+  assert.ok(!html.includes('href="/tiep-nhan?appointmentId=a1000000-0000-4000-8000-000000000004"'));
+  assert.ok(!html.includes('href="/tiep-nhan?appointmentId=a1000000-0000-4000-8000-000000000008"'));
+  assert.ok(!html.includes('href="/tiep-nhan?appointmentId=a1000000-0000-4000-8000-000000000002"'));
+  assert.ok(!html.includes('href="/tiep-nhan?appointmentId=a1000000-0000-4000-8000-000000000003"'));
+  assert.ok(!html.includes('href="/tiep-nhan?appointmentId=a1000000-0000-4000-8000-000000000006"'));
+
+  // Không có chữ cấm
+  assert.ok(!html.includes("Xem"));
+  assert.ok(!html.includes("Trả thú cưng"));
+  assert.ok(!html.includes("Thu tiền"));
+  assert.ok(!html.includes("Có tài khoản"));
+  assert.ok(!html.includes("Khách vãng lai"));
+  assert.ok(!html.includes("Giữ chỗ đến"));
+  assert.ok(!html.includes("Chưa thu tiền lưu trú"));
+
+  // Đúng 1 lần Chờ quản lý xếp, đúng mã chuồng, đúng số đêm, đúng loài/giống
+  assert.equal(countOccurrences(html, /Chờ quản lý xếp/g), 1);
+  assert.match(html, /Chuồng C1/);
+  assert.match(html, /Chuồng B1/);
+  assert.equal(countOccurrences(html, /Lưu trú, 2 đêm/g), 2);
+  assert.match(html, /Chó Poodle/);
+  assert.match(html, /Thỏ Hà Lan/);
+  assert.match(html, /Mèo Ba Tư/);
+
+  // Nhãn phụ nhận / trả cho lưu trú
+  assert.match(html, /<span class="block text-xs text-muted">nhận<\/span>/);
+  assert.match(html, /<span class="block text-xs text-muted">trả<\/span>/);
+
+  // Bảng rỗng không lỗi
+  const emptyHtml = renderToStaticMarkup(React.createElement(ReceptionAppointmentsTable, { rows: [], dateKey: DATE_KEY }));
+  assert.match(emptyHtml, /<thead\b/);
+  assert.ok(!emptyHtml.includes("<td"));
 });

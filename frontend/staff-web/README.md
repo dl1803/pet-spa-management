@@ -10,7 +10,7 @@ npm ci
 npm run dev -- --port 3001
 ```
 
-Mở http://localhost:3001. Trang gốc chỉ giới thiệu ứng dụng; hai màn Lịch sử công việc (`/lich-su-cong-viec`) và Thông báo (`/thong-bao`) của Nhân viên spa dùng dữ liệu mô phỏng, chưa kết nối backend.
+Mở http://localhost:3001. Trang gốc chỉ giới thiệu ứng dụng; hai màn Lịch sử công việc (`/lich-su-cong-viec`) và Thông báo (`/thong-bao`) của Nhân viên spa dùng dữ liệu mô phỏng, chưa kết nối backend. Màn Lịch hẹn của Lễ tân (`/lich-hen`) cũng dùng dữ liệu mô phỏng (chỉ có lịch cho ngày hôm nay); mục menu “Lịch hẹn” chưa bật vì dùng chung với Nhân viên spa.
 Dừng server bằng Ctrl+C trong terminal đã khởi chạy.
 
 Ứng dụng dùng Be Vietnam Pro và token màu chung với Web Khách hàng, Web Quản lý (`app/globals.css`).
@@ -36,6 +36,7 @@ Mọi mục chưa có trang đích bị vô hiệu hóa, có mô tả “Chức 
 - `components/feedback`: lỗi nội tuyến, lỗi trường, trạng thái không có quyền và toast.
 - `components/ui`, `components/domain`, `components/layout/page-header.tsx`: thành phần giao diện dùng chung, sao chép từ Web Khách hàng (riêng `pet-avatar.tsx` từ Web Quản lý); `button.tsx`, `select.tsx` theo vùng chạm 44px của Web Nhân viên.
 - `features/work-history`, `features/notifications`: màn Lịch sử công việc và Thông báo; dữ liệu mô phỏng nằm trong `mock-data.ts`.
+- `features/reception-appointments`: màn Lịch hẹn của Lễ tân (toàn cửa hàng); dữ liệu mô phỏng nằm trong `mock-data.ts`.
 - `lib/format.ts`, `lib/time.ts`: định dạng ngày giờ theo múi giờ cửa hàng.
 
 Để gọi backend, sao chép `.env.example` thành `.env.local` và điền `NEXT_PUBLIC_API_BASE_URL`
@@ -81,7 +82,7 @@ Trong terminal khác, kiểm tra trang gốc của server đang chạy:
 npm run test:smoke
 ```
 
-`npm test` chạy test infrastructure với HTTP stub tự khởi động và tự dừng trong tiến trình test, cùng test menu theo vai trò của `HeaderNav`, hàm định dạng và hai màn Lịch sử công việc, Thông báo. Lệnh này không cần backend, Next.js server hoặc source ngoài thư mục app.
+`npm test` chạy test infrastructure với HTTP stub tự khởi động và tự dừng trong tiến trình test, cùng test menu theo vai trò của `HeaderNav`, hàm định dạng và hai màn Lịch sử công việc, Thông báo và màn Lịch hẹn của Lễ tân. Lệnh này không cần backend, Next.js server hoặc source ngoài thư mục app.
 Loader ESM của Node biên dịch TypeScript/TSX trong bộ nhớ bằng dependency TypeScript đã có, không sinh file build cho test.
 
 `npm run test:smoke` kiểm tra trang gốc, khối “Chưa đăng nhập”, liên kết không dẫn tới 404, icon và đường dẫn
