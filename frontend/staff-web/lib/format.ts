@@ -12,6 +12,10 @@ const TIME_FORMAT = new Intl.DateTimeFormat("vi-VN", {
   minute: "2-digit",
   hourCycle: "h23",
 });
+const WEEKDAY_FORMAT = new Intl.DateTimeFormat("vi-VN", {
+  timeZone: STORE_TIME_ZONE,
+  weekday: "long",
+});
 
 export function formatDate(value: string) {
   return DATE_FORMAT.format(new Date(value));
@@ -29,7 +33,17 @@ export function formatTimeRange(start: string, end: string) {
   return `${formatTime(start)} – ${formatTime(end)}`;
 }
 
-// Thời gian của thông báo (UI-Screens CW-12, SW-13): hôm nay chỉ có giờ, hôm qua có nhãn, còn lại là ngày/tháng kèm giờ.
+export function formatWeekday(value: string) {
+  return WEEKDAY_FORMAT.format(new Date(value)).toLocaleLowerCase("vi-VN");
+}
+
+// Ngày đầy đủ cho tiêu đề: "Thứ ba 06/10/2026".
+export function formatLongDate(value: string) {
+  const weekday = formatWeekday(value);
+  return `${weekday.charAt(0).toLocaleUpperCase("vi-VN")}${weekday.slice(1)} ${formatDate(value)}`;
+}
+
+// Thời gian của thông báo: hôm nay chỉ có giờ, hôm qua có nhãn, còn lại là ngày/tháng kèm giờ.
 export function formatRelativeDay(value: string, todayKey: string) {
   const dayKey = getStoreDateKey(value);
   if (dayKey === todayKey) return formatTime(value);
