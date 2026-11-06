@@ -2,6 +2,22 @@ export type StaffRole = "Receptionist" | "SpaStaff";
 
 export type Species = "Dog" | "Cat" | "Rabbit" | "GuineaPig";
 export type SizeGroup = "Small" | "Medium" | "Large";
+export type Temperament = "Calm" | "Normal" | "Difficult";
+
+export type Pet = {
+  petId: string;
+  customerId: string;
+  name: string;
+  species: Species;
+  breed: string;
+  temperament: Temperament;
+  weightKg: number;
+  heightCm?: number | null;
+  coatNote?: string | null;
+  notes?: string | null;
+  sizeGroup: SizeGroup;
+  isActive: boolean;
+};
 
 export type AppointmentType = "Spa" | "Hotel";
 export type AppointmentStatus =
@@ -57,9 +73,32 @@ export type AppointmentStaffItem = {
   assignedAt?: string;
 };
 
+export type CostConfirmationStatus = "Pending" | "Accepted" | "Rejected" | "Expired";
+
+export type CostConfirmation = {
+  actualWeightKg: number;
+  newSizeGroup: SizeGroup;
+  oldAmount: number;
+  newAmount: number;
+  status: CostConfirmationStatus;
+  createdAt?: string;
+  expiresAt: string;
+  respondedAt?: string | null;
+};
+
 export type AppointmentDetail = Appointment & {
   services?: AppointmentServiceItem[];
   staff?: AppointmentStaffItem[];
+  pendingCostConfirmation?: CostConfirmation | null;
+};
+
+export type PhotoKind = "Before" | "After";
+
+export type Photo = {
+  photoId: string;
+  kind: PhotoKind;
+  url: string;
+  uploadedAt: string;
 };
 
 export type NotificationType =
