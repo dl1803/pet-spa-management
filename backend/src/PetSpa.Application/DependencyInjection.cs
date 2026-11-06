@@ -13,6 +13,7 @@ public static class DependencyInjection
         services.AddScoped<PetService>();
         services.AddScoped<StaffService>();
         services.AddScoped<ServiceCatalogService>();
+        services.AddScoped<HotelCatalogService>();
         services.AddScoped<AccountService>();
         services.AddScoped<AuthService>();
         return services;
