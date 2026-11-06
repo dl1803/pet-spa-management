@@ -10,7 +10,7 @@ npm ci
 npm run dev -- --port 3001
 ```
 
-Mở http://localhost:3001. Trang gốc chỉ giới thiệu ứng dụng; các màn Lịch sử công việc (`/lich-su-cong-viec`), Thông báo (`/thong-bao`) và Thực hiện dịch vụ (`/lich-hen/[appointmentId]/thuc-hien`) của Nhân viên spa dùng dữ liệu mô phỏng, chưa kết nối backend. Màn Thực hiện dịch vụ chưa có menu; mở bằng đường dẫn trực tiếp với mã lịch mô phỏng trong `features/service-execution/mock-data.ts`. Màn Lịch hẹn của Lễ tân (`/lich-hen`) cũng dùng dữ liệu mô phỏng (chỉ có lịch cho ngày hôm nay); mục menu “Lịch hẹn” chưa bật vì dùng chung với Nhân viên spa.
+Mở http://localhost:3001. Trang gốc chỉ giới thiệu ứng dụng; các màn Lịch sử công việc (`/lich-su-cong-viec`), Thông báo (`/thong-bao`) và Thực hiện dịch vụ (`/lich-hen/[appointmentId]/thuc-hien`) của Nhân viên spa dùng dữ liệu mô phỏng, chưa kết nối backend. Màn Thực hiện dịch vụ chưa có menu; mở bằng đường dẫn trực tiếp với mã lịch mô phỏng trong `features/service-execution/mock-data.ts`. Dữ liệu mô phỏng gồm 3 lịch đang xử lý và 8 lịch Hoàn tất khớp màn Lịch sử công việc. Nút “Xem” mở lịch Hoàn tất ở chế độ chỉ xem. Màn Lịch hẹn của Lễ tân (`/lich-hen`) cũng dùng dữ liệu mô phỏng (chỉ có lịch cho ngày hôm nay); mục menu “Lịch hẹn” chưa bật vì dùng chung với Nhân viên spa.
 Dừng server bằng Ctrl+C trong terminal đã khởi chạy.
 
 Ứng dụng dùng Be Vietnam Pro và token màu chung với Web Khách hàng, Web Quản lý (`app/globals.css`).

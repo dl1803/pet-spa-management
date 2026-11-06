@@ -7,7 +7,7 @@ import { useState } from "react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ButtonLink } from "@/components/ui/button";
 import { ExecutionWorkspace } from "@/features/service-execution/components/execution-workspace";
-import { createMockExecutions, findMockExecution } from "@/features/service-execution/mock-data";
+import { createMockCompletedExecutions, createMockExecutions, findMockExecution } from "@/features/service-execution/mock-data";
 import { ROUTES } from "@/lib/routes";
 import { getStoreDateKey } from "@/lib/time";
 
@@ -16,7 +16,7 @@ export function ServiceExecutionScreen() {
   const [now] = useState(() => new Date());
 
   // Dữ liệu mô phỏng: chưa gọi API (nối API thật ở bước sau).
-  const initial = findMockExecution(createMockExecutions(now), appointmentId);
+  const initial = findMockExecution([...createMockExecutions(now), ...createMockCompletedExecutions()], appointmentId);
 
   if (initial === null) {
     return (

@@ -16,7 +16,8 @@ import {
   validatePhotoFile,
 } from "../features/service-execution/execution.ts";
 import { withPhoto, withServiceDone, withStarted } from "../features/service-execution/local-updates.ts";
-import { MOCK_APPOINTMENT_IDS, createMockExecutions, findMockExecution } from "../features/service-execution/mock-data.ts";
+import { MOCK_APPOINTMENT_IDS, createMockCompletedExecutions, createMockExecutions, findMockExecution } from "../features/service-execution/mock-data.ts";
+import { MOCK_WORK_HISTORY } from "../features/work-history/mock-data.ts";
 import { formatCountdown, formatWeight } from "../lib/format.ts";
 
 const NOW = new Date("2026-11-06T02:00:00Z"); // 09:00 ngày 06/11/2026 ở cửa hàng
@@ -24,6 +25,30 @@ const TODAY = "2026-11-06";
 const mocks = () => createMockExecutions(NOW);
 const byId = (id) => findMockExecution(mocks(), id);
 const photo = (kind, uploadedAt, photoId = `p-${kind}-${uploadedAt}`) => ({ photoId, kind, url: "blob:x", uploadedAt });
+
+test("lịch hoàn tất mô phỏng khớp từng dòng Lịch sử công việc (nút “Xem” không về 404)", () => {
+  const completed = createMockCompletedExecutions();
+  assert.equal(completed.length, MOCK_WORK_HISTORY.length);
+  const liveIds = new Set(mocks().map((entry) => entry.appointment.appointmentId));
+  for (const { appointment: expected, species } of MOCK_WORK_HISTORY) {
+    const entry = findMockExecution(completed, expected.appointmentId);
+    assert.ok(entry, `thiếu lịch ${expected.appointmentId}`);
+    assert.ok(!liveIds.has(expected.appointmentId));
+    const { appointment, pet, photos } = entry;
+    assert.deepEqual(
+      [appointment.status, appointment.type, appointment.petId, appointment.petName, appointment.slotStart, appointment.slotEnd],
+      ["Completed", "Spa", expected.petId, expected.petName, expected.slotStart, expected.slotEnd],
+    );
+    assert.deepEqual([pet.petId, pet.name, pet.species], [expected.petId, expected.petName, species]);
+    assert.deepEqual(
+      appointment.services.map((service) => [service.serviceId, service.name]),
+      expected.services.map((service) => [service.serviceId, service.name]),
+    );
+    assert.ok(appointment.services.every((service) => service.isDone));
+    assert.equal(appointment.pendingCostConfirmation ?? null, null);
+    assert.ok(pickLatestPhoto(photos, "Before") !== null && pickLatestPhoto(photos, "After") !== null);
+  }
+});
 
 test("dữ liệu mô phỏng: 3 lịch hẹn mã khác nhau, trạng thái Received, Received, InProgress", () => {
   const entries = mocks();

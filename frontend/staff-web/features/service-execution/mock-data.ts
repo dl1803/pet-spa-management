@@ -10,6 +10,7 @@ const STAFF_ID = "f0000000-0000-4000-8000-000000000001";
 const SERVICE_BATH = { serviceId: "d0000000-0000-4000-8000-000000000001", name: "Tắm & sấy lông" };
 const SERVICE_TRIM = { serviceId: "d0000000-0000-4000-8000-000000000002", name: "Cắt tỉa lông" };
 const SERVICE_EAR_NAIL = { serviceId: "d0000000-0000-4000-8000-000000000003", name: "Vệ sinh tai & cắt móng" };
+const SERVICE_RELAX = { serviceId: "d0000000-0000-4000-8000-000000000004", name: "Gói spa thư giãn" };
 
 // Ảnh mẫu thay cho ảnh thật: nền xám có vệt sáng, mã hóa thẳng trong URL để không cần tệp ảnh.
 const PLACEHOLDER_PHOTO_URL = `data:image/svg+xml,${encodeURIComponent(
@@ -156,6 +157,125 @@ export function createMockExecutions(now: Date): ExecutionData[] {
   };
 
   return [blocked, ready, inProgress];
+}
+
+// Lịch spa đã hoàn tất, khớp từng dòng MOCK_WORK_HISTORY để nút “Xem” ở SW-12 mở được SW-11 ở chế độ chỉ xem.
+// Không import chéo giữa các feature nên ID, giờ và dịch vụ được giữ khớp bằng test đối chiếu.
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+type CompletedInput = {
+  n: number; // 1..8, trùng số thứ tự trong MOCK_WORK_HISTORY
+  customerName: string;
+  pet: Pick<Pet, "name" | "species" | "breed" | "temperament" | "weightKg"> & Partial<Pet>;
+  start: string;
+  end: string;
+  services: { serviceId: string; name: string }[];
+};
+
+function completedExecution({ n, customerName, pet, start, end, services }: CompletedInput): ExecutionData {
+  const petId = `b0000000-0000-4000-8000-0000000000${pad2(n)}`;
+  return {
+    pet: makePet({ petId, sizeGroup: "Small", ...pet }),
+    appointment: {
+      appointmentId: `a0000000-0000-4000-8000-0000000000${pad2(n)}`,
+      type: "Spa",
+      customerId: CUSTOMER_ID,
+      customerName,
+      petId,
+      petName: pet.name,
+      status: "Completed",
+      sizeGroup: "Small",
+      actualWeightKg: pet.weightKg,
+      slotStart: start,
+      slotEnd: end,
+      staffRequired: 1,
+      staff: [{ staffId: STAFF_ID, fullName: "Hạnh", isHolding: false }],
+      createdAt: "2026-09-20T09:00:00+07:00",
+      updatedAt: end,
+      services: services.map((service) => ({ ...service, isDone: true, doneAt: end })),
+      pendingCostConfirmation: null,
+    },
+    photos: [
+      makePhoto(`e2000000-0000-4000-8000-0000000000${pad2(n)}`, "Before", start),
+      makePhoto(`e3000000-0000-4000-8000-0000000000${pad2(n)}`, "After", end),
+    ],
+  };
+}
+
+export function createMockCompletedExecutions(): ExecutionData[] {
+  return [
+    completedExecution({
+      n: 1,
+      customerName: "Trần Minh Anh",
+      pet: { name: "Bông", species: "Dog", breed: "Poodle", temperament: "Normal", weightKg: 8.5, coatNote: "xoăn, màu kem" },
+      start: "2026-10-06T09:00:00+07:00",
+      end: "2026-10-06T11:00:00+07:00",
+      services: [SERVICE_BATH, SERVICE_TRIM],
+    }),
+    completedExecution({
+      n: 2,
+      customerName: "Phạm Quốc Bảo",
+      pet: { name: "Bi", species: "Dog", breed: "Chihuahua", temperament: "Normal", weightKg: 3.1 },
+      start: "2026-10-05T14:00:00+07:00",
+      end: "2026-10-05T15:00:00+07:00",
+      services: [SERVICE_BATH],
+    }),
+    completedExecution({
+      n: 3,
+      customerName: "Nguyễn Thu Hà",
+      pet: { name: "Na", species: "Cat", breed: "Mèo Anh lông ngắn", temperament: "Calm", weightKg: 4.2, coatNote: "lông ngắn, màu xám" },
+      start: "2026-10-05T10:00:00+07:00",
+      end: "2026-10-05T11:20:00+07:00",
+      services: [SERVICE_BATH, SERVICE_EAR_NAIL],
+    }),
+    completedExecution({
+      n: 4,
+      customerName: "Lê Quang Huy",
+      pet: {
+        name: "Lu",
+        species: "Dog",
+        breed: "Pomeranian",
+        temperament: "Normal",
+        weightKg: 4.8,
+        notes: "hay cắn máy sấy; cần nghỉ giữa các dịch vụ",
+      },
+      start: "2026-10-03T13:00:00+07:00",
+      end: "2026-10-03T15:00:00+07:00",
+      services: [SERVICE_RELAX],
+    }),
+    completedExecution({
+      n: 5,
+      customerName: "Đỗ Khánh Linh",
+      pet: { name: "Thỏ Sữa", species: "Rabbit", breed: "Holland Lop", temperament: "Calm", weightKg: 1.6 },
+      start: "2026-10-02T09:00:00+07:00",
+      end: "2026-10-02T09:45:00+07:00",
+      services: [SERVICE_BATH],
+    }),
+    completedExecution({
+      n: 6,
+      customerName: "Vũ Hải Yến",
+      pet: { name: "Bánh Bao", species: "GuineaPig", breed: "Heo Abyssinian", temperament: "Calm", weightKg: 1.1 },
+      start: "2026-10-01T16:00:00+07:00",
+      end: "2026-10-01T17:00:00+07:00",
+      services: [SERVICE_BATH, SERVICE_EAR_NAIL],
+    }),
+    completedExecution({
+      n: 7,
+      customerName: "Hoàng Gia Bảo",
+      pet: { name: "Mít", species: "Dog", breed: "Shiba Inu", temperament: "Difficult", weightKg: 9.0 },
+      start: "2026-09-28T12:00:00+07:00",
+      end: "2026-09-28T13:00:00+07:00",
+      services: [SERVICE_BATH],
+    }),
+    completedExecution({
+      n: 8,
+      customerName: "Ngô Thanh Mai",
+      pet: { name: "Pudding", species: "Cat", breed: "Munchkin", temperament: "Normal", weightKg: 3.6 },
+      start: "2026-09-25T10:00:00+07:00",
+      end: "2026-09-25T11:00:00+07:00",
+      services: [SERVICE_BATH, SERVICE_TRIM],
+    }),
+  ];
 }
 
 export function findMockExecution(entries: ExecutionData[], appointmentId: string | undefined) {

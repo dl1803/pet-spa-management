@@ -4,7 +4,8 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ToastProvider } from "../components/feedback/toast.tsx";
 import { ExecutionWorkspace } from "../features/service-execution/components/execution-workspace.tsx";
-import { MOCK_APPOINTMENT_IDS, createMockExecutions, findMockExecution } from "../features/service-execution/mock-data.ts";
+import { MOCK_APPOINTMENT_IDS, createMockCompletedExecutions, createMockExecutions, findMockExecution } from "../features/service-execution/mock-data.ts";
+import { MOCK_WORK_HISTORY } from "../features/work-history/mock-data.ts";
 
 const NOW = new Date("2026-11-06T02:00:00Z"); // 09:00 ngày 06/11/2026 ở cửa hàng
 const TODAY = "2026-11-06";
@@ -18,6 +19,22 @@ const render = (data) =>
     React.createElement(ToastProvider, null, React.createElement(ExecutionWorkspace, { initial: data, todayKey: TODAY })),
   );
 const photo = (kind, uploadedAt, photoId = `p-${kind}-${uploadedAt}`) => ({ photoId, kind, url: "blob:x", uploadedAt });
+
+test("màn: mọi lịch từ Lịch sử công việc mở ở chế độ chỉ xem", () => {
+  const completed = createMockCompletedExecutions();
+  for (const { appointment } of MOCK_WORK_HISTORY) {
+    const html = render(findMockExecution(completed, appointment.appointmentId));
+    const total = appointment.services.length;
+    assert.match(html, /Hoàn tất/);
+    assert.match(html, new RegExp(`alt="Ảnh trước chăm sóc của ${appointment.petName}"`));
+    assert.match(html, new RegExp(`alt="Ảnh sau chăm sóc của ${appointment.petName}"`));
+    assert.match(html, new RegExp(`${total} / ${total} xong`));
+    assert.match(html, /Xong lúc \d\d:\d\d/);
+    for (const forbidden of [/Bắt đầu thực hiện/, /Hoàn tất lịch hẹn/, /Đánh dấu xong/, /<textarea/, /role="timer"/, /Tải ảnh lên/, /Chưa thể tải ảnh sau/]) {
+      assert.doesNotMatch(html, forbidden, `${appointment.petName}: ${forbidden}`);
+    }
+  }
+});
 
 test("màn: chưa đủ điều kiện bắt đầu (Received, chờ xác nhận chi phí, chưa có ảnh trước)", () => {
   const html = render(liveById(MOCK_APPOINTMENT_IDS.blocked));
