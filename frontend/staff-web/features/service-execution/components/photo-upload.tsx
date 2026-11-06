@@ -40,11 +40,10 @@ type PhotoUploadProps = {
   onSelect: (file: File) => void;
 };
 
-// SW-11 vùng 3, 4 – Ô tải ảnh: chọn hoặc chụp ảnh, kiểm tra tệp trước khi nhận (UI-Screens.md).
-export function PhotoUpload({ title, inputId, onSelect }: PhotoUploadProps) {
+// Chọn tệp, kiểm tra tệp rồi báo lên: dùng chung cho ô tải ảnh và nút “Đổi ảnh”.
+function usePhotoPicker(inputId: string, onSelect: (file: File) => void) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
-  const errorId = `${inputId}-error`;
 
   function handleChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -57,9 +56,16 @@ export function PhotoUpload({ title, inputId, onSelect }: PhotoUploadProps) {
     if (message === null) onSelect(file);
   }
 
+  return { inputRef, error, errorId: `${inputId}-error`, open: () => inputRef.current?.click(), handleChange };
+}
+
+// SW-11 vùng 3, 4 – Ô tải ảnh: chọn hoặc chụp ảnh, kiểm tra tệp trước khi nhận (UI-Screens.md).
+export function PhotoUpload({ title, inputId, onSelect }: PhotoUploadProps) {
+  const { inputRef, error, errorId, open, handleChange } = usePhotoPicker(inputId, onSelect);
+
   return (
     <PhotoDropZone title={title} hint="Chỉ nhận tệp ảnh">
-      <Button variant="secondary" size="sm" onClick={() => inputRef.current?.click()} aria-describedby={error ? errorId : undefined}>
+      <Button variant="secondary" size="sm" onClick={open} aria-describedby={error ? errorId : undefined}>
         Tải ảnh lên
       </Button>
       <input
@@ -75,5 +81,23 @@ export function PhotoUpload({ title, inputId, onSelect }: PhotoUploadProps) {
         <FieldError id={errorId} message={error ?? undefined} />
       </div>
     </PhotoDropZone>
+  );
+}
+
+// SW-11 vùng 3, 4 – Nút “Đổi ảnh” khi đã có ảnh và lịch còn cho tải (Đề xuất: UI-Screens chưa có). Tệp sai thì báo lỗi và giữ ảnh cũ.
+export function PhotoReplace({ label, inputId, onSelect }: { label: string; inputId: string; onSelect: (file: File) => void }) {
+  const { inputRef, error, errorId, open, handleChange } = usePhotoPicker(inputId, onSelect);
+
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <Button variant="secondary" size="sm" onClick={open} aria-label={label} aria-describedby={error ? errorId : undefined}>
+        <Icon name="camera" className="size-4" />
+        Đổi ảnh
+      </Button>
+      <input ref={inputRef} id={inputId} type="file" accept="image/*" hidden aria-label={label} onChange={handleChange} />
+      <div aria-live="polite">
+        <FieldError id={errorId} message={error ?? undefined} />
+      </div>
+    </div>
   );
 }

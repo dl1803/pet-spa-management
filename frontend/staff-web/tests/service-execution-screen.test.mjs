@@ -30,7 +30,7 @@ test("màn: mọi lịch từ Lịch sử công việc mở ở chế độ ch�
     assert.match(html, new RegExp(`alt="Ảnh sau chăm sóc của ${appointment.petName}"`));
     assert.match(html, new RegExp(`${total} / ${total} xong`));
     assert.match(html, /Xong lúc \d\d:\d\d/);
-    for (const forbidden of [/Bắt đầu thực hiện/, /Hoàn tất lịch hẹn/, /Đánh dấu xong/, /<textarea/, /role="timer"/, /Tải ảnh lên/, /Chưa thể tải ảnh sau/]) {
+    for (const forbidden of [/Bắt đầu thực hiện/, /Hoàn tất lịch hẹn/, /Đánh dấu xong/, /<textarea/, /role="timer"/, /Tải ảnh lên/, /Chưa thể tải ảnh sau/, /Đổi ảnh/]) {
       assert.doesNotMatch(html, forbidden, `${appointment.petName}: ${forbidden}`);
     }
   }
@@ -109,6 +109,23 @@ test("màn: trạng thái ngoài Received/InProgress không có thao tác nào",
   assert.doesNotMatch(html, /Bắt đầu thực hiện/);
   assert.doesNotMatch(html, /<textarea/);
   assert.match(html, /Chưa thể tải ảnh sau/);
+});
+
+test("màn: nút Đổi ảnh chỉ hiện khi đã có ảnh và lịch còn cho tải loại ảnh đó", () => {
+  const BEFORE = /aria-label="Đổi ảnh trước chăm sóc"/;
+  const AFTER = /aria-label="Đổi ảnh sau chăm sóc"/;
+  const ready = render(byId(MOCK_APPOINTMENT_IDS.ready)); // Received, có ảnh trước
+  assert.match(ready, BEFORE);
+  assert.doesNotMatch(ready, AFTER);
+  assert.doesNotMatch(render(liveById(MOCK_APPOINTMENT_IDS.blocked)), /Đổi ảnh/); // chưa có ảnh nào
+  const base = byId(MOCK_APPOINTMENT_IDS.inProgress); // InProgress, có ảnh trước, chưa có ảnh sau
+  assert.doesNotMatch(render(base), /Đổi ảnh/);
+  const afterPhoto = photo("After", "2026-11-06T06:00:00Z");
+  const withAfter = render({ ...base, photos: [...base.photos, afterPhoto] });
+  assert.match(withAfter, AFTER);
+  assert.doesNotMatch(withAfter, BEFORE);
+  const completed = { ...base, appointment: { ...base.appointment, status: "Completed" }, photos: [...base.photos, afterPhoto] };
+  assert.doesNotMatch(render(completed), /Đổi ảnh/);
 });
 
 test("màn: nội dung nhập từ dữ liệu được escape", () => {

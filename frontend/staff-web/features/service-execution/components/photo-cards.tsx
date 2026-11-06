@@ -2,7 +2,7 @@ import { Alert } from "@/components/feedback/alert";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Tag } from "@/components/ui/tag";
 import { PhotoTile } from "@/features/service-execution/components/photo-tile";
-import { PhotoDropZone, PhotoUpload } from "@/features/service-execution/components/photo-upload";
+import { PhotoDropZone, PhotoReplace, PhotoUpload } from "@/features/service-execution/components/photo-upload";
 import type { Photo } from "@/lib/api/types";
 
 type PhotoCardProps = {
@@ -22,7 +22,10 @@ export function BeforePhotoCard({ photo, petName, todayKey, canUpload, onUpload 
       </CardHeader>
       <CardBody>
         {photo ? (
-          <PhotoTile photo={photo} alt={`Ảnh trước chăm sóc của ${petName}`} todayKey={todayKey} />
+          <div className="flex flex-col gap-3">
+            <PhotoTile photo={photo} alt={`Ảnh trước chăm sóc của ${petName}`} todayKey={todayKey} />
+            {canUpload && <PhotoReplace label="Đổi ảnh trước chăm sóc" inputId="before-photo-replace" onSelect={onUpload} />}
+          </div>
         ) : (
           <div className="flex flex-col gap-3">
             {/* Câu mới, UI demo chưa có vì API không trả ngày ảnh gần nhất (UI-Screens G-13) (Đề xuất). */}
@@ -44,7 +47,10 @@ export function AfterPhotoCard({ photo, petName, todayKey, canUpload, onUpload }
       <CardHeader title="Ảnh sau chăm sóc">{photo && <Tag tone="ok">Đã có</Tag>}</CardHeader>
       <CardBody>
         {photo ? (
-          <PhotoTile photo={photo} alt={`Ảnh sau chăm sóc của ${petName}`} todayKey={todayKey} />
+          <div className="flex flex-col gap-3">
+            <PhotoTile photo={photo} alt={`Ảnh sau chăm sóc của ${petName}`} todayKey={todayKey} />
+            {canUpload && <PhotoReplace label="Đổi ảnh sau chăm sóc" inputId="after-photo-replace" onSelect={onUpload} />}
+          </div>
         ) : canUpload ? (
           <PhotoUpload title="Chụp ảnh sau khi xong mọi dịch vụ" inputId="after-photo" onSelect={onUpload} />
         ) : (
