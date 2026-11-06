@@ -158,6 +158,7 @@ test("matchesFilter: waiting không tính lịch Confirmed khác ngày", () => {
 test("hàm dùng chung: formatLongDate, countNights, addDaysToDateKey, buildStoreDateTime", () => {
   assert.equal(formatLongDate("2026-10-06T12:00:00+07:00"), "Thứ ba 06/10/2026");
   assert.equal(countNights("2026-11-06T10:00:00+07:00", "2026-11-08T12:00:00+07:00"), 2);
+  assert.equal(countNights("2026-11-08T12:00:00+07:00", "2026-11-06T10:00:00+07:00"), 0);
   assert.equal(addDaysToDateKey("2026-11-30", 1), "2026-12-01");
   assert.equal(buildStoreDateTime("2026-11-06", "09:00"), "2026-11-06T09:00:00+07:00");
 });

@@ -51,6 +51,8 @@ export function ReceptionAppointmentsScreen() {
           onChange={(event) => {
             if (event.target.value !== "") {
               router.replace(withQuery(ROUTES.appointments, { date: event.target.value }), { scroll: false });
+            } else {
+              router.replace(ROUTES.appointments, { scroll: false });
             }
           }}
           className={dateInputClass}

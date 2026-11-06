@@ -18,7 +18,8 @@ export function getPreviousDateKey(dateKey: string) {
 export function countNights(checkIn: string, checkOut: string) {
   const start = Date.parse(`${getStoreDateKey(checkIn)}T00:00:00Z`);
   const end = Date.parse(`${getStoreDateKey(checkOut)}T00:00:00Z`);
-  return Math.round((end - start) / 86_400_000);
+  const diff = Math.round((end - start) / 86_400_000);
+  return Number.isNaN(diff) ? 0 : Math.max(0, diff);
 }
 
 // Múi giờ cửa hàng không có giờ mùa hè nên độ lệch cố định.

@@ -85,10 +85,12 @@ export function countByFilter(rows: ReceptionAppointmentRow[], dateKey: string):
 
 // Sắp xếp theo giờ tăng dần; dòng không có giờ xếp cuối; không sửa mảng đầu vào.
 export function sortByTime(rows: ReceptionAppointmentRow[], dateKey: string): ReceptionAppointmentRow[] {
-  const timeOf = (row: ReceptionAppointmentRow) => {
-    const time = getRowTime(row.appointment, dateKey);
-    return time === null ? Number.POSITIVE_INFINITY : Date.parse(time);
-  };
-  return [...rows].sort((a, b) => timeOf(a) - timeOf(b));
+  return rows
+    .map((row) => {
+      const time = getRowTime(row.appointment, dateKey);
+      return { row, timestamp: time === null ? Number.POSITIVE_INFINITY : Date.parse(time) };
+    })
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .map((item) => item.row);
 }
 
