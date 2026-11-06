@@ -10,7 +10,7 @@ npm ci
 npm run dev -- --port 3001
 ```
 
-Mở http://localhost:3001. Trang gốc chỉ giới thiệu ứng dụng; hai màn Lịch sử công việc (`/lich-su-cong-viec`) và Thông báo (`/thong-bao`) của Nhân viên spa dùng dữ liệu mô phỏng, chưa kết nối backend. Màn Lịch hẹn của Lễ tân (`/lich-hen`) cũng dùng dữ liệu mô phỏng (chỉ có lịch cho ngày hôm nay); mục menu “Lịch hẹn” chưa bật vì dùng chung với Nhân viên spa.
+Mở http://localhost:3001. Trang gốc chỉ giới thiệu ứng dụng; các màn Lịch sử công việc (`/lich-su-cong-viec`), Thông báo (`/thong-bao`) và Thực hiện dịch vụ (`/lich-hen/[appointmentId]/thuc-hien`) của Nhân viên spa dùng dữ liệu mô phỏng, chưa kết nối backend. Màn Thực hiện dịch vụ chưa có menu; mở bằng đường dẫn trực tiếp với mã lịch mô phỏng trong `features/service-execution/mock-data.ts`. Màn Lịch hẹn của Lễ tân (`/lich-hen`) cũng dùng dữ liệu mô phỏng (chỉ có lịch cho ngày hôm nay); mục menu “Lịch hẹn” chưa bật vì dùng chung với Nhân viên spa.
 Dừng server bằng Ctrl+C trong terminal đã khởi chạy.
 
 Ứng dụng dùng Be Vietnam Pro và token màu chung với Web Khách hàng, Web Quản lý (`app/globals.css`).
@@ -30,12 +30,12 @@ Mọi mục chưa có trang đích bị vô hiệu hóa, có mô tả “Chức 
 - `components/layout`: thanh trên, menu theo vai trò, menu tài khoản; phần đọc đường dẫn nằm trong `Suspense`.
 - `components/icons.tsx`: biểu tượng SVG và logo theo UI demo.
 - `lib/routes.ts`: đường dẫn các màn của Web Nhân viên.
-- `lib/api/types.ts`, `lib/labels.ts`: vai trò nhân viên (`Receptionist`, `SpaStaff`), lịch hẹn, thông báo và nhãn tiếng Việt.
+- `lib/api/types.ts`, `lib/labels.ts`: vai trò nhân viên (`Receptionist`, `SpaStaff`), lịch hẹn, thú cưng, ảnh lịch hẹn, thông báo và nhãn tiếng Việt.
 - `lib/api`: Axios client và chuẩn hóa lỗi thành `ApiError`; đủ 25 mã lỗi, cùng nội dung với Web Quản lý.
 - `app/providers.tsx`, `lib/query-client.ts`: Query Provider và cấu hình retry; cache server tách riêng, trình duyệt giữ cùng client.
-- `components/feedback`: lỗi nội tuyến, lỗi trường, trạng thái không có quyền và toast.
+- `components/feedback`: lỗi nội tuyến, cảnh báo nghiệp vụ, lỗi trường, trạng thái không có quyền và toast.
 - `components/ui`, `components/domain`, `components/layout/page-header.tsx`: thành phần giao diện dùng chung, sao chép từ Web Khách hàng (riêng `pet-avatar.tsx` từ Web Quản lý); `button.tsx`, `select.tsx` theo vùng chạm 44px của Web Nhân viên.
-- `features/work-history`, `features/notifications`: màn Lịch sử công việc và Thông báo; dữ liệu mô phỏng nằm trong `mock-data.ts`.
+- `features/work-history`, `features/notifications`, `features/service-execution`: màn Lịch sử công việc, Thông báo và Thực hiện dịch vụ; dữ liệu mô phỏng nằm trong `mock-data.ts`.
 - `features/reception-appointments`: màn Lịch hẹn của Lễ tân (toàn cửa hàng); dữ liệu mô phỏng nằm trong `mock-data.ts`.
 - `lib/format.ts`, `lib/time.ts`: định dạng ngày giờ theo múi giờ cửa hàng.
 
