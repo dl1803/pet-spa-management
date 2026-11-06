@@ -18,4 +18,8 @@ public interface IStaffRepository
 
     // Không có StaffId -> NOT_FOUND. Không đổi số điện thoại.
     Task UpdateAsync(Guid staffId, string fullName, StaffRole staffRole, CancellationToken ct = default);
+
+    // IsActive = false và thu hồi mọi refresh token trong một giao dịch. Không có StaffId -> NOT_FOUND.
+    // Gọi lại trên nhân viên đã vô hiệu hóa vẫn thành công (không đổi kết quả).
+    Task DeactivateAsync(Guid staffId, CancellationToken ct = default);
 }

@@ -38,4 +38,13 @@ public sealed class StaffController(StaffService staffService) : ControllerBase
         await staffService.UpdateAsync(id, request.FullName, request.StaffRole!.Value, ct);
         return Ok();
     }
+
+    [HttpPost("{id}/deactivate")]
+    [EndpointSummary("Quản lý vô hiệu hóa tài khoản nhân viên")]
+    [EndpointDescription("IsActive = false, thu hồi mọi refresh token, nhân viên mất quyền đăng nhập ngay. returnedToPending là số lịch spa đã chuyển về Chờ xác nhận (phần này hoàn thiện ở ID 64). Gọi lại trên nhân viên đã vô hiệu hóa vẫn trả 200.")]
+    public async Task<IActionResult> Deactivate(Guid id, CancellationToken ct)
+    {
+        var returnedToPending = await staffService.DeactivateAsync(id, ct);
+        return Ok(new DeactivateStaffResponse(returnedToPending));
+    }
 }
