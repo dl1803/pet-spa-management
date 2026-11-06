@@ -21,4 +21,12 @@ public sealed class StaffService(IStaffRepository staffs)
     // FR-STF-02: cập nhật họ tên và vai trò. Role của tài khoản vẫn là Staff, không đổi.
     public Task UpdateAsync(Guid staffId, string fullName, StaffRole staffRole, CancellationToken ct = default) =>
         staffs.UpdateAsync(staffId, fullName.Trim(), staffRole, ct);
+
+    // FR-STF-03: trả số lịch spa "Đã xác nhận" đã chuyển về "Chờ xác nhận".
+    // Hiện chưa có API lịch hẹn nên chưa có lịch nào để chuyển, trả 0. ID 64 (BR-27) thay bằng số lịch thực sự chuyển và gửi thông báo.
+    public async Task<int> DeactivateAsync(Guid staffId, CancellationToken ct = default)
+    {
+        await staffs.DeactivateAsync(staffId, ct);
+        return 0;
+    }
 }

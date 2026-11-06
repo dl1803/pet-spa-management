@@ -17,3 +17,7 @@ public sealed class ListStaffQuery
     public int Page { get; init; } = 1;
     public int PageSize { get; init; } = 20;
 }
+
+// POST /staff/{id}/deactivate. Số lịch spa "Đã xác nhận" đã chuyển về "Chờ xác nhận" (BR-27).
+public sealed record DeactivateStaffResponse(int ReturnedToPending);
+
