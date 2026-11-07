@@ -1,0 +1,71 @@
+"use client";
+
+import { useEffect, useId, useRef, type ReactNode } from "react";
+import { Icon, type IconName } from "@/components/icons";
+
+type ModalProps = {
+  icon: IconName;
+  // teal: thao tác bình thường (mặc định); warn, danger: như ConfirmDialog (Design-System 4.1).
+  tone?: "teal" | "warn" | "danger";
+  title: string;
+  description: string;
+  onClose: () => void;
+  // Thân và chân hộp thoại; thường là một <form> có nút gửi ở chân.
+  children: ReactNode;
+};
+
+const ICON_TONE_CLASS = {
+  teal: "bg-lagoon-50 text-lagoon",
+  warn: "bg-apricot-50 text-apricot-700",
+  danger: "bg-danger-50 text-danger",
+} as const;
+
+// Hộp thoại chứa form, rộng 480px (Design-System 4.1). Dùng <dialog> modal như Drawer và ConfirmDialog: trình duyệt khóa nền,
+// giữ focus trong hộp thoại; Esc và bấm nền mờ đều gọi onClose. Chỉ đặt vào cây React khi cần mở; gỡ khỏi cây thì đóng
+// và trả focus về nút đã mở.
+export function Modal({ icon, tone = "teal", title, description, onClose, children }: ModalProps) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+
+  useEffect(() => {
+    const dialog = ref.current;
+    // Gỡ <dialog> khỏi cây React làm trình duyệt đưa focus về BODY trước khi close() chạy,
+    // nên phải nhớ nút đã mở và tự trả focus về đó.
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (dialog && !dialog.open) {
+      dialog.showModal();
+      // Design-System 4.1: focus nút đầu chân hộp thoại khi mở; trình duyệt chỉ tự chọn phần tử đầu tiên theo thứ tự cây.
+      dialog.querySelector<HTMLElement>("[data-initial-focus]")?.focus();
+    }
+    return () => {
+      dialog?.close();
+      if (opener?.isConnected) opener.focus();
+    };
+  }, []);
+
+  return (
+    <dialog
+      ref={ref}
+      aria-labelledby={titleId}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      className="m-auto w-[480px] max-w-[calc(100%-32px)] animate-dialog-in rounded-2xl border-0 bg-white p-0 text-ink shadow-pop backdrop:bg-ink/40"
+    >
+      <div className="flex items-start gap-3.5 px-6 pt-6">
+        <span className={`grid size-12 shrink-0 place-items-center rounded-xl ${ICON_TONE_CLASS[tone]}`}>
+          <Icon name={icon} className="size-6" />
+        </span>
+        <div className="min-w-0">
+          <h2 id={titleId} className="text-[18px] leading-[26px]">{title}</h2>
+          <p className="text-muted">{description}</p>
+        </div>
+      </div>
+      {children}
+    </dialog>
+  );
+}

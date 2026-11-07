@@ -7,6 +7,9 @@ const toneClass = {
   "st-4": "bg-st-active-bg text-st-active",
   "st-5": "bg-st-completed-bg text-st-completed",
   "st-6": "bg-st-cancelled-bg text-st-cancelled",
+  // Màu thanh toán (Design-System 1): chưa thanh toán dùng màu chờ xác nhận, đã thanh toán dùng màu thành công.
+  "pay-0": "bg-st-pending-bg text-st-pending",
+  "pay-1": "bg-success-50 text-success",
 };
 
 export type BadgeTone = keyof typeof toneClass;
