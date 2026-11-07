@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatAppointmentCode, formatDate, formatRelativeDay, formatShortDate, formatTime, formatTimeRange } from "../lib/format.ts";
+import {
+  formatAppointmentCode,
+  formatDate,
+  formatDayAndTime,
+  formatMoney,
+  formatRelativeDay,
+  formatShortDate,
+  formatTime,
+  formatTimeRange,
+  formatWeekdayShort,
+  formatWeight,
+} from "../lib/format.ts";
 import { getPreviousDateKey, getStoreDateKey } from "../lib/time.ts";
 
 test("ngày, giờ, khoảng giờ theo múi giờ cửa hàng", () => {
@@ -23,4 +34,12 @@ test("thời gian thông báo: hôm nay chỉ có giờ, hôm qua có nhãn, cò
 
 test("mã lịch hẹn hiển thị: LH- + 8 ký tự đầu của uuid viết hoa", () => {
   assert.equal(formatAppointmentCode("5f1c2a9b-0000-4000-8000-000000000001"), "LH-5F1C2A9B");
+});
+
+test("tiền, cân nặng, thứ viết tắt và mốc ngày giờ gọn", () => {
+  assert.equal(formatMoney(540000), "540.000đ");
+  assert.equal(formatWeight(11), "11,0 kg");
+  assert.equal(formatWeekdayShort("2026-10-08T09:00:00+07:00"), "T5");
+  assert.equal(formatWeekdayShort("2026-10-11T09:00:00+07:00"), "CN");
+  assert.equal(formatDayAndTime("2026-10-08T09:00:00+07:00"), "T5 08/10, 09:00");
 });
