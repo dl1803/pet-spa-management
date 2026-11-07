@@ -72,6 +72,11 @@ export type ConfirmHotelRequest = {
   cageId: string;
 };
 
+export type ConfirmSpaRequest = {
+  // Đủ số nhân viên cần của lịch hẹn (staffRequired).
+  staffIds: string[];
+};
+
 export type StaffRole = "Receptionist" | "SpaStaff";
 
 export type Staff = {
