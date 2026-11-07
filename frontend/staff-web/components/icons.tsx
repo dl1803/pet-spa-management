@@ -146,6 +146,8 @@ const ICON_PATHS = {
     </>
   ),
   play: <path d="M7 4.5v15l12-7.5z" />,
+  plus: <path d="M12 5v14M5 12h14" />,
+  swap: <path d="M16 3l4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16" />,
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof ICON_PATHS;

@@ -1,5 +1,6 @@
 import { getPreviousDateKey, getStoreDateKey, STORE_TIME_ZONE } from "@/lib/time";
 
+const MONEY_FORMAT = new Intl.NumberFormat("vi-VN");
 const WEIGHT_FORMAT = new Intl.NumberFormat("vi-VN", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const DATE_FORMAT = new Intl.DateTimeFormat("vi-VN", {
   timeZone: STORE_TIME_ZONE,
@@ -18,11 +19,15 @@ const WEEKDAY_FORMAT = new Intl.DateTimeFormat("vi-VN", {
   weekday: "long",
 });
 
+export function formatMoney(amount: number) {
+  return `${MONEY_FORMAT.format(amount)}đ`;
+}
+
 export function formatWeight(kg: number) {
   return `${WEIGHT_FORMAT.format(kg)} kg`;
 }
 
-// Đồng hồ đếm ngược dạng mm:ss (Frontend-Conventions mục 7).
+// Đồng hồ đếm ngược dạng mm:ss.
 export function formatCountdown(totalSeconds: number) {
   const seconds = Math.max(0, Math.floor(totalSeconds));
   const minutes = Math.floor(seconds / 60);
@@ -66,3 +71,16 @@ export function formatRelativeDay(value: string, todayKey: string) {
 export function formatAppointmentCode(appointmentId: string) {
   return `LH-${appointmentId.slice(0, 8).toUpperCase()}`;
 }
+
+const WEEKDAY_SHORT_LABELS = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"] as const;
+
+// Nhãn thứ viết tắt: "T5", "CN".
+export function formatWeekdayShort(value: string) {
+  return WEEKDAY_SHORT_LABELS[new Date(`${getStoreDateKey(value)}T00:00:00Z`).getUTCDay()];
+}
+
+// Mốc ngày giờ gọn cho tóm tắt: "T5 08/10, 09:00".
+export function formatDayAndTime(value: string) {
+  return `${formatWeekdayShort(value)} ${formatShortDate(value)}, ${formatTime(value)}`;
+}
+
