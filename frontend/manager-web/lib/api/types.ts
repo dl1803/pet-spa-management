@@ -97,3 +97,35 @@ export type StaffUpdateRequest = {
   fullName: string;
   staffRole: StaffRole;
 };
+
+export type PaymentKind = "Spa" | "Stay" | "LateFee";
+export type PaymentStatus = "Unpaid" | "Paid";
+export type PaymentMethod = "Cash" | "BankQR" | "Online";
+// Phương thức được ghi nhận tại quầy (openapi CounterPaymentMethod); Online chỉ do webhook của cổng đặt.
+export type CounterPaymentMethod = "Cash" | "BankQR";
+
+export type Payment = {
+  paymentId: string;
+  appointmentId: string;
+  kind: PaymentKind;
+  // VND, số nguyên ≥ 0, do hệ thống tính (FR-PAY-01); web chỉ hiển thị, không tính lại và không gửi lên.
+  amount: number;
+  status: PaymentStatus;
+  method?: PaymentMethod | null;
+  receivedAmount?: number | null;
+  // ISO 8601.
+  paidAt?: string | null;
+};
+
+export type PaymentPage = {
+  page: number;
+  pageSize: number;
+  total: number;
+  items: Payment[];
+};
+
+export type CounterPaymentRequest = {
+  method: CounterPaymentMethod;
+  // VND, số nguyên; phải ≥ amount của khoản (BR-17).
+  receivedAmount: number;
+};
