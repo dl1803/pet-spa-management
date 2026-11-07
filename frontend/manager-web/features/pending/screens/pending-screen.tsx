@@ -1,49 +1,41 @@
 "use client";
 
-// MW-04 Xử lý lịch hẹn chờ xác nhận – UI-Screens.md. Hiện có vùng 5 (nhân viên spa phụ trách) và vùng 3, 4, 6, 8
-// (thông tin lịch, chọn chuồng, xác nhận, từ chối lịch lưu trú), dùng dữ liệu mô phỏng; chưa gọi API.
+// MW-04 Xử lý lịch hẹn chờ xác nhận – UI-Screens.md. Hiện có vùng 3, 4, 5, 6, 7 (lịch spa) và vùng 3, 4, 6, 8 (lịch lưu trú),
+// dùng dữ liệu mô phỏng; chưa gọi API.
 import { useState } from "react";
-import { Controller, useForm } from "react-hook-form";
 import { useToast } from "@/components/feedback/toast";
 import { formatAppointmentCode } from "@/lib/format";
-import type { ConfirmHotelRequest } from "@/lib/api/types";
+import type { ConfirmHotelRequest, ConfirmSpaRequest } from "@/lib/api/types";
 import { CageAssignmentCard } from "../components/cage-assignment-card";
 import { PendingEmptyState } from "../components/pending-empty-state";
-import { StaffAssignmentPanel } from "../components/staff-assignment-panel";
+import { StaffAssignmentCard } from "../components/staff-assignment-card";
 import { MOCK_CAGE_ASSIGNMENTS, MOCK_STAFF_ASSIGNMENTS, type MockCageAssignment, type MockStaffAssignment } from "../mock-data";
-import { getInitialStaffIds } from "../staff-selection";
+import { getSpaConfirmMessage } from "../spa-summary";
 
-function StaffAssignmentCard({ appointmentId, title, suggestions }: MockStaffAssignment) {
-  const { control } = useForm<{ staffIds: string[] }>({
-    defaultValues: { staffIds: getInitialStaffIds(suggestions) },
-  });
-  const titleId = `assignment-${appointmentId}`;
-
-  return (
-    <section aria-labelledby={titleId} className="rounded-2xl border border-line bg-white p-5">
-      <h2 id={titleId} className="mb-4">{title}</h2>
-      <Controller
-        control={control}
-        name="staffIds"
-        render={({ field }) => (
-          <StaffAssignmentPanel
-            suggestions={suggestions}
-            selectedStaffIds={field.value}
-            onSelectedStaffIdsChange={field.onChange}
-          />
-        )}
-      />
-    </section>
-  );
-}
+const REJECTED_MESSAGE = "Đã từ chối lịch hẹn. Khách đã được thông báo.";
 
 export function PendingScreen() {
   const { showSuccess } = useToast();
-  // Lịch lưu trú đã xử lý rời danh sách, như khi backend đổi trạng thái khỏi Chờ xác nhận.
+  // Lịch đã xử lý rời danh sách, như khi backend đổi trạng thái khỏi Chờ xác nhận.
+  const [staffAssignments, setStaffAssignments] = useState<MockStaffAssignment[]>(MOCK_STAFF_ASSIGNMENTS);
   const [cageAssignments, setCageAssignments] = useState<MockCageAssignment[]>(MOCK_CAGE_ASSIGNMENTS);
+
+  function removeStaffAssignment(appointmentId: string) {
+    setStaffAssignments((current) => current.filter((item) => item.appointmentId !== appointmentId));
+  }
 
   function removeCageAssignment(appointmentId: string) {
     setCageAssignments((current) => current.filter((item) => item.appointmentId !== appointmentId));
+  }
+
+  function handleConfirmSpa(assignment: MockStaffAssignment, { staffIds }: ConfirmSpaRequest) {
+    removeStaffAssignment(assignment.appointmentId);
+    showSuccess(getSpaConfirmMessage(assignment, staffIds));
+  }
+
+  function handleRejectSpa({ appointmentId }: MockStaffAssignment) {
+    removeStaffAssignment(appointmentId);
+    showSuccess(REJECTED_MESSAGE);
   }
 
   function handleConfirm({ appointmentId, suggestions, cages }: MockCageAssignment, { cageId }: ConfirmHotelRequest) {
@@ -55,10 +47,10 @@ export function PendingScreen() {
 
   function handleReject({ appointmentId }: MockCageAssignment) {
     removeCageAssignment(appointmentId);
-    showSuccess("Đã từ chối lịch hẹn. Khách đã được thông báo.");
+    showSuccess(REJECTED_MESSAGE);
   }
 
-  const isEmpty = MOCK_STAFF_ASSIGNMENTS.length === 0 && cageAssignments.length === 0;
+  const isEmpty = staffAssignments.length === 0 && cageAssignments.length === 0;
 
   return (
     <div>
@@ -69,8 +61,13 @@ export function PendingScreen() {
         </div>
       ) : (
         <div className="mt-6 flex max-w-[720px] flex-col gap-4">
-          {MOCK_STAFF_ASSIGNMENTS.map((assignment) => (
-            <StaffAssignmentCard key={assignment.appointmentId} {...assignment} />
+          {staffAssignments.map((assignment) => (
+            <StaffAssignmentCard
+              key={assignment.appointmentId}
+              {...assignment}
+              onConfirm={(request) => handleConfirmSpa(assignment, request)}
+              onReject={() => handleRejectSpa(assignment)}
+            />
           ))}
           {cageAssignments.map((assignment) => (
             <CageAssignmentCard
