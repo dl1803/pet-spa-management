@@ -94,6 +94,7 @@ public static class DependencyInjection
         services.AddScoped<IHotelCatalogRepository, HotelCatalogRepository>();
         services.AddScoped<IConcurrencyGuard, PostgresConcurrencyGuard>();
         services.AddScoped<IAccountRepository, AccountRepository>();
+        services.AddScoped<INotificationRepository, NotificationRepository>();
 
         return services;
     }
