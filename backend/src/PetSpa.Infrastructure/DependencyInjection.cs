@@ -95,6 +95,7 @@ public static class DependencyInjection
         services.AddScoped<ISpaScheduleRepository, SpaScheduleRepository>();
         services.AddScoped<IConcurrencyGuard, PostgresConcurrencyGuard>();
         services.AddScoped<IAccountRepository, AccountRepository>();
+        services.AddScoped<INotificationRepository, NotificationRepository>();
 
         return services;
     }
