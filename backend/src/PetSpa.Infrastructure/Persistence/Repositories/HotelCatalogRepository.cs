@@ -54,6 +54,29 @@ public sealed class HotelCatalogRepository(AppDbContext db) : IHotelCatalogRepos
         return affected > 0;
     }
 
+    public async Task<IReadOnlyList<HotelPricing>> ListPricingAsync(CancellationToken ct = default) =>
+        await db.Set<HotelPricing>()
+            .AsNoTracking()
+            .OrderBy(p => p.Species)
+            .ThenBy(p => p.SizeGroup)
+            .ToListAsync(ct);
+
+    public async Task SetLodgingPricesAsync(IReadOnlyList<HotelPricing> prices, CancellationToken ct = default)
+    {
+        var current = await db.Set<HotelPricing>().ToListAsync(ct);
+
+        foreach (var price in prices)
+        {
+            var existing = current.FirstOrDefault(p => p.Species == price.Species && p.SizeGroup == price.SizeGroup);
+            if (existing is null)
+                db.Set<HotelPricing>().Add(price);
+            else
+                existing.PricePerNight = price.PricePerNight;
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
     private static bool IsUniqueViolation(DbUpdateException ex) =>
         ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
 }
