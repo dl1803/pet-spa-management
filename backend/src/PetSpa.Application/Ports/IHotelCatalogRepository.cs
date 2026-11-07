@@ -11,5 +11,9 @@ public interface IHotelCatalogRepository
         Guid cageId, string? code, Species? species, SizeGroup? sizeGroup, CancellationToken ct = default);
 
     Task<bool> SetCageActiveAsync(Guid cageId, bool isActive, CancellationToken ct = default);
+
+    Task<IReadOnlyList<HotelPricing>> ListPricingAsync(CancellationToken ct = default);
+
+    Task SetLodgingPricesAsync(IReadOnlyList<HotelPricing> prices, CancellationToken ct = default);
 }
 
