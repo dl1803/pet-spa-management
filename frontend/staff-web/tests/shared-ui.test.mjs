@@ -31,6 +31,15 @@ test("Button: cỡ lg, block, vô hiệu hóa có kiểu nền xám và hover ch
   assert.doesNotMatch(html, /enabled:hover/);
 });
 
+test("Button: loading hỗ trợ loadingText tùy biến hoặc mặc định Đang gửi…", () => {
+  const custom = render(React.createElement(Button, { loading: true, loadingText: "Đang lưu…" }, "Lưu"));
+  assert.match(custom, /Đang lưu…/);
+  assert.doesNotMatch(custom, /Đang gửi…/);
+
+  const def = render(React.createElement(Button, { loading: true }, "Lưu"));
+  assert.match(def, /Đang gửi…/);
+});
+
 test("ButtonLink: block thêm w-full, mặc định không thêm", () => {
   assert.match(render(React.createElement(ButtonLink, { href: "/x", block: true }, "Đi")), /w-full/);
   assert.doesNotMatch(render(React.createElement(ButtonLink, { href: "/x" }, "Đi")), /w-full/);

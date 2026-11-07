@@ -1,6 +1,6 @@
 "use client";
 
-import { skipToken, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, skipToken, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -131,9 +131,10 @@ function BookingContent({ customer, type, requestedPetId }: BookingContentProps)
   const availabilityQuery = useQuery({
     queryKey: [...HOTEL_AVAILABILITY_QUERY_KEY, { petId, stayKey: getStayKey(settledStay) }],
     queryFn:
-      pet !== null && settledStay !== null
+      type === "Hotel" && pet !== null && settledStay !== null
         ? () => mockGetHotelAvailability({ petId: pet.petId, from: settledStay.from, to: settledStay.to })
         : skipToken,
+    placeholderData: keepPreviousData,
   });
   const availability = availabilityQuery.data;
 
@@ -188,6 +189,13 @@ function BookingContent({ customer, type, requestedPetId }: BookingContentProps)
     if (getValues("checkOutDate") !== "") void trigger("checkOutDate");
   }
 
+  function handlePetSelect(nextPetId: string) {
+    setPetId(nextPetId);
+    router.replace(withQuery(ROUTES.booking, { customerId: customer.customerId, petId: nextPetId, type }), {
+      scroll: false,
+    });
+  }
+
   function handleTypeChange(next: BookingType) {
     router.replace(withQuery(ROUTES.booking, { customerId: customer.customerId, petId, type: next }), {
       scroll: false,
@@ -195,7 +203,7 @@ function BookingContent({ customer, type, requestedPetId }: BookingContentProps)
   }
 
   function onSubmit() {
-    if (isPending || pet === null || stay === null) return;
+    if (isPending || pet === null || stay === null || notice.kind === "checking" || notice.kind === "full") return;
     mutate(toHotelBookingRequest(customer.customerId, pet.petId, stay));
   }
 
@@ -237,7 +245,7 @@ function BookingContent({ customer, type, requestedPetId }: BookingContentProps)
                   </Button>
                 </CardHeader>
                 <CardBody>
-                  <PetChoiceList pets={pets} selectedPetId={pet.petId} onSelect={setPetId} />
+                  <PetChoiceList pets={pets} selectedPetId={pet.petId} onSelect={handlePetSelect} />
                 </CardBody>
               </Card>
               <HotelStayForm

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ButtonHTMLAttributes, ComponentProps } from "react";
+import type { ButtonHTMLAttributes, ComponentProps, ReactNode } from "react";
 
 type ButtonStyleProps = {
   variant?: "primary" | "secondary" | "ghost";
@@ -32,7 +32,10 @@ function buttonClass({
   return `${baseClass} ${cursor} ${variantClass[variant]} ${sizeClass[size]}${block ? " w-full" : ""}`;
 }
 
-type ButtonProps = ButtonStyleProps & { loading?: boolean } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className">;
+type ButtonProps = ButtonStyleProps & {
+  loading?: boolean;
+  loadingText?: ReactNode;
+} & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className">;
 
 export function Button({
   variant,
@@ -40,6 +43,7 @@ export function Button({
   block,
   type = "button",
   loading = false,
+  loadingText,
   disabled = false,
   children,
   ...rest
@@ -58,7 +62,7 @@ export function Button({
             aria-hidden="true"
             className="size-4 animate-spin rounded-full border-2 border-current/40 border-t-current"
           />
-          Đang gửi…
+          {loadingText ?? "Đang gửi…"}
         </>
       ) : (
         children
