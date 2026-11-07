@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useToast } from "@/components/feedback/toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -39,6 +39,7 @@ export function PaymentsScreen() {
   const { showSuccess } = useToast();
   const [payments, setPayments] = useState<PaymentRow[]>(MOCK_PAYMENTS);
   const [recording, setRecording] = useState<PaymentRow | null>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
   const status = parsePaymentStatusFilter(searchParams.get("status"));
   const kind = parsePaymentKindFilter(searchParams.get("kind"));
@@ -84,7 +85,7 @@ export function PaymentsScreen() {
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <h1>Thanh toán</h1>
+        <h1 ref={headingRef} tabIndex={-1}>Thanh toán</h1>
         <p className="text-muted">Tình trạng từng khoản thanh toán của các lịch hẹn.</p>
       </div>
 
@@ -107,7 +108,7 @@ export function PaymentsScreen() {
         {rows.length === 0 ? (
           <EmptyState
             icon="wallet"
-            title={isFiltered ? "Không có khoản nào khớp bộ lọc" : "Chưa có khoản thanh toán nào"}
+            title={isWebFiltered ? "Không có khoản nào khớp bộ lọc trên trang này" : isFiltered ? "Không có khoản nào khớp bộ lọc" : "Chưa có khoản thanh toán nào"}
             description={
               isFiltered
                 ? "Thử đổi hoặc bỏ bộ lọc để xem các khoản khác."
@@ -127,7 +128,9 @@ export function PaymentsScreen() {
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line-soft px-4 py-3">
           <p className="text-xs text-muted tabular-nums">
-            Hiển thị {range.from} – {range.to} trong {pageData.total} khoản
+            {isWebFiltered
+              ? `${rows.length} khoản khớp trên trang này`
+              : `Hiển thị ${range.from} – ${range.to} trong ${pageData.total} khoản`}
           </p>
           <Pager
             className=""
@@ -147,7 +150,12 @@ export function PaymentsScreen() {
       </p>
 
       {recording && (
-        <CounterPaymentDialog payment={recording} onSubmit={handleRecord} onClose={() => setRecording(null)} />
+        <CounterPaymentDialog
+          payment={recording}
+          onSubmit={handleRecord}
+          onClose={() => setRecording(null)}
+          fallbackFocusRef={headingRef}
+        />
       )}
     </div>
   );

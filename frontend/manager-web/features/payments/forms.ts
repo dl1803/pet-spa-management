@@ -5,7 +5,7 @@ export const COUNTER_METHOD_ORDER: CounterPaymentMethod[] = ["Cash", "BankQR"];
 
 export const FORM_MESSAGES = {
   receivedAmountRequired: "Vui lòng nhập số tiền thực nhận.",
-  receivedAmountInvalid: "Số tiền thực nhận chỉ gồm chữ số, ví dụ 250.000.",
+  receivedAmountInvalid: "Số tiền thực nhận phải là số nguyên, ví dụ 250.000 hoặc 250,000.",
   // Cũng là câu của 409 AMOUNT_MISMATCH hiện dưới ô số tiền (Frontend-Conventions 5.2, SA 6.6).
   receivedAmountInsufficient: "Số tiền chưa đủ, chưa thể ghi nhận đã thanh toán.",
 } as const;
@@ -25,10 +25,12 @@ export function isCounterMethod(value: string): value is CounterPaymentMethod {
   return COUNTER_METHOD_ORDER.some((method) => method === value);
 }
 
-// “250.000” hoặc “250000” → 250000; có ký tự khác chữ số hoặc quá 12 chữ số → null.
 export function parseMoneyInput(text: string): number | null {
-  const digits = text.replace(/[\s.]/g, "");
-  if (!/^\d+$/.test(digits) || digits.length > AMOUNT_MAX_DIGITS) return null;
+  const amount = text.trim();
+  // Chỉ bỏ dấu phân nhóm khi từng nhóm có đúng ba chữ số để tránh đổi số thập phân thành số nguyên khác.
+  if (!/^(?:\d+|\d{1,3}([.,\s])\d{3}(?:\1\d{3})*)$/.test(amount)) return null;
+  const digits = amount.replace(/[.,\s]/g, "");
+  if (digits.length > AMOUNT_MAX_DIGITS) return null;
   return Number(digits);
 }
 

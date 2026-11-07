@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { Icon, type IconName } from "@/components/icons";
 
 type ModalProps = {
@@ -10,6 +10,7 @@ type ModalProps = {
   title: string;
   description: string;
   onClose: () => void;
+  fallbackFocusRef?: RefObject<HTMLElement | null>;
   // Thân và chân hộp thoại; thường là một <form> có nút gửi ở chân.
   children: ReactNode;
 };
@@ -20,11 +21,18 @@ const ICON_TONE_CLASS = {
   danger: "bg-danger-50 text-danger",
 } as const;
 
+function isBackdrop({ target, currentTarget, clientX, clientY }: MouseEvent<HTMLDialogElement>) {
+  if (target !== currentTarget) return false;
+  const { left, top, right, bottom } = currentTarget.getBoundingClientRect();
+  return clientX < left || clientX >= right || clientY < top || clientY >= bottom;
+}
+
 // Hộp thoại chứa form, rộng 480px (Design-System 4.1). Dùng <dialog> modal như Drawer và ConfirmDialog: trình duyệt khóa nền,
 // giữ focus trong hộp thoại; Esc và bấm nền mờ đều gọi onClose. Chỉ đặt vào cây React khi cần mở; gỡ khỏi cây thì đóng
-// và trả focus về nút đã mở.
-export function Modal({ icon, tone = "teal", title, description, onClose, children }: ModalProps) {
+// và trả focus về nút đã mở hoặc đích dự phòng khi nút đã bị gỡ.
+export function Modal({ icon, tone = "teal", title, description, onClose, fallbackFocusRef, children }: ModalProps) {
   const ref = useRef<HTMLDialogElement>(null);
+  const backdropPressed = useRef(false);
   const titleId = useId();
 
   useEffect(() => {
@@ -32,6 +40,7 @@ export function Modal({ icon, tone = "teal", title, description, onClose, childr
     // Gỡ <dialog> khỏi cây React làm trình duyệt đưa focus về BODY trước khi close() chạy,
     // nên phải nhớ nút đã mở và tự trả focus về đó.
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const fallbackTarget = fallbackFocusRef?.current;
     if (dialog && !dialog.open) {
       dialog.showModal();
       // Design-System 4.1: focus nút đầu chân hộp thoại khi mở; trình duyệt chỉ tự chọn phần tử đầu tiên theo thứ tự cây.
@@ -39,9 +48,10 @@ export function Modal({ icon, tone = "teal", title, description, onClose, childr
     }
     return () => {
       dialog?.close();
-      if (opener?.isConnected) opener.focus();
+      const returnTarget = opener?.isConnected ? opener : fallbackTarget;
+      if (returnTarget?.isConnected) returnTarget.focus();
     };
-  }, []);
+  }, [fallbackFocusRef]);
 
   return (
     <dialog
@@ -51,8 +61,16 @@ export function Modal({ icon, tone = "teal", title, description, onClose, childr
         event.preventDefault();
         onClose();
       }}
+      onPointerDown={(event) => {
+        backdropPressed.current = isBackdrop(event);
+      }}
+      onPointerCancel={() => {
+        backdropPressed.current = false;
+      }}
       onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        const shouldClose = backdropPressed.current && isBackdrop(event);
+        backdropPressed.current = false;
+        if (shouldClose) onClose();
       }}
       className="m-auto w-[480px] max-w-[calc(100%-32px)] animate-dialog-in rounded-2xl border-0 bg-white p-0 text-ink shadow-pop backdrop:bg-ink/40"
     >

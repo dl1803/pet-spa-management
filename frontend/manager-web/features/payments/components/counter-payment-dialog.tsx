@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useRef, useState, type RefObject, type SubmitEvent } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { ErrorAlert } from "@/components/feedback/error-alert";
 import { Icon } from "@/components/icons";
@@ -29,21 +29,23 @@ type CounterPaymentDialogProps = {
   // Có thể ném (hoặc từ chối Promise) ApiError: 409 AMOUNT_MISMATCH hiện dưới ô số tiền, lỗi khác hiện ở đầu form.
   onSubmit: (request: CounterPaymentRequest) => void | Promise<void>;
   onClose: () => void;
+  fallbackFocusRef: RefObject<HTMLElement | null>;
 };
 
 const METHOD_ICONS = { Cash: "cash", BankQR: "qr" } as const;
 
 // MW-10·D1 – Ghi nhận thanh toán tại quầy (UI-Screens.md). Số tiền phải trả là `amount` của server, chỉ đọc;
 // chỉ gửi { method, receivedAmount }, không gửi `amount`.
-export function CounterPaymentDialog({ payment, onSubmit, onClose }: CounterPaymentDialogProps) {
+export function CounterPaymentDialog({ payment, onSubmit, onClose, fallbackFocusRef }: CounterPaymentDialogProps) {
   const id = useId();
   const receivedId = `${id}-received`;
+  const submitting = useRef(false);
   const {
     register,
     control,
     handleSubmit,
     setError,
-    formState: { errors },
+    formState: { errors, isSubmitting },
   } = useForm<CounterFormValues>({
     defaultValues: createCounterFormValues(payment.amount),
     mode: "onTouched",
@@ -66,9 +68,31 @@ export function CounterPaymentDialog({ payment, onSubmit, onClose }: CounterPaym
     }
   }
 
+  async function submitForm(event: SubmitEvent<HTMLFormElement>) {
+    event.preventDefault();
+    // Khóa trước khi xác thực để chặn cả lần gửi đến trước khi nút kịp bị vô hiệu hóa.
+    if (submitting.current) return;
+    submitting.current = true;
+    try {
+      await handleSubmit(submit)(event);
+    } finally {
+      submitting.current = false;
+    }
+  }
+
+  function close() {
+    if (!submitting.current) onClose();
+  }
+
   return (
-    <Modal icon="wallet" title="Ghi nhận thanh toán tại quầy" description={describePayment(payment)} onClose={onClose}>
-      <form noValidate onSubmit={handleSubmit(submit)}>
+    <Modal
+      icon="wallet"
+      title="Ghi nhận thanh toán tại quầy"
+      description={describePayment(payment)}
+      onClose={close}
+      fallbackFocusRef={fallbackFocusRef}
+    >
+      <form noValidate onSubmit={submitForm}>
         <div className="flex flex-col gap-4 px-6 py-5">
           <ErrorAlert error={submitError} />
 
@@ -124,8 +148,10 @@ export function CounterPaymentDialog({ payment, onSubmit, onClose }: CounterPaym
         </div>
 
         <div className="flex justify-end gap-2.5 px-6 pb-6">
-          <Button variant="ghost" data-initial-focus onClick={onClose}>Hủy bỏ</Button>
-          <Button type="submit">Xác nhận đã thanh toán</Button>
+          <Button variant="ghost" data-initial-focus disabled={isSubmitting} onClick={close}>Hủy bỏ</Button>
+          <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? "Đang gửi…" : "Xác nhận đã thanh toán"}
+          </Button>
         </div>
       </form>
     </Modal>
