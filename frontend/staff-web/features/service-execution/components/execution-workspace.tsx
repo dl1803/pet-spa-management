@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ForbiddenState } from "@/components/feedback/forbidden-state";
 import { useToast } from "@/components/feedback/toast";
 import { ExecutionHeader } from "@/features/service-execution/components/execution-header";
 import { AfterPhotoCard, BeforePhotoCard } from "@/features/service-execution/components/photo-cards";
@@ -86,9 +85,6 @@ export function ExecutionWorkspace({ initial, todayKey, onCompleted }: Execution
     showSuccess(`Đã hoàn tất ${formatAppointmentCode(appointment.appointmentId)}. Bàn giao ${pet.name} ra quầy.`);
     onCompleted();
   }
-
-  // 403: thay nội dung màn bằng trạng thái không có quyền (Conventions 5.1).
-  if (completeFeedback?.kind === "forbidden") return <ForbiddenState />;
 
   return (
     <>

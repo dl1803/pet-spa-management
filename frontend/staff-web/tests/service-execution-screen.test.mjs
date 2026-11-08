@@ -7,6 +7,7 @@ import { ApiError } from "../lib/api/errors.ts";
 import { AfterPhotoCard } from "../features/service-execution/components/photo-cards.tsx";
 import { CompleteAction } from "../features/service-execution/components/complete-action.tsx";
 import { ExecutionWorkspace } from "../features/service-execution/components/execution-workspace.tsx";
+import { ServicesCard } from "../features/service-execution/components/services-card.tsx";
 import { COMPLETE_BLOCKED_REASON, getCompleteFeedback } from "../features/service-execution/execution.ts";
 import { MOCK_APPOINTMENT_IDS, createMockCompletedExecutions, createMockExecutions, findMockExecution } from "../features/service-execution/mock-data.ts";
 import { MOCK_WORK_HISTORY } from "../features/work-history/mock-data.ts";
@@ -113,7 +114,7 @@ test("màn: đủ điều kiện hoàn tất (mọi dịch vụ xong, có ảnh 
   assert.doesNotMatch(html, /Bắt đầu thực hiện/);
 });
 
-test("nút Hoàn tất: 409 ảnh/dịch vụ hiện lý do dưới nút (role alert), INVALID_TRANSITION hiện ErrorAlert, 403 không vẽ gì", () => {
+test("nút Hoàn tất: 409 ảnh/dịch vụ hiện lý do dưới nút (role alert), INVALID_TRANSITION và 403 hiện ErrorAlert", () => {
   const http = (status, code, detail) => new ApiError({ kind: "http", status, code, title: "Lỗi", detail });
   const renderAction = (blockers, error) =>
     renderToStaticMarkup(React.createElement(CompleteAction, { blockers, feedback: error ? getCompleteFeedback(error) : null, onComplete: () => {} }));
@@ -134,7 +135,29 @@ test("nút Hoàn tất: 409 ảnh/dịch vụ hiện lý do dưới nút (role a
   assert.doesNotMatch(invalid, /id="complete-blockers"/);
 
   const forbidden = renderAction([], http(403, "FORBIDDEN", "x"));
-  assert.doesNotMatch(forbidden, /role="alert"|id="complete-blockers"/);
+  assert.match(forbidden, /role="alert"/);
+  assert.match(forbidden, /Bạn không có quyền xem trang này/);
+  assert.doesNotMatch(forbidden, /id="complete-blockers"/);
+});
+
+test("thẻ Dịch vụ: lỗi 403 hiện tại chỗ, giữ danh sách dịch vụ và ghi chú đã có", () => {
+  const data = byId(MOCK_APPOINTMENT_IDS.inProgress);
+  const html = renderToStaticMarkup(
+    React.createElement(ServicesCard, {
+      data,
+      completeFeedback: getCompleteFeedback(new ApiError({ kind: "http", status: 403, code: "FORBIDDEN" })),
+      onStart: () => {},
+      onMarkDone: () => {},
+      onComplete: () => {},
+    }),
+  );
+  assert.match(html, /role="alert"/);
+  assert.match(html, /Bạn không có quyền xem trang này/);
+  assert.match(html, /Tắm &amp; sấy lông/);
+  assert.match(html, /Cắt tỉa lông/);
+  assert.match(html, /Da hơi khô vùng lưng, đã dùng sữa tắm không mùi\./);
+  assert.match(html, /<textarea/);
+  assert.match(html, /Hoàn tất lịch hẹn/);
 });
 
 test("ảnh sau chăm sóc: chỉ tô viền khi highlighted", () => {

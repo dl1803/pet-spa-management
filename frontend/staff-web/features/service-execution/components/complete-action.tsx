@@ -13,7 +13,7 @@ type CompleteActionProps = {
 };
 
 // SW-11 vùng 7 – Nút “Hoàn tất lịch hẹn” khi lịch `InProgress` (UI-Screens.md). Web chỉ khóa để dễ dùng; backend vẫn kiểm tra lại (409).
-// 409 PHOTO_REQUIRED / SERVICES_INCOMPLETE: lý do dưới nút; 409 INVALID_TRANSITION và lỗi khác: `ErrorAlert`. 403 do màn xử lý.
+// 409 PHOTO_REQUIRED / SERVICES_INCOMPLETE: lý do dưới nút; lỗi khác, kể cả 403: `ErrorAlert` để giữ nội dung đang thao tác.
 export function CompleteAction({ blockers, feedback, onComplete }: CompleteActionProps) {
   const isServerReason = feedback?.kind === "reason";
   const reasons = isServerReason ? [feedback.reason] : blockers;

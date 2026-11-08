@@ -1,4 +1,4 @@
-import { isForbiddenError, toApiError, type ApiError } from "@/lib/api/errors";
+import { toApiError, type ApiError } from "@/lib/api/errors";
 import type { AppointmentDetail, AppointmentStatus, Pet, Photo, PhotoKind } from "@/lib/api/types";
 import { formatRelativeDay, formatTime } from "@/lib/format";
 import { getStoreDateKey } from "@/lib/time";
@@ -56,22 +56,20 @@ export function getStartBlockers({ appointment, photos }: ExecutionData): string
 }
 
 // Lý do khóa nút “Hoàn tất lịch hẹn”, tính ở web từ dữ liệu đang có; backend vẫn kiểm tra lại (BR-06, BR-20; UI-Screens SW-11, G-13).
-// Danh sách dịch vụ rỗng không tự khóa nút: backend quyết định.
+// Lịch spa phải có ít nhất một dịch vụ (openapi: SpaBookingRequest).
 export function getCompleteBlockers({ appointment, photos }: ExecutionData): string[] {
   const { done, total } = countServices(appointment);
   const hasAfterPhoto = pickLatestPhoto(photos, "After") !== null;
-  return done < total || !hasAfterPhoto ? [COMPLETE_BLOCKED_REASON] : [];
+  return total === 0 || done < total || !hasAfterPhoto ? [COMPLETE_BLOCKED_REASON] : [];
 }
 
 // Cách màn hiển thị phản hồi lỗi của `POST /appointments/{id}/complete` (openapi: 403, 409 PHOTO_REQUIRED / SERVICES_INCOMPLETE / INVALID_TRANSITION).
 export type CompleteFeedback =
   | { kind: "reason"; reason: string; highlightAfterPhoto: boolean }
-  | { kind: "forbidden" }
   | { kind: "error"; error: ApiError };
 
 export function getCompleteFeedback(error: unknown): CompleteFeedback {
   const apiError = toApiError(error);
-  if (isForbiddenError(apiError)) return { kind: "forbidden" };
   if (apiError.status === 409 && apiError.code === "PHOTO_REQUIRED") {
     return { kind: "reason", reason: COMPLETE_BLOCKED_REASON, highlightAfterPhoto: true };
   }

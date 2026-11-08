@@ -55,7 +55,7 @@ export function completeLocally(data: ExecutionData): CompleteResult {
     );
   }
   const { done, total } = countServices(data.appointment);
-  if (done < total) {
+  if (total === 0 || done < total) {
     return conflict(
       "SERVICES_INCOMPLETE",
       "Chưa hoàn thành dịch vụ",

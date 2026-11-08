@@ -235,16 +235,19 @@ test("lý do khóa nút hoàn tất: còn dịch vụ chưa xong hoặc chưa c�
   const pendingService = { ...ready.appointment, services: [{ ...ready.appointment.services[0], isDone: false }, ready.appointment.services[1]] };
   assert.deepEqual(getCompleteBlockers({ ...ready, appointment: pendingService }), [COMPLETE_BLOCKED_REASON]);
   assert.equal(COMPLETE_BLOCKED_REASON, "Cần hoàn thành mọi dịch vụ và tải ảnh sau chăm sóc.");
-  // Danh sách dịch vụ rỗng không tự khóa: backend quyết định.
-  assert.deepEqual(getCompleteBlockers({ ...ready, appointment: { ...ready.appointment, services: undefined } }), []);
+  for (const services of [[], undefined]) {
+    assert.deepEqual(getCompleteBlockers({ ...ready, appointment: { ...ready.appointment, services } }), [COMPLETE_BLOCKED_REASON]);
+  }
 });
 
-test("phản hồi lỗi hoàn tất: 409 ảnh và dịch vụ cho lý do dưới nút, 403 không có quyền, còn lại là lỗi chung", () => {
+test("phản hồi lỗi hoàn tất: 409 ảnh và dịch vụ cho lý do dưới nút, 403 và lỗi khác hiển thị tại chỗ", () => {
   const http = (status, code) => new ApiError({ kind: "http", status, code, title: "Lỗi", detail: "Chi tiết" });
   assert.deepEqual(getCompleteFeedback(http(409, "PHOTO_REQUIRED")), { kind: "reason", reason: COMPLETE_BLOCKED_REASON, highlightAfterPhoto: true });
   assert.deepEqual(getCompleteFeedback(http(409, "SERVICES_INCOMPLETE")), { kind: "reason", reason: COMPLETE_BLOCKED_REASON, highlightAfterPhoto: false });
-  assert.deepEqual(getCompleteFeedback(http(403, "FORBIDDEN")), { kind: "forbidden" });
-  assert.deepEqual(getCompleteFeedback(http(403, null)), { kind: "forbidden" });
+  for (const code of ["FORBIDDEN", null]) {
+    const error = http(403, code);
+    assert.deepEqual(getCompleteFeedback(error), { kind: "error", error });
+  }
   for (const error of [http(409, "INVALID_TRANSITION"), http(403, "BOOKING_LOCKED"), http(404, "NOT_FOUND"), http(500, null), new ApiError({ kind: "network" }), new Error("lạ")]) {
     const feedback = getCompleteFeedback(error);
     assert.equal(feedback.kind, "error");
@@ -262,6 +265,20 @@ test("hoàn tất cục bộ: thành công chuyển Completed, giữ nguyên d�
   assert.equal(result.data.photos, ready.photos);
   assert.equal(result.data.pet, ready.pet);
   assert.equal(completeLocally(result.data).ok, false); // đã Completed thì không hoàn tất lại
+});
+
+test("hoàn tất cục bộ: dịch vụ rỗng hoặc thiếu luôn trả SERVICES_INCOMPLETE, kể cả khi có ảnh sau", () => {
+  const ready = readyToComplete();
+  for (const services of [[], undefined]) {
+    for (const photos of [ready.photos, []]) {
+      const data = { ...ready, appointment: { ...ready.appointment, services }, photos };
+      const result = completeLocally(data);
+      assert.equal(result.ok, false);
+      assert.deepEqual([result.error.status, result.error.code], [409, "SERVICES_INCOMPLETE"]);
+      assert.equal(data.appointment.status, "InProgress");
+      assert.equal(data.appointment.services, services);
+    }
+  }
 });
 
 test("hoàn tất cục bộ: lỗi 409 theo thứ tự trạng thái, dịch vụ, ảnh với mã có trong ERROR_CODES", () => {
