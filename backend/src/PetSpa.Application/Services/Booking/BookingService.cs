@@ -1,15 +1,27 @@
+using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
+using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
 using PetSpa.Domain.Exceptions;
+using PetSpa.Domain.Services;
 
 namespace PetSpa.Application.Services.Booking;
+
+public sealed record SpaSlotItem(TimeOnly Time, SlotGroup Group, SlotStatus Status);
+
+public sealed record SpaSlotsResult(
+    int DurationMinutes,
+    int StaffRequired,
+    int BufferMinutes,
+    IReadOnlyList<SpaSlotItem> Slots);
 
 public sealed class BookingService(
     IPetRepository pets,
     IStaffRoleReader staffRoles,
     IServiceCatalogRepository catalog,
-    ISpaScheduleRepository schedule)
+    ISpaScheduleRepository schedule,
+    ShopTimeZone shopTimeZone)
 {
     public async Task<SpaSelection> ResolveSpaSelectionAsync(
         CurrentUser user, Guid petId, IReadOnlyCollection<Guid> serviceIds, CancellationToken ct = default)
@@ -67,6 +79,96 @@ public sealed class BookingService(
         return new SpaScheduleData(slotTimes, bufferMinutes, shifts, heldBookings);
     }
 
+    public async Task<SpaSlotsResult> GetSpaSlotsAsync(
+        CurrentUser user,
+        DateOnly date,
+        Guid petId,
+        IReadOnlyCollection<Guid> serviceIds,
+        CancellationToken ct = default)
+    {
+        var selection = await ResolveSpaSelectionAsync(user, petId, serviceIds, ct);
+
+        var rangeStart = shopTimeZone.ToUtc(date, TimeOnly.MinValue);
+        var bufferMinutes = await schedule.GetBufferMinutesAsync(ct);
+        var rangeEnd = shopTimeZone.ToUtc(date.AddDays(1), TimeOnly.MinValue)
+            .AddMinutes(selection.DurationMinutes + bufferMinutes);
+
+        var data = await LoadSpaScheduleAsync(rangeStart, rangeEnd, ct);
+
+        var candidates = data.SlotTimes
+            .Select(time => new SlotCandidate(time, shopTimeZone.ToUtc(date, time)))
+            .ToList();
+        var shifts = data.Shifts
+            .Select(x => new SlotStaffShift(x.StaffId, x.ShiftStart, x.ShiftEnd))
+            .ToList();
+        var held = data.HeldBookings
+            .Select(x => new SlotHeldBooking(x.SlotStart, x.BusyUntil, x.StaffRequired))
+            .ToList();
+
+        var slots = SlotService
+            .AvailableSlots(
+                candidates,
+                selection.LatestStartTime,
+                selection.DurationMinutes,
+                selection.StaffRequired,
+                data.BufferMinutes,
+                shifts,
+                held)
+            .Select(x => new SpaSlotItem(x.Time, SlotService.GroupOf(x.Time), x.Status))
+            .ToList();
+
+        return new SpaSlotsResult(
+            selection.DurationMinutes, selection.StaffRequired, data.BufferMinutes, slots);
+    }
+
+    public async Task<SpaAppointment> CreateSpaAppointmentAsync(
+        CurrentUser user,
+        Guid? customerId,
+        Guid petId,
+        IReadOnlyCollection<Guid> serviceIds,
+        DateTimeOffset slotStart,
+        CancellationToken ct = default)
+    {
+        var selection = await ResolveSpaSelectionAsync(user, petId, serviceIds, ct);
+
+        if (user.Role != UserRole.Customer)
+        {
+            if (customerId is null || customerId == Guid.Empty)
+                throw new BusinessException(ErrorCodes.ValidationError, "Lễ tân phải chọn khách hàng (customerId).");
+
+            if (customerId != selection.Pet.CustomerId)
+                throw new BusinessException(ErrorCodes.ValidationError, "Thú cưng không thuộc khách hàng này.");
+        }
+
+        var slotStartUtc = slotStart.ToUniversalTime();
+        var (_, localTime) = shopTimeZone.ToLocal(slotStartUtc);
+
+        var slotTimes = await catalog.GetSlotTimesAsync(ct);
+        if (!slotTimes.Contains(localTime))
+            throw new BusinessException(
+                ErrorCodes.ValidationError, "slotStart phải đúng một mốc giờ đặt lịch của cửa hàng.");
+
+        var bufferMinutes = await schedule.GetBufferMinutesAsync(ct);
+        var slotEnd = slotStartUtc.AddMinutes(selection.DurationMinutes);
+
+        var appointment = new SpaAppointment
+        {
+            AppointmentId = Guid.NewGuid(),
+            CustomerId = selection.Pet.CustomerId,
+            PetId = selection.Pet.PetId,
+            SizeGroup = selection.Pet.SizeGroup,
+            SlotStart = slotStartUtc,
+            SlotEnd = slotEnd,
+            BusyUntil = slotEnd.AddMinutes(bufferMinutes),
+            StaffRequired = (short)selection.StaffRequired,
+        };
+
+        await schedule.AddSpaAppointmentAsync(
+            appointment, selection.Services.Select(x => x.ServiceId).ToList(), ct);
+
+        return appointment;
+    }
+
     private async Task<bool> IsCustomerActorAsync(CurrentUser user, CancellationToken ct)
     {
         if (user.Role == UserRole.Customer) return true;
@@ -78,4 +180,3 @@ public sealed class BookingService(
         throw new BusinessException(ErrorCodes.Forbidden);
     }
 }
-
