@@ -117,3 +117,39 @@ export type Notification = {
   isRead: boolean;
   createdAt: string;
 };
+
+export type Customer = {
+  customerId: string;
+  fullName: string;
+  phone: string;
+  email?: string | null;
+  isBookingLocked: boolean;
+};
+
+export type HotelBookingRequest = {
+  petId: string;
+  plannedCheckIn: string;
+  plannedCheckOut: string;
+  customerId?: string;
+};
+
+export type HotelBookingCreated = {
+  appointmentId: string;
+  status: AppointmentStatus;
+  nights: number;
+  estimatedAmount: number;
+};
+
+export type HotelAvailability = {
+  available: boolean;
+  nights: number;
+  estimatedAmount: number;
+};
+
+export type HotelPricingRow = {
+  species: Species;
+  sizeGroup: SizeGroup;
+  pricePerNight: number;
+  foodPerNight: number;
+};
+

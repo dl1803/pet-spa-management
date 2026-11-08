@@ -27,7 +27,7 @@ const NAV_ITEMS: MenuItem[] = [
   { href: ROUTES.checkIn, label: "Tiếp nhận", icon: "clipboard", roles: RECEPTIONIST_ONLY },
   { href: ROUTES.checkOut, label: "Trả thú cưng", icon: "handover", roles: RECEPTIONIST_ONLY },
   { href: ROUTES.customers, label: "Khách hàng", icon: "users", roles: RECEPTIONIST_ONLY },
-  { href: ROUTES.booking, label: "Đặt lịch thay", icon: "calendar-plus", roles: RECEPTIONIST_ONLY },
+  { href: ROUTES.booking, label: "Đặt lịch thay", icon: "calendar-plus", roles: RECEPTIONIST_ONLY, available: true },
   { href: ROUTES.cages, label: "Chuồng", icon: "grid", roles: RECEPTIONIST_ONLY },
   { href: ROUTES.payments, label: "Thanh toán", icon: "wallet", roles: RECEPTIONIST_ONLY },
   { href: ROUTES.workHistory, label: "Lịch sử công việc", icon: "history", roles: SPA_STAFF_ONLY, available: true },

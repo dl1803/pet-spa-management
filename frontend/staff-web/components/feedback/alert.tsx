@@ -1,32 +1,37 @@
 import type { ReactNode } from "react";
 import { Icon, type IconName } from "@/components/icons";
 
-type AlertTone = "warn" | "neutral";
+type AlertTone = "warn" | "neutral" | "success" | "danger";
 
 type AlertProps = {
   tone: AlertTone;
-  icon: IconName;
+  icon?: IconName;
+  title?: string;
   children: ReactNode;
   className?: string;
 };
 
-// Màu theo `.alert-warn`, `.alert-neutral` của UI demo; viền và nền cảnh báo chưa có token nên viết thẳng như `error-alert.tsx` (Conventions mục 9).
-const TONE_STYLE: Record<AlertTone, { box: string; icon: string }> = {
-  warn: { box: "border-[#F1D9A2] bg-[#FFF6E3]", icon: "text-[#B87400]" },
-  neutral: { box: "border-line bg-mist", icon: "text-muted" },
+const TONE_STYLE: Record<AlertTone, { box: string; icon: string; iconName: IconName }> = {
+  warn: { box: "border-[#F1D9A2] bg-[#FFF6E3]", icon: "text-[#B87400]", iconName: "alert" },
+  neutral: { box: "border-line bg-mist", icon: "text-muted", iconName: "note" },
+  success: { box: "border-[#BFE0CA] bg-success-50", icon: "text-success", iconName: "check-circle" },
+  danger: { box: "border-[#EFC3BE] bg-danger-50", icon: "text-danger", iconName: "x-circle" },
 };
 
-// Cảnh báo nghiệp vụ nội tuyến (Design-System 4.2). Không dùng cho lỗi gọi API: dùng `ErrorAlert`.
-export function Alert({ tone, icon, children, className = "" }: AlertProps) {
+export function Alert({ tone, icon, title, children, className = "" }: AlertProps) {
   const style = TONE_STYLE[tone];
+  const iconName = icon ?? style.iconName;
 
   return (
     <div
       data-tone={tone}
       className={`flex items-start gap-3 rounded-xl border px-4 py-3.5 leading-5 ${style.box} ${className}`}
     >
-      <Icon name={icon} className={`mt-px size-[18px] ${style.icon}`} />
-      <div className="min-w-0 break-words">{children}</div>
+      <Icon name={iconName} className={`mt-px size-[18px] ${style.icon}`} />
+      <div className="min-w-0 break-words">
+        {title && <div className="font-semibold">{title}</div>}
+        {children}
+      </div>
     </div>
   );
 }

@@ -51,7 +51,7 @@ test("Nhân viên spa thấy 3 mục và thông báo, không có mục của L�
 
 // Trang đích đã có theo vai trò. Khi người làm trang mới bật `available` trong header-nav.tsx thì thêm đường dẫn vào đây.
 const AVAILABLE_HREFS = {
-  Receptionist: [],
+  Receptionist: ["/dat-lich"],
   SpaStaff: ["/lich-su-cong-viec", "/thong-bao"],
 };
 
