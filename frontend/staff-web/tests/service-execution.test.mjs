@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { ApiError, ERROR_CODES } from "../lib/api/errors.ts";
 import {
+  COMPLETE_BLOCKED_REASON,
   MAX_PHOTO_BYTES,
   PHOTO_ERROR_NOT_IMAGE,
   PHOTO_ERROR_TOO_LARGE,
@@ -9,13 +11,15 @@ import {
   countServices,
   endSentence,
   formatPhotoTime,
+  getCompleteBlockers,
+  getCompleteFeedback,
   getExecutionFlags,
   getRemainingSeconds,
   getStartBlockers,
   pickLatestPhoto,
   validatePhotoFile,
 } from "../features/service-execution/execution.ts";
-import { withPhoto, withServiceDone, withStarted } from "../features/service-execution/local-updates.ts";
+import { completeLocally, withPhoto, withServiceDone, withStarted } from "../features/service-execution/local-updates.ts";
 import { MOCK_APPOINTMENT_IDS, createMockCompletedExecutions, createMockExecutions, findMockExecution } from "../features/service-execution/mock-data.ts";
 import { createPhotoUrlTracker } from "../features/service-execution/photo-urls.ts";
 import { MOCK_WORK_HISTORY } from "../features/work-history/mock-data.ts";
@@ -62,8 +66,8 @@ test("dữ liệu mô phỏng: 3 lịch hẹn mã khác nhau, trạng thái Rece
 });
 
 test("thao tác cho phép theo trạng thái", () => {
-  assert.deepEqual(getExecutionFlags("Received"), { canUploadBefore: true, canStart: true, canUploadAfter: false, canMarkDone: false });
-  assert.deepEqual(getExecutionFlags("InProgress"), { canUploadBefore: false, canStart: false, canUploadAfter: true, canMarkDone: true });
+  assert.deepEqual(getExecutionFlags("Received"), { canUploadBefore: true, canStart: true, canUploadAfter: false, canMarkDone: false, canComplete: false });
+  assert.deepEqual(getExecutionFlags("InProgress"), { canUploadBefore: false, canStart: false, canUploadAfter: true, canMarkDone: true, canComplete: true });
   for (const status of ["Pending", "Confirmed", "InStay", "Completed", "Cancelled"]) {
     assert.ok(Object.values(getExecutionFlags(status)).every((value) => value === false), status);
   }
@@ -214,4 +218,83 @@ test("cập nhật cục bộ: đánh dấu xong cần InProgress, cắt ghi ch�
   assert.equal(withServiceDone(inProgress, trim.serviceId, "   ", "2026-11-06T07:00:00Z").appointment.services[1].note, null);
   const ready = byId(MOCK_APPOINTMENT_IDS.ready);
   assert.equal(withServiceDone(ready, ready.appointment.services[0].serviceId, "", "2026-11-06T07:00:00Z"), ready);
+});
+
+// Lịch đang thực hiện đủ điều kiện hoàn tất: mọi dịch vụ xong và có ảnh sau.
+function readyToComplete() {
+  const base = byId(MOCK_APPOINTMENT_IDS.inProgress);
+  const services = base.appointment.services.map((service) => ({ ...service, isDone: true, doneAt: "2026-11-06T06:00:00Z" }));
+  return { ...base, appointment: { ...base.appointment, services }, photos: [...base.photos, photo("After", "2026-11-06T06:05:00Z")] };
+}
+
+test("lý do khóa nút hoàn tất: còn dịch vụ chưa xong hoặc chưa có ảnh sau", () => {
+  const ready = readyToComplete();
+  assert.deepEqual(getCompleteBlockers(ready), []);
+  assert.deepEqual(getCompleteBlockers(byId(MOCK_APPOINTMENT_IDS.inProgress)), [COMPLETE_BLOCKED_REASON]); // 1/2 xong, chưa có ảnh sau
+  assert.deepEqual(getCompleteBlockers({ ...ready, photos: ready.photos.filter((entry) => entry.kind !== "After") }), [COMPLETE_BLOCKED_REASON]);
+  const pendingService = { ...ready.appointment, services: [{ ...ready.appointment.services[0], isDone: false }, ready.appointment.services[1]] };
+  assert.deepEqual(getCompleteBlockers({ ...ready, appointment: pendingService }), [COMPLETE_BLOCKED_REASON]);
+  assert.equal(COMPLETE_BLOCKED_REASON, "Cần hoàn thành mọi dịch vụ và tải ảnh sau chăm sóc.");
+  for (const services of [[], undefined]) {
+    assert.deepEqual(getCompleteBlockers({ ...ready, appointment: { ...ready.appointment, services } }), [COMPLETE_BLOCKED_REASON]);
+  }
+});
+
+test("phản hồi lỗi hoàn tất: 409 ảnh và dịch vụ cho lý do dưới nút, 403 và lỗi khác hiển thị tại chỗ", () => {
+  const http = (status, code) => new ApiError({ kind: "http", status, code, title: "Lỗi", detail: "Chi tiết" });
+  assert.deepEqual(getCompleteFeedback(http(409, "PHOTO_REQUIRED")), { kind: "reason", reason: COMPLETE_BLOCKED_REASON, highlightAfterPhoto: true });
+  assert.deepEqual(getCompleteFeedback(http(409, "SERVICES_INCOMPLETE")), { kind: "reason", reason: COMPLETE_BLOCKED_REASON, highlightAfterPhoto: false });
+  for (const code of ["FORBIDDEN", null]) {
+    const error = http(403, code);
+    assert.deepEqual(getCompleteFeedback(error), { kind: "error", error });
+  }
+  for (const error of [http(409, "INVALID_TRANSITION"), http(403, "BOOKING_LOCKED"), http(404, "NOT_FOUND"), http(500, null), new ApiError({ kind: "network" }), new Error("lạ")]) {
+    const feedback = getCompleteFeedback(error);
+    assert.equal(feedback.kind, "error");
+    assert.ok(feedback.error instanceof ApiError);
+  }
+});
+
+test("hoàn tất cục bộ: thành công chuyển Completed, giữ nguyên dịch vụ và ảnh, không sửa dữ liệu gốc", () => {
+  const ready = readyToComplete();
+  const result = completeLocally(ready);
+  assert.equal(result.ok, true);
+  assert.equal(result.data.appointment.status, "Completed");
+  assert.equal(ready.appointment.status, "InProgress");
+  assert.deepEqual(result.data.appointment.services, ready.appointment.services);
+  assert.equal(result.data.photos, ready.photos);
+  assert.equal(result.data.pet, ready.pet);
+  assert.equal(completeLocally(result.data).ok, false); // đã Completed thì không hoàn tất lại
+});
+
+test("hoàn tất cục bộ: dịch vụ rỗng hoặc thiếu luôn trả SERVICES_INCOMPLETE, kể cả khi có ảnh sau", () => {
+  const ready = readyToComplete();
+  for (const services of [[], undefined]) {
+    for (const photos of [ready.photos, []]) {
+      const data = { ...ready, appointment: { ...ready.appointment, services }, photos };
+      const result = completeLocally(data);
+      assert.equal(result.ok, false);
+      assert.deepEqual([result.error.status, result.error.code], [409, "SERVICES_INCOMPLETE"]);
+      assert.equal(data.appointment.status, "InProgress");
+      assert.equal(data.appointment.services, services);
+    }
+  }
+});
+
+test("hoàn tất cục bộ: lỗi 409 theo thứ tự trạng thái, dịch vụ, ảnh với mã có trong ERROR_CODES", () => {
+  const expectConflict = (data, code) => {
+    const result = completeLocally(data);
+    assert.equal(result.ok, false);
+    assert.ok(result.error instanceof ApiError);
+    assert.deepEqual([result.error.kind, result.error.status, result.error.code], ["http", 409, code]);
+    assert.ok(ERROR_CODES.includes(code));
+    assert.ok(result.error.title && result.error.detail);
+  };
+  const ready = readyToComplete();
+  expectConflict(byId(MOCK_APPOINTMENT_IDS.ready), "INVALID_TRANSITION"); // Received
+  expectConflict(byId(MOCK_APPOINTMENT_IDS.blocked), "INVALID_TRANSITION");
+  expectConflict(byId(MOCK_APPOINTMENT_IDS.inProgress), "SERVICES_INCOMPLETE"); // 1/2 xong, cũng chưa có ảnh sau: dịch vụ được báo trước
+  expectConflict({ ...ready, photos: ready.photos.filter((entry) => entry.kind !== "After") }, "PHOTO_REQUIRED");
+  const completed = createMockCompletedExecutions()[0];
+  expectConflict(completed, "INVALID_TRANSITION");
 });

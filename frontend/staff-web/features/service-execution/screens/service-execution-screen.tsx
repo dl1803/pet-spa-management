@@ -2,7 +2,7 @@
 
 // SW-11 Thực hiện dịch vụ – UI-Screens.md
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ButtonLink } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { getStoreDateKey } from "@/lib/time";
 
 export function ServiceExecutionScreen() {
   const { appointmentId } = useParams<{ appointmentId: string }>();
+  const router = useRouter();
   const [now] = useState(() => new Date());
 
   // Dữ liệu mô phỏng: chưa gọi API (nối API thật ở bước sau).
@@ -33,5 +34,12 @@ export function ServiceExecutionScreen() {
     );
   }
 
-  return <ExecutionWorkspace key={appointmentId} initial={initial} todayKey={getStoreDateKey(now)} />;
+  return (
+    <ExecutionWorkspace
+      key={appointmentId}
+      initial={initial}
+      todayKey={getStoreDateKey(now)}
+      onCompleted={() => router.push(ROUTES.workHistory)}
+    />
+  );
 }

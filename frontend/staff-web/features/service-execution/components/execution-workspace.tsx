@@ -6,14 +6,23 @@ import { ExecutionHeader } from "@/features/service-execution/components/executi
 import { AfterPhotoCard, BeforePhotoCard } from "@/features/service-execution/components/photo-cards";
 import { PetProfileNote } from "@/features/service-execution/components/pet-profile-note";
 import { ServicesCard } from "@/features/service-execution/components/services-card";
-import { getExecutionFlags, pickLatestPhoto, type ExecutionData } from "@/features/service-execution/execution";
-import { withPhoto, withServiceDone, withStarted } from "@/features/service-execution/local-updates";
+import {
+  getCompleteFeedback,
+  getExecutionFlags,
+  pickLatestPhoto,
+  type CompleteFeedback,
+  type ExecutionData,
+} from "@/features/service-execution/execution";
+import { completeLocally, withPhoto, withServiceDone, withStarted } from "@/features/service-execution/local-updates";
 import { createPhotoUrlTracker } from "@/features/service-execution/photo-urls";
 import type { AppointmentServiceItem, Photo, PhotoKind } from "@/lib/api/types";
+import { formatAppointmentCode } from "@/lib/format";
 
 type ExecutionWorkspaceProps = {
   initial: ExecutionData;
   todayKey: string;
+  // Gọi sau khi hoàn tất lịch thành công; màn cha chuyển sang Lịch sử công việc.
+  onCompleted: () => void;
 };
 
 const PHOTO_TOAST: Record<PhotoKind, string> = {
@@ -22,9 +31,11 @@ const PHOTO_TOAST: Record<PhotoKind, string> = {
 };
 
 // SW-11 Thực hiện dịch vụ – UI-Screens.md. Dữ liệu mô phỏng: thao tác chỉ đổi trạng thái trên màn, chưa gọi API.
-export function ExecutionWorkspace({ initial, todayKey }: ExecutionWorkspaceProps) {
+export function ExecutionWorkspace({ initial, todayKey, onCompleted }: ExecutionWorkspaceProps) {
   const { showSuccess } = useToast();
   const [data, setData] = useState(initial);
+  // Phản hồi lỗi gần nhất khi hoàn tất; xóa khi dữ liệu lịch thay đổi.
+  const [completeFeedback, setCompleteFeedback] = useState<CompleteFeedback | null>(null);
   const photoCount = useRef(0);
 
   // URL ảnh xem trước đang dùng theo loại; thu hồi URL cũ khi đổi ảnh, thu hồi hết khi rời màn.
@@ -49,6 +60,7 @@ export function ExecutionWorkspace({ initial, todayKey }: ExecutionWorkspaceProp
     }
     photoUrls.replace(kind, url);
     setData(next);
+    setCompleteFeedback(null);
     showSuccess(PHOTO_TOAST[kind]);
   }
 
@@ -58,7 +70,20 @@ export function ExecutionWorkspace({ initial, todayKey }: ExecutionWorkspaceProp
 
   function handleMarkDone(service: AppointmentServiceItem, note: string) {
     setData((current) => withServiceDone(current, service.serviceId, note, new Date().toISOString()));
+    setCompleteFeedback(null);
     showSuccess(`Đã đánh dấu xong ${service.name ?? "dịch vụ"}`);
+  }
+
+  function handleComplete() {
+    const result = completeLocally(data);
+    if (!result.ok) {
+      setCompleteFeedback(getCompleteFeedback(result.error));
+      return;
+    }
+    setCompleteFeedback(null);
+    setData(result.data);
+    showSuccess(`Đã hoàn tất ${formatAppointmentCode(appointment.appointmentId)}. Bàn giao ${pet.name} ra quầy.`);
+    onCompleted();
   }
 
   return (
@@ -80,9 +105,16 @@ export function ExecutionWorkspace({ initial, todayKey }: ExecutionWorkspaceProp
             todayKey={todayKey}
             canUpload={flags.canUploadAfter}
             onUpload={(file) => handleUpload("After", file)}
+            highlighted={completeFeedback?.kind === "reason" && completeFeedback.highlightAfterPhoto}
           />
         </div>
-        <ServicesCard data={data} onStart={handleStart} onMarkDone={handleMarkDone} />
+        <ServicesCard
+          data={data}
+          completeFeedback={completeFeedback}
+          onStart={handleStart}
+          onMarkDone={handleMarkDone}
+          onComplete={handleComplete}
+        />
       </div>
     </>
   );
