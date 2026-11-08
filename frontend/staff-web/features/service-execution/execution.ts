@@ -1,3 +1,4 @@
+import { isForbiddenError, toApiError, type ApiError } from "@/lib/api/errors";
 import type { AppointmentDetail, AppointmentStatus, Pet, Photo, PhotoKind } from "@/lib/api/types";
 import { formatRelativeDay, formatTime } from "@/lib/format";
 import { getStoreDateKey } from "@/lib/time";
@@ -17,14 +18,17 @@ export const PHOTO_ERROR_TOO_LARGE = "Ảnh vượt quá 50 MB, vui lòng chọn
 
 export const START_BLOCKED_NO_PHOTO = "Cần ảnh trước chăm sóc hợp lệ.";
 export const START_BLOCKED_COST_PENDING = "Đang chờ khách xác nhận chi phí mới.";
+// Một câu cho cả hai điều kiện hoàn tất, dùng cho nút bị khóa và cho 409 PHOTO_REQUIRED / SERVICES_INCOMPLETE (UI-Screens SW-11 vùng 7, Conventions 5.2).
+export const COMPLETE_BLOCKED_REASON = "Cần hoàn thành mọi dịch vụ và tải ảnh sau chăm sóc.";
 
-// Thao tác cho phép theo trạng thái lịch (UI-Screens SW-11, API-Notes): ảnh trước và bắt đầu khi `Received`; ảnh sau và đánh dấu dịch vụ khi `InProgress`.
+// Thao tác cho phép theo trạng thái lịch (UI-Screens SW-11, API-Notes): ảnh trước và bắt đầu khi `Received`; ảnh sau, đánh dấu dịch vụ và hoàn tất khi `InProgress`.
 export function getExecutionFlags(status: AppointmentStatus) {
   return {
     canUploadBefore: status === "Received",
     canStart: status === "Received",
     canUploadAfter: status === "InProgress",
     canMarkDone: status === "InProgress",
+    canComplete: status === "InProgress",
   };
 }
 
@@ -49,6 +53,32 @@ export function getStartBlockers({ appointment, photos }: ExecutionData): string
   if (pickLatestPhoto(photos, "Before") === null) reasons.push(START_BLOCKED_NO_PHOTO);
   if (appointment.pendingCostConfirmation != null) reasons.push(START_BLOCKED_COST_PENDING);
   return reasons;
+}
+
+// Lý do khóa nút “Hoàn tất lịch hẹn”, tính ở web từ dữ liệu đang có; backend vẫn kiểm tra lại (BR-06, BR-20; UI-Screens SW-11, G-13).
+// Danh sách dịch vụ rỗng không tự khóa nút: backend quyết định.
+export function getCompleteBlockers({ appointment, photos }: ExecutionData): string[] {
+  const { done, total } = countServices(appointment);
+  const hasAfterPhoto = pickLatestPhoto(photos, "After") !== null;
+  return done < total || !hasAfterPhoto ? [COMPLETE_BLOCKED_REASON] : [];
+}
+
+// Cách màn hiển thị phản hồi lỗi của `POST /appointments/{id}/complete` (openapi: 403, 409 PHOTO_REQUIRED / SERVICES_INCOMPLETE / INVALID_TRANSITION).
+export type CompleteFeedback =
+  | { kind: "reason"; reason: string; highlightAfterPhoto: boolean }
+  | { kind: "forbidden" }
+  | { kind: "error"; error: ApiError };
+
+export function getCompleteFeedback(error: unknown): CompleteFeedback {
+  const apiError = toApiError(error);
+  if (isForbiddenError(apiError)) return { kind: "forbidden" };
+  if (apiError.status === 409 && apiError.code === "PHOTO_REQUIRED") {
+    return { kind: "reason", reason: COMPLETE_BLOCKED_REASON, highlightAfterPhoto: true };
+  }
+  if (apiError.status === 409 && apiError.code === "SERVICES_INCOMPLETE") {
+    return { kind: "reason", reason: COMPLETE_BLOCKED_REASON, highlightAfterPhoto: false };
+  }
+  return { kind: "error", error: apiError };
 }
 
 // Chỉ nhận tệp ảnh, tối đa 50 MB (SA 3.2, API-Notes); trả câu lỗi hoặc null khi hợp lệ.
