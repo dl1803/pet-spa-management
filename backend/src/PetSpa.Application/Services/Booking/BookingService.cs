@@ -16,11 +16,14 @@ public sealed record SpaSlotsResult(
     int BufferMinutes,
     IReadOnlyList<SpaSlotItem> Slots);
 
+public sealed record SpaBookingResult(SpaAppointment Appointment, decimal EstimatedAmount);
+
 public sealed class BookingService(
     IPetRepository pets,
     IStaffRoleReader staffRoles,
     IServiceCatalogRepository catalog,
     ISpaScheduleRepository schedule,
+    IConcurrencyGuard concurrency,
     ShopTimeZone shopTimeZone)
 {
     public async Task<SpaSelection> ResolveSpaSelectionAsync(
@@ -121,7 +124,7 @@ public sealed class BookingService(
             selection.DurationMinutes, selection.StaffRequired, data.BufferMinutes, slots);
     }
 
-    public async Task<SpaAppointment> CreateSpaAppointmentAsync(
+    public async Task<SpaBookingResult> CreateSpaAppointmentAsync(
         CurrentUser user,
         Guid? customerId,
         Guid petId,
@@ -140,8 +143,12 @@ public sealed class BookingService(
                 throw new BusinessException(ErrorCodes.ValidationError, "Thú cưng không thuộc khách hàng này.");
         }
 
+        if (user.Role == UserRole.Customer
+            && await schedule.IsBookingLockedAsync(selection.Pet.CustomerId, ct))
+            throw new BusinessException(ErrorCodes.BookingLocked);
+
         var slotStartUtc = slotStart.ToUniversalTime();
-        var (_, localTime) = shopTimeZone.ToLocal(slotStartUtc);
+        var (day, localTime) = shopTimeZone.ToLocal(slotStartUtc);
 
         var slotTimes = await catalog.GetSlotTimesAsync(ct);
         if (!slotTimes.Contains(localTime))
@@ -163,10 +170,37 @@ public sealed class BookingService(
             StaffRequired = (short)selection.StaffRequired,
         };
 
-        await schedule.AddSpaAppointmentAsync(
-            appointment, selection.Services.Select(x => x.ServiceId).ToList(), ct);
+        await concurrency.RunAsync(async () =>
+        {
+            await concurrency.LockSpaDayAsync(day, ct);
 
-        return appointment;
+            var data = await LoadSpaScheduleAsync(appointment.SlotStart, appointment.BusyUntil, ct);
+            var shifts = data.Shifts
+                .Select(x => new SlotStaffShift(x.StaffId, x.ShiftStart, x.ShiftEnd))
+                .ToList();
+            var held = data.HeldBookings
+                .Select(x => new SlotHeldBooking(x.SlotStart, x.BusyUntil, x.StaffRequired))
+                .ToList();
+
+            var status = SlotService
+                .AvailableSlots(
+                    [new SlotCandidate(localTime, slotStartUtc)],
+                    selection.LatestStartTime,
+                    selection.DurationMinutes,
+                    selection.StaffRequired,
+                    bufferMinutes,
+                    shifts,
+                    held)
+                .Single()
+                .Status;
+
+            if (status != SlotStatus.Available) throw new BusinessException(ErrorCodes.SlotFull);
+
+            await schedule.AddSpaAppointmentAsync(
+                appointment, selection.Services.Select(x => x.ServiceId).ToList(), ct);
+        }, ct);
+
+        return new SpaBookingResult(appointment, selection.Services.Sum(x => x.Price));
     }
 
     private async Task<bool> IsCustomerActorAsync(CurrentUser user, CancellationToken ct)

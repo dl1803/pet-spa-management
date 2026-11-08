@@ -69,9 +69,14 @@ public sealed class HotelCatalogRepository(AppDbContext db) : IHotelCatalogRepos
         {
             var existing = current.FirstOrDefault(p => p.Species == price.Species && p.SizeGroup == price.SizeGroup);
             if (existing is null)
+            {
                 db.Set<HotelPricing>().Add(price);
+            }
             else
+            {
                 existing.PricePerNight = price.PricePerNight;
+                existing.FoodPerNight = price.FoodPerNight;
+            }
         }
 
         await db.SaveChangesAsync(ct);

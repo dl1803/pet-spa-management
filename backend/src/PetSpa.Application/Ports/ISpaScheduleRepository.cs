@@ -16,6 +16,8 @@ public interface ISpaScheduleRepository
     Task<IReadOnlyList<HeldSpaBooking>> ListHeldSpaBookingsAsync(
         DateTimeOffset rangeStart, DateTimeOffset rangeEnd, CancellationToken ct = default);
 
+    Task<bool> IsBookingLockedAsync(Guid customerId, CancellationToken ct = default);
+
     Task AddSpaAppointmentAsync(
         SpaAppointment appointment, IReadOnlyList<Guid> serviceIds, CancellationToken ct = default);
 }
