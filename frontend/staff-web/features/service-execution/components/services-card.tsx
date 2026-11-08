@@ -1,21 +1,31 @@
 import { Icon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader } from "@/components/ui/card";
+import { CompleteAction } from "@/features/service-execution/components/complete-action";
 import { CostConfirmationAlert } from "@/features/service-execution/components/cost-confirmation-alert";
 import { ServiceTask } from "@/features/service-execution/components/service-task";
-import { countServices, getExecutionFlags, getStartBlockers, type ExecutionData } from "@/features/service-execution/execution";
+import {
+  countServices,
+  getCompleteBlockers,
+  getExecutionFlags,
+  getStartBlockers,
+  type CompleteFeedback,
+  type ExecutionData,
+} from "@/features/service-execution/execution";
 import type { AppointmentServiceItem } from "@/lib/api/types";
 
 const BLOCKERS_ID = "start-blockers";
 
 type ServicesCardProps = {
   data: ExecutionData;
+  completeFeedback: CompleteFeedback | null;
   onStart: () => void;
   onMarkDone: (service: AppointmentServiceItem, note: string) => void;
+  onComplete: () => void;
 };
 
-// SW-11 vùng 5, 6, 7, 8 – Thẻ Dịch vụ (UI-Screens.md). Nút “Hoàn tất lịch hẹn” chưa nằm ở đây.
-export function ServicesCard({ data, onStart, onMarkDone }: ServicesCardProps) {
+// SW-11 vùng 5, 6, 7, 8 – Thẻ Dịch vụ (UI-Screens.md).
+export function ServicesCard({ data, completeFeedback, onStart, onMarkDone, onComplete }: ServicesCardProps) {
   const { appointment } = data;
   const { done, total } = countServices(appointment);
   const flags = getExecutionFlags(appointment.status);
@@ -61,6 +71,11 @@ export function ServicesCard({ data, onStart, onMarkDone }: ServicesCardProps) {
               ))}
             </ul>
           )}
+        </CardFooter>
+      )}
+      {flags.canComplete && (
+        <CardFooter className="flex-col items-stretch">
+          <CompleteAction blockers={getCompleteBlockers(data)} feedback={completeFeedback} onComplete={onComplete} />
         </CardFooter>
       )}
     </Card>

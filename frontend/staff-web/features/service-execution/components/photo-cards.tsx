@@ -41,22 +41,32 @@ export function BeforePhotoCard({ photo, petName, todayKey, canUpload, onUpload 
 }
 
 // SW-11 vùng 4 – Ảnh sau chăm sóc (UI-Screens.md): chỉ tải được khi lịch đang thực hiện.
-export function AfterPhotoCard({ photo, petName, todayKey, canUpload, onUpload }: PhotoCardProps) {
+// `highlighted`: tô viền khi backend trả 409 PHOTO_REQUIRED lúc hoàn tất; lý do bằng chữ nằm dưới nút Hoàn tất.
+export function AfterPhotoCard({
+  photo,
+  petName,
+  todayKey,
+  canUpload,
+  onUpload,
+  highlighted = false,
+}: PhotoCardProps & { highlighted?: boolean }) {
   return (
-    <Card>
-      <CardHeader title="Ảnh sau chăm sóc">{photo && <Tag tone="ok">Đã có</Tag>}</CardHeader>
-      <CardBody>
-        {photo ? (
-          <div className="flex flex-col gap-3">
-            <PhotoTile photo={photo} alt={`Ảnh sau chăm sóc của ${petName}`} todayKey={todayKey} />
-            {canUpload && <PhotoReplace label="Đổi ảnh sau chăm sóc" inputId="after-photo-replace" onSelect={onUpload} />}
-          </div>
-        ) : canUpload ? (
-          <PhotoUpload title="Chụp ảnh sau khi xong mọi dịch vụ" inputId="after-photo" onSelect={onUpload} />
-        ) : (
-          <PhotoDropZone title="Chưa thể tải ảnh sau" hint="Tải được khi lịch đang thực hiện." muted />
-        )}
-      </CardBody>
-    </Card>
+    <div className={highlighted ? "rounded-2xl ring-2 ring-danger" : undefined}>
+      <Card>
+        <CardHeader title="Ảnh sau chăm sóc">{photo && <Tag tone="ok">Đã có</Tag>}</CardHeader>
+        <CardBody>
+          {photo ? (
+            <div className="flex flex-col gap-3">
+              <PhotoTile photo={photo} alt={`Ảnh sau chăm sóc của ${petName}`} todayKey={todayKey} />
+              {canUpload && <PhotoReplace label="Đổi ảnh sau chăm sóc" inputId="after-photo-replace" onSelect={onUpload} />}
+            </div>
+          ) : canUpload ? (
+            <PhotoUpload title="Chụp ảnh sau khi xong mọi dịch vụ" inputId="after-photo" onSelect={onUpload} />
+          ) : (
+            <PhotoDropZone title="Chưa thể tải ảnh sau" hint="Tải được khi lịch đang thực hiện." muted />
+          )}
+        </CardBody>
+      </Card>
+    </div>
   );
 }
