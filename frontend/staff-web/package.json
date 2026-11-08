@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --import ./tests/register.mjs --test tests/infrastructure.test.mjs tests/header-nav.test.mjs tests/format.test.mjs tests/work-history.test.mjs tests/notifications.test.mjs tests/reception-appointments.test.mjs tests/shared-ui.test.mjs tests/service-execution.test.mjs tests/service-execution-screen.test.mjs tests/reception-booking.test.mjs",
+    "test": "node --import ./tests/register.mjs --test tests/infrastructure.test.mjs tests/header-nav.test.mjs tests/format.test.mjs tests/work-history.test.mjs tests/notifications.test.mjs tests/reception-appointments.test.mjs tests/shared-ui.test.mjs tests/service-execution.test.mjs tests/service-execution-screen.test.mjs tests/reception-booking.test.mjs tests/check-in-logic.test.mjs tests/check-in-components.test.mjs",
     "test:smoke": "node --test tests/shell.test.mjs"
   },
   "dependencies": {
