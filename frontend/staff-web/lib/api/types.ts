@@ -160,3 +160,34 @@ export type HotelPricingRow = {
   foodPerNight: number;
 };
 
+export type ActualWeightRequest = {
+  actualWeightKg: number;
+};
+
+export type WeightCheckResult = "OK" | "PRICE_DECREASED" | "NEEDS_CONFIRMATION";
+
+export type WeightCheck = {
+  result: WeightCheckResult;
+  newSizeGroup?: SizeGroup;
+  oldAmount?: number;
+  newAmount?: number;
+  expiresAt?: string;
+};
+
+export type CheckInResult = {
+  status: AppointmentStatus;
+  weightCheck?: WeightCheck;
+};
+
+export type WeightCheckResponse = {
+  weightCheck: WeightCheck;
+};
+
+export type CostConfirmationRespondRequest = {
+  accept: boolean;
+};
+
+export type StatusResult = {
+  status: AppointmentStatus;
+};
+
