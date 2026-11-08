@@ -60,5 +60,17 @@ public sealed class SpaScheduleRepository(AppDbContext db) : ISpaScheduleReposit
             .Select(a => new HeldSpaBooking(a.SlotStart, a.BusyUntil, a.StaffRequired))
             .ToListAsync(ct);
     }
+
+    public async Task AddSpaAppointmentAsync(
+        SpaAppointment appointment, IReadOnlyList<Guid> serviceIds, CancellationToken ct = default)
+    {
+        db.Set<SpaAppointment>().Add(appointment);
+        db.Set<AppointmentService>().AddRange(serviceIds.Select(serviceId => new AppointmentService
+        {
+            AppointmentId = appointment.AppointmentId,
+            ServiceId = serviceId,
+        }));
+        await db.SaveChangesAsync(ct);
+    }
 }
 
