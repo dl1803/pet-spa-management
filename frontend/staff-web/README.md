@@ -10,7 +10,7 @@ npm ci
 npm run dev -- --port 3001
 ```
 
-Mở http://localhost:3001. Trang gốc chỉ giới thiệu ứng dụng; các màn Lịch sử công việc (`/lich-su-cong-viec`), Thông báo (`/thong-bao`) và Thực hiện dịch vụ (`/lich-hen/[appointmentId]/thuc-hien`) của Nhân viên spa dùng dữ liệu mô phỏng, chưa kết nối backend. Màn Thực hiện dịch vụ chưa có menu; mở bằng đường dẫn trực tiếp với mã lịch mô phỏng trong `features/service-execution/mock-data.ts`. Dữ liệu mô phỏng gồm 3 lịch đang xử lý và 8 lịch Hoàn tất khớp màn Lịch sử công việc. Nút “Xem” mở lịch Hoàn tất ở chế độ chỉ xem. Màn Lịch hẹn của Lễ tân (`/lich-hen`) cũng dùng dữ liệu mô phỏng (chỉ có lịch cho ngày hôm nay); mục menu “Lịch hẹn” chưa bật vì dùng chung với Nhân viên spa. Màn Đặt lịch thay khách của Lễ tân (`/dat-lich`) có tab Lưu trú dùng dữ liệu mô phỏng, mở bằng `/dat-lich?type=Hotel&customerId=c2000000-0000-4000-8000-000000000001`; tab Lịch spa chưa khả dụng.
+Mở http://localhost:3001. Trang gốc chỉ giới thiệu ứng dụng; các màn Lịch sử công việc (`/lich-su-cong-viec`), Thông báo (`/thong-bao`) và Thực hiện dịch vụ (`/lich-hen/[appointmentId]/thuc-hien`) của Nhân viên spa dùng dữ liệu mô phỏng, chưa kết nối backend. Màn Thực hiện dịch vụ chưa có menu; mở bằng đường dẫn trực tiếp với mã lịch mô phỏng trong `features/service-execution/mock-data.ts`. Dữ liệu mô phỏng gồm 3 lịch đang xử lý và 8 lịch Hoàn tất khớp màn Lịch sử công việc. Nút “Xem” mở lịch Hoàn tất ở chế độ chỉ xem. Màn Lịch hẹn của Lễ tân (`/lich-hen`) cũng dùng dữ liệu mô phỏng (chỉ có lịch cho ngày hôm nay); mục menu “Lịch hẹn” chưa bật vì dùng chung với Nhân viên spa. Màn Đặt lịch thay khách của Lễ tân (`/dat-lich`) có tab Lưu trú dùng dữ liệu mô phỏng, mở bằng `/dat-lich?type=Hotel&customerId=c2000000-0000-4000-8000-000000000001`; tab Lịch spa chưa khả dụng. Màn Tiếp nhận của Lễ tân (`/tiep-nhan`) dùng dữ liệu mô phỏng cho phần ghi nhận cân nặng thực tế và phản hồi chi phí mới; mở bằng nút “Tiếp nhận” ở màn Lịch hẹn hoặc bằng `?appointmentId=` với lịch spa Bông `a1000000-0000-4000-8000-000000000001`, lịch spa Mướp đang chờ khách xác nhận `a1000000-0000-4000-8000-000000000003`, lịch lưu trú Cốm `a1000000-0000-4000-8000-000000000004`. Cân nặng 11,2 kg của Bông cần khách xác nhận chi phí; cân nặng 77 kg và 88 kg mô phỏng lỗi hết giữ chỗ và mất mạng.
 Dừng server bằng Ctrl+C trong terminal đã khởi chạy.
 
 Ứng dụng dùng Be Vietnam Pro và token màu chung với Web Khách hàng, Web Quản lý (`app/globals.css`).
@@ -24,7 +24,7 @@ Danh mục dịch vụ (chỉ Lễ tân) và Đăng xuất. Chưa có phiên đ�
 khung chỉ hiện logo và khối “Chưa đăng nhập”, chưa hiện mục menu nào. Khi có phiên, truyền vai trò thật vào `SiteHeader`.
 Mọi mục chưa có trang đích bị vô hiệu hóa, có mô tả “Chức năng chưa khả dụng”; bật `available` trong
 `components/layout/header-nav.tsx` khi trang đích đã có. Người làm trang mới được phép sửa duy nhất cờ `available` trong
-`header-nav.tsx` để bật menu của trang mình. Không sửa phần khác của shell. Nút Đăng xuất bị vô hiệu hóa cho tới khi có phiên đăng nhập. Đã bật: Lịch sử công việc và Thông báo của Nhân viên spa, Đặt lịch thay của Lễ tân.
+`header-nav.tsx` để bật menu của trang mình. Không sửa phần khác của shell. Nút Đăng xuất bị vô hiệu hóa cho tới khi có phiên đăng nhập. Đã bật: Lịch sử công việc và Thông báo của Nhân viên spa, Đặt lịch thay và Tiếp nhận của Lễ tân.
 
 - `app/(main)`: layout có thanh trên và trang giới thiệu.
 - `components/layout`: thanh trên, menu theo vai trò, menu tài khoản; phần đọc đường dẫn nằm trong `Suspense`.
@@ -38,6 +38,7 @@ Mọi mục chưa có trang đích bị vô hiệu hóa, có mô tả “Chức 
 - `features/work-history`, `features/notifications`, `features/service-execution`: màn Lịch sử công việc, Thông báo và Thực hiện dịch vụ; dữ liệu mô phỏng nằm trong `mock-data.ts`.
 - `features/reception-appointments`: màn Lịch hẹn của Lễ tân (toàn cửa hàng); dữ liệu mô phỏng nằm trong `mock-data.ts`.
 - `features/reception-booking`: màn Đặt lịch thay khách của Lễ tân (tab Lưu trú); dữ liệu mô phỏng nằm trong `mock-data.ts` và `mock-hotel.ts`.
+- `features/reception-check-in`: màn Tiếp nhận của Lễ tân (ghi nhận cân nặng thực tế, phản hồi chi phí mới); dữ liệu mô phỏng nằm trong `mock-data.ts` và `mock-api.ts`.
 - `lib/format.ts`, `lib/time.ts`: định dạng ngày giờ theo múi giờ cửa hàng.
 
 Để gọi backend, sao chép `.env.example` thành `.env.local` và điền `NEXT_PUBLIC_API_BASE_URL`
@@ -83,7 +84,7 @@ Trong terminal khác, kiểm tra trang gốc của server đang chạy:
 npm run test:smoke
 ```
 
-`npm test` chạy test infrastructure với HTTP stub tự khởi động và tự dừng trong tiến trình test, cùng test menu theo vai trò của `HeaderNav`, hàm định dạng, hai màn Lịch sử công việc, Thông báo, màn Lịch hẹn và màn Đặt lịch thay khách của Lễ tân. Lệnh này không cần backend, Next.js server hoặc source ngoài thư mục app.
+`npm test` chạy test infrastructure với HTTP stub tự khởi động và tự dừng trong tiến trình test, cùng test menu theo vai trò của `HeaderNav`, hàm định dạng, hai màn Lịch sử công việc, Thông báo, màn Lịch hẹn, màn Đặt lịch thay khách và màn Tiếp nhận của Lễ tân. Lệnh này không cần backend, Next.js server hoặc source ngoài thư mục app.
 Loader ESM của Node biên dịch TypeScript/TSX trong bộ nhớ bằng dependency TypeScript đã có, không sinh file build cho test.
 
 `npm run test:smoke` kiểm tra trang gốc, khối “Chưa đăng nhập”, liên kết không dẫn tới 404, icon và đường dẫn

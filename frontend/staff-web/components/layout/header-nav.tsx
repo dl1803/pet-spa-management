@@ -24,7 +24,7 @@ const SPA_STAFF_ONLY: readonly StaffRole[] = ["SpaStaff"];
 // Thứ tự menu theo UI-Screens mục 2.1 (Lễ tân và Nhân viên spa dùng chung một khung).
 const NAV_ITEMS: MenuItem[] = [
   { href: ROUTES.appointments, label: "Lịch hẹn", icon: "calendar", roles: ALL_ROLES },
-  { href: ROUTES.checkIn, label: "Tiếp nhận", icon: "clipboard", roles: RECEPTIONIST_ONLY },
+  { href: ROUTES.checkIn, label: "Tiếp nhận", icon: "clipboard", roles: RECEPTIONIST_ONLY, available: true },
   { href: ROUTES.checkOut, label: "Trả thú cưng", icon: "handover", roles: RECEPTIONIST_ONLY },
   { href: ROUTES.customers, label: "Khách hàng", icon: "users", roles: RECEPTIONIST_ONLY },
   { href: ROUTES.booking, label: "Đặt lịch thay", icon: "calendar-plus", roles: RECEPTIONIST_ONLY, available: true },
