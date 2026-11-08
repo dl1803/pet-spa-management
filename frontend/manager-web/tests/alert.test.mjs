@@ -30,3 +30,8 @@ test("warn: nền cam nhạt, không có role alert", () => {
   assert.ok(!html.includes('role="alert"'));
   assert.ok(html.includes("border-[#F1D9A2]") && html.includes("bg-[#FFF6E3]") && html.includes("text-[#B87400]"));
 });
+
+test("info và warn dùng biểu tượng mặc định khi không truyền icon", () => {
+  assert.ok(render({ tone: "info" }).includes("M12 16v-4M12 8h.01"));
+  assert.ok(render({ tone: "warn" }).includes("M12 9v4M12 17h.01"));
+});

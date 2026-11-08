@@ -28,7 +28,7 @@ export function HotelAvailabilityNotice({ state }: { state: AvailabilityNoticeSt
       )}
       {state.kind === "available" && <Alert tone="success">{state.message}</Alert>}
       {state.kind === "full" && (
-        <Alert tone="danger" title={NO_CAPACITY_TITLE}>
+        <Alert tone="danger" role={null} title={NO_CAPACITY_TITLE}>
           {NO_CAPACITY_MESSAGE}
         </Alert>
       )}

@@ -1,7 +1,6 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Controller, useForm, useWatch } from "react-hook-form";
 import { PetAvatar } from "@/components/domain/pet-avatar";
 import { Icon } from "@/components/icons";
 import { Badge } from "@/components/ui/badge";
@@ -57,10 +56,7 @@ export function StaffAssignmentCard({
   onReject,
 }: StaffAssignmentCardProps) {
   const titleId = `${useId()}-title`;
-  const { control } = useForm<{ staffIds: string[] }>({
-    defaultValues: { staffIds: getInitialStaffIds(suggestions) },
-  });
-  const staffIds = useWatch({ control, name: "staffIds" });
+  const [staffIds, setStaffIds] = useState(() => getInitialStaffIds(suggestions));
   const [isRejecting, setIsRejecting] = useState(false);
   const canConfirm = isStaffSelectionComplete(staffIds, suggestions.staffRequired);
 
@@ -96,16 +92,10 @@ export function StaffAssignmentCard({
             amount={amount}
             isCustomerChanged={pendingReason?.kind === "CustomerChanged"}
           />
-          <Controller
-            control={control}
-            name="staffIds"
-            render={({ field }) => (
-              <StaffAssignmentPanel
-                suggestions={suggestions}
-                selectedStaffIds={field.value}
-                onSelectedStaffIdsChange={field.onChange}
-              />
-            )}
+          <StaffAssignmentPanel
+            suggestions={suggestions}
+            selectedStaffIds={staffIds}
+            onSelectedStaffIdsChange={setStaffIds}
           />
         </CardBody>
         <CardFooter>
