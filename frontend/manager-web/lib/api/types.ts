@@ -72,6 +72,13 @@ export type ConfirmHotelRequest = {
   cageId: string;
 };
 
+export type ConfirmSpaRequest = {
+  // Đủ số nhân viên cần của lịch hẹn (staffRequired).
+  staffIds: string[];
+  // Đề xuất OpenAPI cho xác nhận nhân viên ngoài ca.
+  confirmOutOfShift?: boolean;
+};
+
 export type StaffRole = "Receptionist" | "SpaStaff";
 
 export type Staff = {

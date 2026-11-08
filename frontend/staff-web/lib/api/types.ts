@@ -58,6 +58,13 @@ export type Appointment = {
   updatedAt: string;
 };
 
+export type ConfirmSpaRequest = {
+  // Đủ số nhân viên cần của lịch hẹn (staffRequired).
+  staffIds: string[];
+  // Đề xuất OpenAPI cho xác nhận nhân viên ngoài ca.
+  confirmOutOfShift?: boolean;
+};
+
 export type AppointmentServiceItem = {
   serviceId: string;
   name?: string;

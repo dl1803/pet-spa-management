@@ -150,6 +150,8 @@ test("HotelAvailabilityNotice: từng trạng thái", () => {
   assert.match(available, /data-tone="success"/);
   assert.match(available, /Còn chuồng phù hợp\./);
   const full = render({ kind: "full" });
+  assert.match(full, /^<div aria-live="polite"/);
+  assert.doesNotMatch(full, /role="alert"/);
   assert.match(full, /data-tone="danger"/);
   assert.match(full, /Hết chỗ/);
   assert.match(full, /Hết chỗ trong thời gian này, vui lòng chọn ngày khác\./);
