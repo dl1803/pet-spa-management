@@ -1,3 +1,5 @@
+using PetSpa.Domain.Entities;
+
 namespace PetSpa.Application.Ports;
 
 public sealed record StaffShiftWindow(Guid StaffId, DateTimeOffset ShiftStart, DateTimeOffset ShiftEnd);
@@ -13,5 +15,7 @@ public interface ISpaScheduleRepository
 
     Task<IReadOnlyList<HeldSpaBooking>> ListHeldSpaBookingsAsync(
         DateTimeOffset rangeStart, DateTimeOffset rangeEnd, CancellationToken ct = default);
-}
 
+    Task AddSpaAppointmentAsync(
+        SpaAppointment appointment, IReadOnlyList<Guid> serviceIds, CancellationToken ct = default);
+}
