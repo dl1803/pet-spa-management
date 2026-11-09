@@ -7,8 +7,14 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
+using PetSpa.Api.Controllers;
+using PetSpa.Api.Dtos;
+using PetSpa.Api.Validators;
+using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
+using PetSpa.Application.Services.Booking;
+using PetSpa.Domain.Enums;
 using PetSpa.Infrastructure.Identity;
 using System.Text.Json;
 using System.Threading.RateLimiting;
@@ -466,6 +472,233 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(fk.DeleteBehavior == DeleteBehavior.NoAction, "Foreign key must have NoAction delete behavior.");
 
         return Task.CompletedTask;
+    }),
+    ("SpaBookingRequestValidator validates required fields and future slotStart", () =>
+    {
+        var validator = new SpaBookingRequestValidator();
+        var valid = validator.Validate(new SpaBookingRequest(
+            Guid.NewGuid(), [Guid.NewGuid()], DateTimeOffset.UtcNow.AddHours(2), null));
+        Check(valid.IsValid, "Valid request must pass validation.");
+
+        var missingPet = validator.Validate(new SpaBookingRequest(
+            null, [Guid.NewGuid()], DateTimeOffset.UtcNow.AddHours(2), null));
+        Check(!missingPet.IsValid && missingPet.Errors.Any(e => e.PropertyName == "PetId"),
+            "Missing PetId must fail validation.");
+
+        var emptyServices = validator.Validate(new SpaBookingRequest(
+            Guid.NewGuid(), [], DateTimeOffset.UtcNow.AddHours(2), null));
+        Check(!emptyServices.IsValid && emptyServices.Errors.Any(e => e.PropertyName == "ServiceIds"),
+            "Empty ServiceIds must fail validation.");
+
+        var pastSlot = validator.Validate(new SpaBookingRequest(
+            Guid.NewGuid(), [Guid.NewGuid()], DateTimeOffset.UtcNow.AddHours(-1), null));
+        Check(!pastSlot.IsValid && pastSlot.Errors.Any(e => e.PropertyName == "SlotStart" && e.ErrorMessage.Contains("quá khứ")),
+            "Past SlotStart must fail validation.");
+
+        return Task.CompletedTask;
+    }),
+    ("AppointmentsController.CreateSpa rejects null request with ValidationError", async () =>
+    {
+        var pet = new Pet { PetId = Guid.NewGuid(), CustomerId = Guid.NewGuid(), Species = Species.Dog, SizeGroup = SizeGroup.Small, IsActive = true };
+        var dummyService = new BookingService(
+            new TestPetRepo(pet, Guid.NewGuid()),
+            new TestStaffRoleReader(null),
+            new TestCatalogRepo(new ServiceWithPricing(new Service(), []), []),
+            new TestScheduleRepo(15, false, [], []),
+            new TestConcurrencyGuard(),
+            new ShopTimeZone(TimeZoneInfo.Utc));
+
+        var controller = new AppointmentsController(dummyService);
+        var threw = false;
+        try
+        {
+            await controller.CreateSpa(null, CancellationToken.None);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.ValidationError)
+        {
+            threw = true;
+        }
+
+        Check(threw, "Controller must throw BusinessException(ValidationError) when request is null.");
+    }),
+    ("BookingService rejects booking in the past", async () =>
+    {
+        var customerId = Guid.NewGuid();
+        var ownerUserId = Guid.NewGuid();
+        var petId = Guid.NewGuid();
+        var serviceId = Guid.NewGuid();
+        var pet = new Pet { PetId = petId, CustomerId = customerId, Species = Species.Dog, SizeGroup = SizeGroup.Small, IsActive = true };
+        var service = new Service { ServiceId = serviceId, Name = "Tắm", LatestStartTime = new TimeOnly(18, 0), IsActive = true };
+        var pricing = new ServicePricing { ServiceId = serviceId, Species = Species.Dog, SizeGroup = SizeGroup.Small, Price = 100000, DurationMinutes = 60, StaffRequired = 1 };
+        var slotTimes = new List<TimeOnly> { new(9, 0), new(10, 0) };
+
+        var serviceWithPricing = new ServiceWithPricing(service, [pricing]);
+        var bookingService = new BookingService(
+            new TestPetRepo(pet, ownerUserId),
+            new TestStaffRoleReader(null),
+            new TestCatalogRepo(serviceWithPricing, slotTimes),
+            new TestScheduleRepo(15, false, [], []),
+            new TestConcurrencyGuard(),
+            new ShopTimeZone(TimeZoneInfo.Utc));
+
+        var user = new CurrentUser(ownerUserId, UserRole.Customer);
+        var threw = false;
+        try
+        {
+            await bookingService.CreateSpaAppointmentAsync(user, null, petId, [serviceId], DateTimeOffset.UtcNow.AddHours(-2));
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.ValidationError && ex.Message.Contains("quá khứ"))
+        {
+            threw = true;
+        }
+
+        Check(threw, "BookingService must reject past slotStart with ValidationError.");
+    }),
+    ("BookingService rejects slot exceeding LatestStartTime", async () =>
+    {
+        var customerId = Guid.NewGuid();
+        var ownerUserId = Guid.NewGuid();
+        var petId = Guid.NewGuid();
+        var serviceId = Guid.NewGuid();
+        var pet = new Pet { PetId = petId, CustomerId = customerId, Species = Species.Dog, SizeGroup = SizeGroup.Small, IsActive = true };
+        var service = new Service { ServiceId = serviceId, Name = "Tắm & Cắt", LatestStartTime = new TimeOnly(17, 0), IsActive = true };
+        var pricing = new ServicePricing { ServiceId = serviceId, Species = Species.Dog, SizeGroup = SizeGroup.Small, Price = 200000, DurationMinutes = 90, StaffRequired = 1 };
+        var slotTimes = new List<TimeOnly> { new(9, 0), new(18, 0) };
+
+        var serviceWithPricing = new ServiceWithPricing(service, [pricing]);
+        var bookingService = new BookingService(
+            new TestPetRepo(pet, ownerUserId),
+            new TestStaffRoleReader(null),
+            new TestCatalogRepo(serviceWithPricing, slotTimes),
+            new TestScheduleRepo(15, false, [], []),
+            new TestConcurrencyGuard(),
+            new ShopTimeZone(TimeZoneInfo.Utc));
+
+        var user = new CurrentUser(ownerUserId, UserRole.Customer);
+        var futureDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2));
+        var lateSlot = new DateTimeOffset(futureDate.ToDateTime(new TimeOnly(18, 0)), TimeSpan.Zero);
+
+        var threw = false;
+        try
+        {
+            await bookingService.CreateSpaAppointmentAsync(user, null, petId, [serviceId], lateSlot);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.ValidationError && ex.Message.Contains("muộn hơn"))
+        {
+            threw = true;
+        }
+
+        Check(threw, "BookingService must reject slot after LatestStartTime with ValidationError.");
+    }),
+    ("BookingService blocks customer when IsBookingLocked is true", async () =>
+    {
+        var customerId = Guid.NewGuid();
+        var ownerUserId = Guid.NewGuid();
+        var petId = Guid.NewGuid();
+        var serviceId = Guid.NewGuid();
+        var pet = new Pet { PetId = petId, CustomerId = customerId, Species = Species.Dog, SizeGroup = SizeGroup.Small, IsActive = true };
+        var service = new Service { ServiceId = serviceId, Name = "Tắm", LatestStartTime = new TimeOnly(18, 0), IsActive = true };
+        var pricing = new ServicePricing { ServiceId = serviceId, Species = Species.Dog, SizeGroup = SizeGroup.Small, Price = 100000, DurationMinutes = 60, StaffRequired = 1 };
+        var slotTimes = new List<TimeOnly> { new(10, 0) };
+
+        var serviceWithPricing = new ServiceWithPricing(service, [pricing]);
+        var bookingService = new BookingService(
+            new TestPetRepo(pet, ownerUserId),
+            new TestStaffRoleReader(null),
+            new TestCatalogRepo(serviceWithPricing, slotTimes),
+            new TestScheduleRepo(15, isLocked: true, [], []),
+            new TestConcurrencyGuard(),
+            new ShopTimeZone(TimeZoneInfo.Utc));
+
+        var user = new CurrentUser(ownerUserId, UserRole.Customer);
+        var futureDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1));
+        var validSlot = new DateTimeOffset(futureDate.ToDateTime(new TimeOnly(10, 0)), TimeSpan.Zero);
+
+        var threw = false;
+        try
+        {
+            await bookingService.CreateSpaAppointmentAsync(user, null, petId, [serviceId], validSlot);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.BookingLocked)
+        {
+            threw = true;
+        }
+
+        Check(threw, "BookingService must throw BOOKING_LOCKED when customer is locked.");
+    }),
+    ("BookingService allows receptionist booking even when customer is locked", async () =>
+    {
+        var customerId = Guid.NewGuid();
+        var staffUserId = Guid.NewGuid();
+        var petId = Guid.NewGuid();
+        var serviceId = Guid.NewGuid();
+        var pet = new Pet { PetId = petId, CustomerId = customerId, Species = Species.Dog, SizeGroup = SizeGroup.Small, IsActive = true };
+        var service = new Service { ServiceId = serviceId, Name = "Tắm", LatestStartTime = new TimeOnly(18, 0), IsActive = true };
+        var pricing = new ServicePricing { ServiceId = serviceId, Species = Species.Dog, SizeGroup = SizeGroup.Small, Price = 150000, DurationMinutes = 60, StaffRequired = 1 };
+        var slotTimes = new List<TimeOnly> { new(10, 0) };
+
+        var futureDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1));
+        var validSlot = new DateTimeOffset(futureDate.ToDateTime(new TimeOnly(10, 0)), TimeSpan.Zero);
+        var shifts = new List<StaffShiftWindow>
+        {
+            new(Guid.NewGuid(), validSlot.AddHours(-1), validSlot.AddHours(3))
+        };
+
+        var serviceWithPricing = new ServiceWithPricing(service, [pricing]);
+        var scheduleRepo = new TestScheduleRepo(15, isLocked: true, shifts, []);
+        var concurrencyGuard = new TestConcurrencyGuard();
+        var bookingService = new BookingService(
+            new TestPetRepo(pet, null),
+            new TestStaffRoleReader(StaffRole.Receptionist),
+            new TestCatalogRepo(serviceWithPricing, slotTimes),
+            scheduleRepo,
+            concurrencyGuard,
+            new ShopTimeZone(TimeZoneInfo.Utc));
+
+        var receptionistUser = new CurrentUser(staffUserId, UserRole.Staff);
+        var result = await bookingService.CreateSpaAppointmentAsync(
+            receptionistUser, customerId, petId, [serviceId], validSlot);
+
+        Check(result.Appointment.Status == AppointmentStatus.Pending, "Appointment status must be Pending.");
+        Check(result.EstimatedAmount == 150000, "EstimatedAmount must match service price.");
+        Check(scheduleRepo.AddedAppointments.Count == 1, "Appointment must be saved in repository.");
+        Check(concurrencyGuard.LockedDay, "Day lock must be acquired.");
+    }),
+    ("BookingService throws SlotFull when no staff available", async () =>
+    {
+        var customerId = Guid.NewGuid();
+        var ownerUserId = Guid.NewGuid();
+        var petId = Guid.NewGuid();
+        var serviceId = Guid.NewGuid();
+        var pet = new Pet { PetId = petId, CustomerId = customerId, Species = Species.Dog, SizeGroup = SizeGroup.Small, IsActive = true };
+        var service = new Service { ServiceId = serviceId, Name = "Tắm", LatestStartTime = new TimeOnly(18, 0), IsActive = true };
+        var pricing = new ServicePricing { ServiceId = serviceId, Species = Species.Dog, SizeGroup = SizeGroup.Small, Price = 100000, DurationMinutes = 60, StaffRequired = 1 };
+        var slotTimes = new List<TimeOnly> { new(10, 0) };
+
+        var futureDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1));
+        var validSlot = new DateTimeOffset(futureDate.ToDateTime(new TimeOnly(10, 0)), TimeSpan.Zero);
+
+        var serviceWithPricing = new ServiceWithPricing(service, [pricing]);
+        var bookingService = new BookingService(
+            new TestPetRepo(pet, ownerUserId),
+            new TestStaffRoleReader(null),
+            new TestCatalogRepo(serviceWithPricing, slotTimes),
+            new TestScheduleRepo(15, isLocked: false, shifts: [], held: []),
+            new TestConcurrencyGuard(),
+            new ShopTimeZone(TimeZoneInfo.Utc));
+
+        var user = new CurrentUser(ownerUserId, UserRole.Customer);
+        var threw = false;
+        try
+        {
+            await bookingService.CreateSpaAppointmentAsync(user, null, petId, [serviceId], validSlot);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.SlotFull)
+        {
+            threw = true;
+        }
+
+        Check(threw, "BookingService must throw SLOT_FULL when staff capacity is zero.");
     })
 
 };
@@ -597,5 +830,75 @@ public sealed class SampleRequestValidator : AbstractValidator<SampleRequest>
             return name != "rejected";
         });
     }
+}
+
+sealed class TestPetRepo(Pet pet, Guid? ownerUserId) : IPetRepository
+{
+    public Task<PetWithOwner?> FindWithOwnerAsync(Guid petId, CancellationToken ct = default) =>
+        Task.FromResult<PetWithOwner?>(pet.PetId == petId ? new PetWithOwner(pet, ownerUserId) : null);
+    public Task<Guid?> FindCustomerIdByUserIdAsync(Guid userId, CancellationToken ct = default) => Task.FromResult<Guid?>(null);
+    public Task<bool> CustomerExistsAsync(Guid customerId, CancellationToken ct = default) => Task.FromResult(true);
+    public Task<IReadOnlyList<SizeRule>> GetSizeRulesAsync(Species species, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<SizeRule>>([]);
+    public Task<(IReadOnlyList<Pet> Items, int Total)> ListActiveByCustomerAsync(Guid customerId, int page, int pageSize, CancellationToken ct = default) => Task.FromResult(((IReadOnlyList<Pet>)[], 0));
+    public Task<bool> IsAssignedToStaffAsync(Guid petId, Guid staffUserId, CancellationToken ct = default) => Task.FromResult(false);
+    public Task<bool> HasAppointmentsAsync(Guid petId, CancellationToken ct = default) => Task.FromResult(false);
+    public void Add(Pet pet) { }
+    public void Remove(Pet pet) { }
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+}
+
+sealed class TestCatalogRepo(ServiceWithPricing serviceWithPricing, IReadOnlyList<TimeOnly> slotTimes) : IServiceCatalogRepository
+{
+    public Task<IReadOnlyList<TimeOnly>> GetSlotTimesAsync(CancellationToken ct = default) =>
+        Task.FromResult(slotTimes);
+    public Task<IReadOnlyList<ServiceWithPricing>> ListAsync(
+        bool includeInactive, Species? species, SizeGroup? sizeGroup, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<ServiceWithPricing>>([serviceWithPricing]);
+    public Task AddAsync(Service service, IReadOnlyList<ServicePricing> pricing, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<IReadOnlyList<SizeRule>> GetSizeRulesAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<SizeRule>>([]);
+    public Task<bool> UpdateAsync(Service service, IReadOnlyList<ServicePricing> pricing, CancellationToken ct = default) => Task.FromResult(true);
+    public Task<bool> SetActiveAsync(Guid serviceId, bool isActive, CancellationToken ct = default) => Task.FromResult(true);
+}
+
+sealed class TestScheduleRepo(
+    int bufferMinutes,
+    bool isLocked,
+    IReadOnlyList<StaffShiftWindow> shifts,
+    IReadOnlyList<HeldSpaBooking> held) : ISpaScheduleRepository
+{
+    public List<SpaAppointment> AddedAppointments { get; } = [];
+    public Task<int> GetBufferMinutesAsync(CancellationToken ct = default) => Task.FromResult(bufferMinutes);
+    public Task<IReadOnlyList<StaffShiftWindow>> ListActiveSpaStaffShiftsAsync(
+        DateTimeOffset rangeStart, DateTimeOffset rangeEnd, CancellationToken ct = default) =>
+        Task.FromResult(shifts);
+    public Task<IReadOnlyList<HeldSpaBooking>> ListHeldSpaBookingsAsync(
+        DateTimeOffset rangeStart, DateTimeOffset rangeEnd, CancellationToken ct = default) =>
+        Task.FromResult(held);
+    public Task<bool> IsBookingLockedAsync(Guid customerId, CancellationToken ct = default) => Task.FromResult(isLocked);
+    public Task AddSpaAppointmentAsync(
+        SpaAppointment appointment, IReadOnlyList<Guid> serviceIds, CancellationToken ct = default)
+    {
+        AddedAppointments.Add(appointment);
+        return Task.CompletedTask;
+    }
+}
+
+sealed class TestConcurrencyGuard : IConcurrencyGuard
+{
+    public bool LockedDay { get; private set; }
+    public Task<T> RunAsync<T>(Func<Task<T>> work, CancellationToken ct = default) => work();
+    public Task RunAsync(Func<Task> work, CancellationToken ct = default) => work();
+    public Task LockSpaDayAsync(DateOnly day, CancellationToken ct = default)
+    {
+        LockedDay = true;
+        return Task.CompletedTask;
+    }
+    public Task LockHotelGroupAsync(Species species, SizeGroup sizeGroup, CancellationToken ct = default) => Task.CompletedTask;
+    public Task LockAppointmentAsync(Guid appointmentId, CancellationToken ct = default) => Task.CompletedTask;
+}
+
+sealed class TestStaffRoleReader(StaffRole? role) : IStaffRoleReader
+{
+    public Task<StaffRole?> GetStaffRoleAsync(Guid userId, CancellationToken ct = default) => Task.FromResult(role);
 }
 

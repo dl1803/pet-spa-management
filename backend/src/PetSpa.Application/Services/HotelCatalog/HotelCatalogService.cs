@@ -40,6 +40,9 @@ public sealed class HotelCatalogService(IHotelCatalogRepository repository)
         if (prices.Any(p => p.PricePerNight < 0))
             throw new BusinessException(ErrorCodes.ValidationError, "Giá lưu trú mỗi đêm không được âm.");
 
+        if (prices.Any(p => p.FoodPerNight < 0))
+            throw new BusinessException(ErrorCodes.ValidationError, "Giá thức ăn mỗi đêm không được âm.");
+
         if (prices.GroupBy(p => (p.Species, p.SizeGroup)).Any(g => g.Count() > 1))
             throw new BusinessException(
                 ErrorCodes.ValidationError, "Mỗi cặp loài và nhóm kích cỡ chỉ được có một dòng giá.");
@@ -50,6 +53,7 @@ public sealed class HotelCatalogService(IHotelCatalogRepository repository)
                 Species = p.Species,
                 SizeGroup = p.SizeGroup,
                 PricePerNight = p.PricePerNight,
+                FoodPerNight = p.FoodPerNight,
             })
             .ToList();
 
