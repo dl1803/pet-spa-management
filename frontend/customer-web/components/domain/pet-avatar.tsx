@@ -76,6 +76,7 @@ export function PetGlyph({ species, className }: { species: Species; className: 
 }
 
 const SIZE_CLASS = {
+  sm: { box: "size-[34px] rounded-[11px]", glyph: "size-7" },
   md: { box: "size-11 rounded-[14px]", glyph: "size-9" },
   lg: { box: "size-[72px] rounded-[22px]", glyph: "size-[60px]" },
 } as const;
