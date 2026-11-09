@@ -23,10 +23,9 @@ export type PetRequest = {
   breed: string;
   temperament?: Temperament;
   weightKg: number;
-  // Bắt buộc khi species là Dog.
-  heightCm?: number;
-  coatNote?: string;
-  notes?: string;
+  heightCm?: number | null;
+  coatNote?: string | null;
+  notes?: string | null;
 };
 
 export type PetSizeResult = {

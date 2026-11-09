@@ -12,7 +12,7 @@ import { Button, ButtonLink } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PetForm } from "@/features/pets/components/pet-form";
-import { isForbiddenError } from "@/lib/api/errors";
+import { isForbiddenError, isNotFoundError } from "@/lib/api/errors";
 import { usePet } from "@/lib/queries/pets";
 import { ROUTES } from "@/lib/routes";
 
@@ -63,7 +63,7 @@ export function PetFormScreen() {
   } else if (error !== null) {
     if (isForbiddenError(error)) {
       content = <ForbiddenState />;
-    } else if (error.status === 404) {
+    } else if (isNotFoundError(error)) {
       content = (
         <NotFoundState
           title="Không tìm thấy hồ sơ"

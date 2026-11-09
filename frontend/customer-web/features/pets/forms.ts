@@ -38,14 +38,20 @@ export const PET_REMOVED_MESSAGE = "Đã gỡ hồ sơ thú cưng";
 export const PET_NAME_MAX_LENGTH = 100;
 export const PET_BREED_MAX_LENGTH = 100;
 export const PET_COAT_NOTE_MAX_LENGTH = 255;
+export const PET_NOTES_MAX_LENGTH = 1000;
+export const PET_WEIGHT_MAX = 150;
+export const PET_HEIGHT_MAX = 150;
 
 export const PET_NAME_REQUIRED_MESSAGE = "Vui lòng nhập tên thú cưng.";
 export const PET_NAME_TOO_LONG_MESSAGE = `Tên tối đa ${PET_NAME_MAX_LENGTH} ký tự.`;
 export const PET_BREED_REQUIRED_MESSAGE = "Vui lòng nhập giống.";
 export const PET_BREED_TOO_LONG_MESSAGE = `Giống tối đa ${PET_BREED_MAX_LENGTH} ký tự.`;
 export const PET_WEIGHT_REQUIRED_MESSAGE = "Vui lòng nhập cân nặng lớn hơn 0.";
+export const PET_WEIGHT_TOO_LARGE_MESSAGE = `Cân nặng tối đa ${PET_WEIGHT_MAX} kg.`;
 export const PET_HEIGHT_REQUIRED_MESSAGE = "Vui lòng nhập chiều cao của chó.";
+export const PET_HEIGHT_TOO_LARGE_MESSAGE = `Chiều cao tối đa ${PET_HEIGHT_MAX} cm.`;
 export const PET_COAT_NOTE_TOO_LONG_MESSAGE = `Đặc điểm lông tối đa ${PET_COAT_NOTE_MAX_LENGTH} ký tự.`;
+export const PET_NOTES_TOO_LONG_MESSAGE = `Ghi chú tối đa ${PET_NOTES_MAX_LENGTH} ký tự.`;
 
 const DECIMAL_PATTERN = /^\d+(?:[.,]\d+)?$/;
 
@@ -75,18 +81,26 @@ export function validatePetBreed(value: string): true | string {
 
 export function validatePetWeight(value: string): true | string {
   const weight = parseDecimal(value);
-  return (weight !== null && weight > 0) || PET_WEIGHT_REQUIRED_MESSAGE;
+  if (weight === null || weight <= 0) return PET_WEIGHT_REQUIRED_MESSAGE;
+  if (weight > PET_WEIGHT_MAX) return PET_WEIGHT_TOO_LARGE_MESSAGE;
+  return true;
 }
 
 // Chiều cao vai chỉ bắt buộc với chó; loài khác bỏ qua (ô bị vô hiệu hóa).
 export function validatePetHeight(value: string, values: PetFormValues): true | string {
   if (!isDog(values.species)) return true;
   const height = parseDecimal(value);
-  return (height !== null && height > 0) || PET_HEIGHT_REQUIRED_MESSAGE;
+  if (height === null || height <= 0) return PET_HEIGHT_REQUIRED_MESSAGE;
+  if (height > PET_HEIGHT_MAX) return PET_HEIGHT_TOO_LARGE_MESSAGE;
+  return true;
 }
 
 export function validateCoatNote(value: string): true | string {
   return value.trim().length <= PET_COAT_NOTE_MAX_LENGTH || PET_COAT_NOTE_TOO_LONG_MESSAGE;
+}
+
+export function validatePetNotes(value: string): true | string {
+  return value.trim().length <= PET_NOTES_MAX_LENGTH || PET_NOTES_TOO_LONG_MESSAGE;
 }
 
 function formatDecimal(value: number) {
@@ -110,10 +124,10 @@ export function toPetFormValues(pet: Pet): PetFormValues {
 // Trả null khi số nhập không hợp lệ (đã bị validate chặn trước khi gọi hàm này).
 export function toPetRequest(values: PetFormValues): PetRequest | null {
   const weightKg = parseDecimal(values.weight);
-  if (weightKg === null || weightKg <= 0) return null;
+  if (weightKg === null || weightKg <= 0 || weightKg > PET_WEIGHT_MAX) return null;
 
   const heightCm = parseDecimal(values.height);
-  if (isDog(values.species) && (heightCm === null || heightCm <= 0)) return null;
+  if (isDog(values.species) && (heightCm === null || heightCm <= 0 || heightCm > PET_HEIGHT_MAX)) return null;
 
   const coatNote = values.coatNote.trim();
   const notes = values.notes.trim();
@@ -123,9 +137,9 @@ export function toPetRequest(values: PetFormValues): PetRequest | null {
     breed: values.breed.trim(),
     temperament: values.temperament,
     weightKg,
-    ...(isDog(values.species) && heightCm !== null ? { heightCm } : {}),
-    ...(coatNote ? { coatNote } : {}),
-    ...(notes ? { notes } : {}),
+    heightCm: isDog(values.species) ? heightCm : null,
+    coatNote: coatNote ? coatNote : null,
+    notes: notes ? notes : null,
   };
 }
 

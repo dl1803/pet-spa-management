@@ -14,13 +14,15 @@ import { SIZE_GROUP_LABELS, SPECIES_LABELS, TEMPERAMENT_LABELS } from "@/lib/lab
 import { ROUTES, withQuery } from "@/lib/routes";
 import { formatMeasure } from "@/lib/size-estimate";
 
-type InfoCellProps = { label: string; value: string; muted?: boolean };
+type InfoCellProps = { label: string; value: string; muted?: boolean; tabular?: boolean };
 
-function InfoCell({ label, value, muted = false }: InfoCellProps) {
+function InfoCell({ label, value, muted = false, tabular = false }: InfoCellProps) {
   return (
     <div className="min-w-0 rounded-xl bg-mist px-3 py-2.5">
       <div className="text-xs text-muted">{label}</div>
-      <div className={`break-words font-semibold tabular-nums ${muted ? "text-muted" : ""}`}>{value}</div>
+      <div className={`break-words font-semibold ${tabular ? "tabular-nums" : ""} ${muted ? "text-muted" : ""}`}>
+        {value}
+      </div>
     </div>
   );
 }
@@ -29,7 +31,7 @@ function InfoCell({ label, value, muted = false }: InfoCellProps) {
 function getHeightCell(pet: Pet): InfoCellProps {
   if (!isDog(pet.species)) return { label: "Cao vai", value: "Không cần", muted: true };
   if (pet.heightCm === null || pet.heightCm === undefined) return { label: "Cao vai", value: "—" };
-  return { label: "Cao vai", value: `${formatMeasure(pet.heightCm)} cm` };
+  return { label: "Cao vai", value: `${formatMeasure(pet.heightCm)} cm`, tabular: true };
 }
 
 type PetCardProps = {
@@ -82,7 +84,7 @@ export function PetCard({ pet, onRemove }: PetCardProps) {
         </div>
 
         <div className="mt-4 grid grid-cols-3 gap-2">
-          <InfoCell label="Cân nặng" value={formatWeight(pet.weightKg)} />
+          <InfoCell label="Cân nặng" value={formatWeight(pet.weightKg)} tabular />
           <InfoCell {...heightCell} />
           <InfoCell label="Lông" value={pet.coatNote ? pet.coatNote : "—"} />
         </div>

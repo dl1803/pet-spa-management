@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ErrorAlert } from "@/components/feedback/error-alert";
 import { Alert } from "@/components/feedback/alert";
 import { useToast } from "@/components/feedback/toast";
@@ -53,6 +53,7 @@ export function PetsScreen() {
   const { data, error, isFetching, refetch } = usePets();
   const { mutate, isPending, error: removeError, reset } = useDeletePet();
   const [petToRemove, setPetToRemove] = useState<Pet | null>(null);
+  const createButtonRef = useRef<HTMLAnchorElement>(null);
 
   function openRemoveDialog(pet: Pet) {
     reset();
@@ -77,7 +78,7 @@ export function PetsScreen() {
   return (
     <>
       <PageHeader title={TITLE} description={DESCRIPTION}>
-        <ButtonLink href={ROUTES.petCreate}>
+        <ButtonLink ref={createButtonRef} href={ROUTES.petCreate}>
           <Icon name="plus" />
           Thêm thú cưng
         </ButtonLink>
@@ -121,10 +122,12 @@ export function PetsScreen() {
 
       {petToRemove !== null && (
         <RemovePetDialog
+          petName={petToRemove.name}
           isRemoving={isPending}
           error={removeError}
           onConfirm={confirmRemove}
           onClose={closeRemoveDialog}
+          fallbackFocusRef={createButtonRef}
         />
       )}
     </>

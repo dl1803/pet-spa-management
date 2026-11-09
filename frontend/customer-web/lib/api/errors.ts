@@ -107,6 +107,10 @@ export function isForbiddenError(error: unknown) {
   return apiError.status === 403 && (apiError.code === null || apiError.code === "FORBIDDEN");
 }
 
+export function isNotFoundError(error: unknown): boolean {
+  return toApiError(error).status === 404;
+}
+
 export function isRateLimitedError(error: unknown) {
   return toApiError(error).status === 429;
 }

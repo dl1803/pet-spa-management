@@ -23,6 +23,7 @@ import {
   validatePetBreed,
   validatePetHeight,
   validatePetName,
+  validatePetNotes,
   validatePetWeight,
   type PetFormValues,
 } from "@/features/pets/forms";
@@ -190,8 +191,8 @@ export function PetForm({ pet }: PetFormProps) {
                   <Input {...control} autoComplete="off" {...register("coatNote", { validate: validateCoatNote })} />
                 )}
               </Field>
-              <Field id="pet-notes" label="Ghi chú" note="tiền sử bệnh, lưu ý chăm sóc">
-                {(control) => <Textarea {...control} rows={3} {...register("notes")} />}
+              <Field id="pet-notes" label="Ghi chú" note="tiền sử bệnh, lưu ý chăm sóc" optional error={errors.notes?.message}>
+                {(control) => <Textarea {...control} rows={3} {...register("notes", { validate: validatePetNotes })} />}
               </Field>
             </div>
           </CardBody>
