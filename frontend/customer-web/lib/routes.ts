@@ -2,6 +2,7 @@ export const ROUTES = {
   home: "/",
   pets: "/thu-cung",
   petCreate: "/thu-cung/them",
+  petEdit: (petId: string) => `/thu-cung/${encodeURIComponent(petId)}/sua`,
   spaBooking: "/dat-lich/spa",
   hotelBooking: "/dat-lich/luu-tru",
   appointments: "/lich-hen",

@@ -13,11 +13,13 @@ type FieldProps = {
   label: string;
   required?: boolean;
   optional?: boolean;
+  // Ghi chú ngắn sau nhãn, ví dụ “(chỉ cần với chó)”.
+  note?: string;
   error?: string;
   children: (control: FieldControlProps) => ReactNode;
 };
 
-export function Field({ id, label, required = false, optional = false, error, children }: FieldProps) {
+export function Field({ id, label, required = false, optional = false, note, error, children }: FieldProps) {
   const errorId = `${id}-error`;
 
   return (
@@ -30,6 +32,7 @@ export function Field({ id, label, required = false, optional = false, error, ch
           </span>
         )}
         {optional && <span className="font-normal text-muted"> (không bắt buộc)</span>}
+        {note && <span className="font-normal text-muted"> ({note})</span>}
       </label>
       {children({
         id,

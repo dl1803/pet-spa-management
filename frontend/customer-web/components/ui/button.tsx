@@ -2,8 +2,8 @@ import Link from "next/link";
 import type { ButtonHTMLAttributes, ComponentProps } from "react";
 
 type ButtonStyleProps = {
-  variant?: "primary" | "secondary" | "ghost";
-  size?: "md" | "lg";
+  variant?: "primary" | "secondary" | "ghost" | "danger-solid";
+  size?: "sm" | "md" | "lg";
   block?: boolean;
 };
 
@@ -14,9 +14,12 @@ const variantClass = {
   primary: "border-transparent bg-lagoon text-white hover:bg-lagoon-700",
   secondary: "border-lagoon bg-white text-lagoon-700 hover:bg-lagoon-25",
   ghost: "border-transparent bg-transparent text-ink hover:bg-line-soft",
+  // Nút xác nhận trong hộp thoại nguy hiểm.
+  "danger-solid": "border-transparent bg-danger text-white hover:bg-danger/90",
 };
 
 const sizeClass = {
+  sm: "min-h-[34px] px-3 text-[13px]",
   md: "min-h-10 px-4 text-sm",
   lg: "min-h-12 px-[22px] text-[15px]",
 };

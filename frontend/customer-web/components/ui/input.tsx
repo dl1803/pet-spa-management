@@ -1,24 +1,50 @@
 import type { ComponentProps } from "react";
 import { Icon, type IconName } from "@/components/icons";
 
-const inputClass =
-  "h-[42px] w-full rounded-[10px] border border-line bg-white px-3 text-sm text-ink transition-colors " +
+const controlClass =
+  "w-full rounded-[10px] border border-line bg-white px-3 text-sm text-ink transition-colors " +
   "hover:border-[#B7CDD1] focus:border-lagoon focus:shadow-[0_0_0_3px_rgba(11,110,120,0.18)] focus:outline-none " +
   "aria-[invalid=true]:border-danger aria-[invalid=true]:hover:border-danger aria-[invalid=true]:focus:border-danger " +
   "aria-[invalid=true]:focus:shadow-[0_0_0_3px_rgba(179,55,43,0.15)] " +
   "disabled:cursor-not-allowed disabled:bg-[#EEF3F4] disabled:text-[#8FA2A7]";
 
-type InputProps = Omit<ComponentProps<"input">, "className"> & { prefixIcon?: IconName };
+const inputClass = `h-[42px] ${controlClass}`;
+// Ô nhiều dòng: cao tối thiểu 84px, kéo giãn theo chiều dọc.
+const textareaClass = `min-h-[84px] resize-y py-2.5 leading-5 ${controlClass}`;
 
-export function Input({ prefixIcon, ...rest }: InputProps) {
-  const input = <input className={`${inputClass} ${prefixIcon ? "pl-[38px]" : ""}`} {...rest} />;
-  if (!prefixIcon) return input;
+type InputProps = Omit<ComponentProps<"input">, "className"> & {
+  prefixIcon?: IconName;
+  // Đơn vị hiển thị cuối ô (“kg”, “cm”). Trang trí; nhãn ô phải nêu đơn vị.
+  suffix?: string;
+};
+
+export function Input({ prefixIcon, suffix, ...rest }: InputProps) {
+  const input = (
+    <input
+      className={`${inputClass} ${prefixIcon ? "pl-[38px]" : ""} ${suffix ? "pr-11" : ""}`}
+      {...rest}
+    />
+  );
+  if (!prefixIcon && !suffix) return input;
 
   return (
     <div className="relative">
-      <Icon name={prefixIcon} className="pointer-events-none absolute left-3 top-3 size-[18px] text-muted" />
+      {prefixIcon && (
+        <Icon name={prefixIcon} className="pointer-events-none absolute left-3 top-3 size-[18px] text-muted" />
+      )}
       {input}
+      {suffix && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[13px] text-muted"
+        >
+          {suffix}
+        </span>
+      )}
     </div>
   );
 }
 
+export function Textarea(props: Omit<ComponentProps<"textarea">, "className">) {
+  return <textarea className={textareaClass} {...props} />;
+}
