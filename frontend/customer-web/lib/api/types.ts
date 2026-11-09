@@ -17,6 +17,31 @@ export type Pet = {
   isActive: boolean;
 };
 
+export type PetRequest = {
+  name: string;
+  species: Species;
+  breed: string;
+  temperament?: Temperament;
+  weightKg: number;
+  // Bắt buộc khi species là Dog.
+  heightCm?: number;
+  coatNote?: string;
+  notes?: string;
+};
+
+export type PetSizeResult = {
+  // Chỉ có ở phản hồi tạo hồ sơ.
+  petId?: string;
+  sizeGroup: SizeGroup;
+};
+
+export type PetPage = {
+  items: Pet[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
 export type PricingRow = {
   species: Species;
   sizeGroup: SizeGroup;
