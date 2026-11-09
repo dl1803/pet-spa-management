@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 const root = new URL("../", import.meta.url);
+const NEXT_CJS_SUBPATHS = new Set(["next/link", "next/navigation"]);
 
 export async function resolve(specifier, context, nextResolve) {
   const alias = specifier.startsWith("@/");
@@ -16,6 +17,8 @@ export async function resolve(specifier, context, nextResolve) {
       if (existsSync(candidate)) return nextResolve(candidate.href, context);
     }
   }
+  // Node ESM không tự thêm đuôi .js cho đường dẫn con của gói CommonJS như next/link.
+  if (NEXT_CJS_SUBPATHS.has(specifier)) return nextResolve(`${specifier}.js`, context);
   return nextResolve(alias ? url.href : specifier, context);
 }
 

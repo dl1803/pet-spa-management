@@ -8,7 +8,7 @@ test("khung quản lý chỉ liên kết tới trang đã có", async () => {
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /<html[^>]*lang="vi"/);
-  assert.match(html, /<h1>Web Quản lý<\/h1>/);
+  assert.match(html, /<h1>Tổng quan hôm nay<\/h1>/);
   assert.equal((html.match(/<main\b/g) ?? []).length, 1);
   assert.match(html, /href="#main-content"/);
 
@@ -35,4 +35,12 @@ test("icon được phục vụ và đường dẫn lạ trả 404", async () =>
   assert.equal(icon.status, 200);
   assert.match(icon.headers.get("content-type"), /image\/svg\+xml/);
   assert.equal((await fetch(`${baseURL}/__shell-smoke-not-found__`)).status, 404);
+});
+
+test("HTML từ server có nội dung chi tiết lịch spa", async () => {
+  const response = await fetch(`${baseURL}/lich-hen/5f1c0407-7e44-4c0a-9d21-0a1b2c3d4e00`);
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /<h1>Lịch spa của (?:<!-- -->)?Nâu<\/h1>/);
+  assert.match(html, /<h2[^>]*>Ảnh minh chứng<\/h2>/);
 });

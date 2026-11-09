@@ -10,13 +10,13 @@ npm ci
 npm run dev -- --port 3002
 ```
 
-Mở http://localhost:3002. Trang gốc giới thiệu ứng dụng trong khung quản lý; chưa kết nối backend.
+Mở http://localhost:3002. Trang gốc là màn Tổng quan (dữ liệu mô phỏng); chưa kết nối backend.
 Dừng server bằng Ctrl+C trong terminal đã khởi chạy.
 
 Khung quản lý dùng Be Vietnam Pro, token màu chung với Web Khách hàng và thanh bên rộng 248px.
 Dưới 980px, menu chuyển thành thanh ngang cuộn được. Liên kết “Đến nội dung chính” hỗ trợ bàn phím.
 
-- `app/(main)`: layout có thanh bên và trang giới thiệu.
+- `app/(main)`: layout có thanh bên, trang Tổng quan và trang chi tiết lịch hẹn `lich-hen/[appointmentId]`.
 - `components/layout`: sidebar, menu và đánh dấu mục đang chọn; phần đọc đường dẫn nằm trong `Suspense`.
 - `components/icons.tsx`: biểu tượng SVG và logo theo UI demo.
 - `lib/routes.ts`: đường dẫn quản lý; lịch spa và lưu trú dùng chung `/lich-hen`.
@@ -33,7 +33,7 @@ nhận `pendingCount`, đang để `null` nên ẩn; không hiển thị số li
 gồm tiền tố `/api/v1`. Biến này công khai trong bundle trình duyệt; không chứa secret.
 Nếu thiếu URL, client dừng trước khi gửi request và trả `ApiError` loại `configuration`, không retry.
 Development hiển thị tên biến cần cấu hình; production hiển thị câu lỗi chung.
-Trang giới thiệu hiện chưa gọi API.
+Các trang hiện dùng dữ liệu mô phỏng, chưa gọi API.
 
 `apiClient` và `setAccessTokenProvider` chỉ dùng trong trình duyệt, sau khi component đã mount hoặc
 trong event handler; gọi khi SSR/Server Component/Server Action sẽ bị chặn trước khi đọc token hay gửi request.
