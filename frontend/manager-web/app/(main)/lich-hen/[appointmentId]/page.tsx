@@ -1,11 +1,11 @@
 // app/(main)/lich-hen/[appointmentId]/page.tsx
 import { Suspense } from "react";
-import { AppointmentDetailScreen } from "@/features/appointments/screens/appointment-detail-screen";
+import { AppointmentDetailContent } from "@/features/appointments/components/appointment-detail-content";
 
-export default function Page() {
+export default function Page({ params }: { params: Promise<{ appointmentId: string }> }) {
   return (
     <Suspense fallback={<p role="status" aria-busy="true" className="text-muted">Đang tải lịch hẹn…</p>}>
-      <AppointmentDetailScreen />
+      {params.then(({ appointmentId }) => <AppointmentDetailContent appointmentId={appointmentId} />)}
     </Suspense>
   );
 }

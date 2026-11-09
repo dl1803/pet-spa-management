@@ -40,7 +40,7 @@ test("findMockSpaAppointment: tra lịch spa; lịch lưu trú và ID lạ khôn
 
 test("describeSpaAppointment: mã, khách, thời gian và nhân viên; thiếu phần nào bỏ phần đó", () => {
   const { appointment } = findMockSpaAppointment(BONG);
-  assert.equal(describeSpaAppointment(appointment, "LH-5F1C0405"), "LH-5F1C0405. Trần Minh Anh. 06/10/2026, 09:00 – 11:00. Nhân viên Hạnh.");
+  assert.equal(describeSpaAppointment(appointment, "LH-5F1C0405"), "LH-5F1C0405. Trần Minh Anh. Thứ ba 06/10/2026, 09:00 – 11:00. Nhân viên Hạnh.");
   assert.equal(
     describeSpaAppointment({ ...appointment, customerName: undefined, staff: [], slotStart: null }, "LH-5F1C0405"),
     "LH-5F1C0405.",

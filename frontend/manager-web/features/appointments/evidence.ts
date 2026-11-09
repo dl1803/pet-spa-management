@@ -1,7 +1,7 @@
 // features/appointments/evidence.ts
 import type { AppointmentDetail, Photo, PhotoKind, Species } from "@/lib/api/types";
 import { MOCK_PET_SPECIES, MOCK_PHOTOS, MOCK_SPA_TODAY } from "@/lib/mock-shop-day";
-import { formatDate, formatShortDate, formatTime } from "@/lib/format";
+import { formatDate, formatShortDate, formatTime, formatTimeRange, formatWeekday } from "@/lib/format";
 
 // Ảnh của một loại (Before/After) trong danh sách ảnh của lịch; mỗi loại tối đa một ảnh, nếu trùng lấy ảnh tải lên sau cùng.
 export function pickPhoto(photos: Photo[], kind: PhotoKind): Photo | null {
@@ -33,7 +33,8 @@ export function describeSpaAppointment(appointment: AppointmentDetail, code: str
   const parts = [code];
   if (appointment.customerName) parts.push(appointment.customerName);
   if (appointment.slotStart && appointment.slotEnd) {
-    parts.push(`${formatDate(appointment.slotStart)}, ${formatTime(appointment.slotStart)} – ${formatTime(appointment.slotEnd)}`);
+    const weekday = formatWeekday(appointment.slotStart);
+    parts.push(`${weekday.charAt(0).toLocaleUpperCase("vi-VN")}${weekday.slice(1)} ${formatDate(appointment.slotStart)}, ${formatTimeRange(appointment.slotStart, appointment.slotEnd)}`);
   }
   const names = (appointment.staff ?? []).map((item) => item.fullName).filter((name): name is string => Boolean(name));
   if (names.length > 0) parts.push(`Nhân viên ${names.map((name) => name.trim().split(/\s+/).at(-1)).join(", ")}`);

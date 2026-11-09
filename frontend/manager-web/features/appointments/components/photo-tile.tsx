@@ -1,5 +1,6 @@
 // features/appointments/components/photo-tile.tsx
 import { Icon } from "@/components/icons";
+import { EvidencePhotoImage } from "@/features/appointments/components/evidence-photo-image";
 import { formatPhotoStamp } from "@/features/appointments/evidence";
 import type { Photo } from "@/lib/api/types";
 
@@ -10,8 +11,7 @@ export function PhotoTile({ photo, alt }: { photo: Photo; alt: string }) {
 
   return (
     <figure className="relative aspect-[4/3] overflow-hidden rounded-xl bg-line-soft">
-      {/* eslint-disable-next-line @next/next/no-img-element -- URL tạm thời, không dùng next/image */}
-      <img src={photo.url} alt={alt} className="size-full object-cover" />
+      <EvidencePhotoImage key={photo.url} src={photo.url} alt={alt} />
       <span
         className={`absolute left-2.5 top-2.5 rounded-[7px] px-2 py-0.5 text-xs font-semibold ${isBefore ? "bg-white text-ink" : "bg-lagoon text-white"}`}
       >

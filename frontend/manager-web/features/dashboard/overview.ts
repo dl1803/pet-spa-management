@@ -56,10 +56,15 @@ function minuteOfDay(value: string): number {
 
 export type TimelineSpan = { left: number; width: number };
 
-// Vị trí đoạn [start, end] trên biểu đồ, tính theo % chiều rộng và cắt theo khung 08:00 – 21:00; ngoài khung → null.
-export function toTimelineSpan(start: string, end: string): TimelineSpan | null {
-  const from = Math.max(minuteOfDay(start), TIMELINE_START_MINUTE);
-  const to = Math.min(minuteOfDay(end), TIMELINE_START_MINUTE + TIMELINE_SPAN_MINUTES);
+// Vị trí đoạn [start, end] trong khung 08:00 – 21:00 của ngày đang xem.
+export function toTimelineSpan(start: string, end: string, dayKey: string): TimelineSpan | null {
+  const startDay = getStoreDateKey(start);
+  const endDay = getStoreDateKey(end);
+  if (startDay > dayKey || endDay < dayKey) return null;
+
+  const endMinute = TIMELINE_END_HOUR * 60;
+  const from = startDay < dayKey ? TIMELINE_START_MINUTE : Math.max(minuteOfDay(start), TIMELINE_START_MINUTE);
+  const to = endDay > dayKey ? endMinute : Math.min(minuteOfDay(end), endMinute);
   if (to <= from) return null;
   return {
     left: ((from - TIMELINE_START_MINUTE) / TIMELINE_SPAN_MINUTES) * 100,
@@ -100,9 +105,10 @@ export function getShortName(fullName: string): string {
   return words[words.length - 1] ?? "";
 }
 
-function toBlock(appointment: AppointmentDetail & { status: TrackedSpaStatus }, bufferMinutes: number): TimelineBlock | null {
+function toBlock(appointment: AppointmentDetail & { status: TrackedSpaStatus }, bufferMinutes: number, dayKey: string): TimelineBlock | null {
   if (!appointment.slotStart || !appointment.slotEnd) return null;
-  const span = toTimelineSpan(appointment.slotStart, appointment.slotEnd);
+  if (!isOnStoreDay(appointment.slotStart, dayKey)) return null;
+  const span = toTimelineSpan(appointment.slotStart, appointment.slotEnd, dayKey);
   if (!span) return null;
   const bufferEnd = new Date(Date.parse(appointment.slotEnd) + bufferMinutes * 60_000).toISOString();
   return {
@@ -112,14 +118,15 @@ function toBlock(appointment: AppointmentDetail & { status: TrackedSpaStatus }, 
     slotStart: appointment.slotStart,
     slotEnd: appointment.slotEnd,
     span,
-    buffer: toTimelineSpan(appointment.slotEnd, bufferEnd),
+    buffer: toTimelineSpan(appointment.slotEnd, bufferEnd, dayKey),
   };
 }
 
 // MW-02 vùng 3: mỗi nhân viên spa đang hoạt động một hàng (ca làm + lịch được phân công), cuối cùng là hàng “Chưa phân công”.
-// Lịch spa có 2 nhân viên hiện ở cả 2 hàng. Lịch Pending (chưa có nhân viên) và mọi lịch không có nhân viên nào đang hoạt động
+// Lịch spa có 2 nhân viên hiện ở cả 2 hàng. Lịch Pending và mọi lịch không có nhân viên nào đang hoạt động
 // trong danh sách hiện ở hàng “Chưa phân công”.
 export function buildTimelineRows(snapshot: DashboardSnapshot): TimelineRow[] {
+  const dayKey = getStoreDateKey(snapshot.now);
   const tracked = snapshot.spaToday.filter(isTrackedSpa);
   const spaStaff = snapshot.staff.filter((member) => member.staffRole === "SpaStaff" && member.isActive);
   const rowStaffIds = new Set(spaStaff.map((member) => member.staffId));
@@ -130,17 +137,17 @@ export function buildTimelineRows(snapshot: DashboardSnapshot): TimelineRow[] {
     fullName: member.fullName,
     shifts: snapshot.shifts
       .filter((shift) => shift.staffId === member.staffId)
-      .map((shift) => toTimelineSpan(shift.shiftStart, shift.shiftEnd))
+      .map((shift) => toTimelineSpan(shift.shiftStart, shift.shiftEnd, dayKey))
       .filter((span): span is TimelineSpan => span !== null),
     blocks: tracked
-      .filter((appointment) => appointment.staff?.some((item) => item.staffId === member.staffId))
-      .map((appointment) => toBlock(appointment, snapshot.bufferMinutes))
+      .filter((appointment) => appointment.status !== "Pending" && appointment.staff?.some((item) => item.staffId === member.staffId))
+      .map((appointment) => toBlock(appointment, snapshot.bufferMinutes, dayKey))
       .filter((block): block is TimelineBlock => block !== null),
   }));
 
   const unassigned = tracked
-    .filter((appointment) => !appointment.staff?.some((item) => rowStaffIds.has(item.staffId)))
-    .map((appointment) => toBlock(appointment, snapshot.bufferMinutes))
+    .filter((appointment) => appointment.status === "Pending" || !appointment.staff?.some((item) => rowStaffIds.has(item.staffId)))
+    .map((appointment) => toBlock(appointment, snapshot.bufferMinutes, dayKey))
     .filter((block): block is TimelineBlock => block !== null);
 
   return [...rows, { staffId: null, label: "Chưa phân công", fullName: null, shifts: [], blocks: unassigned }];

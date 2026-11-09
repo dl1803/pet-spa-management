@@ -18,14 +18,19 @@ const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9
 const with_ = (changes) => ({ ...MOCK_DASHBOARD, ...changes });
 
 test("toTimelineSpan: tính % theo khung 08:00 – 21:00 và cắt phần ngoài khung", () => {
-  const nine = toTimelineSpan("2026-10-06T09:00:00+07:00", "2026-10-06T11:00:00+07:00");
+  const day = "2026-10-06";
+  const nine = toTimelineSpan("2026-10-06T09:00:00+07:00", "2026-10-06T11:00:00+07:00", day);
   close(nine.left, (60 / 780) * 100);
   close(nine.width, (120 / 780) * 100);
-  const clipped = toTimelineSpan("2026-10-06T07:00:00+07:00", "2026-10-06T08:30:00+07:00");
+  const clipped = toTimelineSpan("2026-10-06T07:00:00+07:00", "2026-10-06T08:30:00+07:00", day);
   close(clipped.left, 0);
   close(clipped.width, (30 / 780) * 100);
-  assert.equal(toTimelineSpan("2026-10-06T21:00:00+07:00", "2026-10-06T22:00:00+07:00"), null);
-  assert.equal(toTimelineSpan("2026-10-06T06:00:00+07:00", "2026-10-06T07:30:00+07:00"), null);
+  assert.equal(toTimelineSpan("2026-10-06T21:00:00+07:00", "2026-10-06T22:00:00+07:00", day), null);
+  assert.equal(toTimelineSpan("2026-10-06T06:00:00+07:00", "2026-10-06T07:30:00+07:00", day), null);
+  assert.equal(toTimelineSpan("2026-10-07T09:00:00+07:00", "2026-10-07T11:00:00+07:00", day), null);
+  const overnight = toTimelineSpan("2026-10-05T23:00:00+07:00", "2026-10-06T09:00:00+07:00", day);
+  close(overnight.left, 0);
+  close(overnight.width, (60 / 780) * 100);
 });
 
 test("getNowOffset: vạch hiện tại trong khung giờ; ngoài khung thì không vẽ", () => {
@@ -82,6 +87,26 @@ test("buildTimelineRows: lịch 2 nhân viên hiện ở cả 2 hàng; lịch ch
   const orphan = { ...bong, staff: [{ staffId: "00000000-0000-4000-8000-000000000000", isHolding: true }] };
   assert.equal(buildTimelineRows(with_({ spaToday: [orphan] }))[3].blocks.length, 1);
   assert.equal(buildTimelineRows(with_({ spaToday: [{ ...bong, slotStart: null }] })).flatMap((row) => row.blocks).length, 0);
+});
+
+test("buildTimelineRows: lịch Pending chỉ hiện ở hàng Chưa phân công dù có staff", () => {
+  const [bong] = MOCK_DASHBOARD.spaToday;
+  const pending = { ...bong, status: "Pending" };
+  const rows = buildTimelineRows(with_({ spaToday: [pending] }));
+  assert.ok(rows.filter((row) => row.staffId !== null).every((row) => row.blocks.length === 0));
+  assert.deepEqual(rows.at(-1).blocks.map((block) => block.appointmentId), [pending.appointmentId]);
+});
+
+test("buildTimelineRows: bỏ lịch và ca làm của ngày khác theo múi giờ cửa hàng", () => {
+  const [bong, mit] = MOCK_DASHBOARD.spaToday;
+  const [shift] = MOCK_DASHBOARD.shifts;
+  const rows = buildTimelineRows(with_({
+    now: "2026-10-05T23:30:00Z",
+    spaToday: [bong, { ...mit, slotStart: "2026-10-07T12:00:00+07:00", slotEnd: "2026-10-07T13:00:00+07:00" }],
+    shifts: [shift, { ...shift, shiftStart: "2026-10-07T08:00:00+07:00", shiftEnd: "2026-10-07T17:00:00+07:00" }],
+  }));
+  assert.deepEqual(rows[0].blocks.map((block) => block.appointmentId), [bong.appointmentId]);
+  assert.equal(rows[0].shifts.length, 1);
 });
 
 test("summarizeKpis: 4 thẻ khớp UI demo", () => {
