@@ -17,7 +17,9 @@ public sealed class SpaBookingRequestValidator : AbstractValidator<SpaBookingReq
             .WithMessage("serviceIds chứa mã dịch vụ không hợp lệ.");
 
         RuleFor(x => x.SlotStart)
-            .NotNull().WithMessage("slotStart là bắt buộc (ISO 8601, kèm múi giờ).");
+            .NotNull().WithMessage("slotStart là bắt buộc (ISO 8601, kèm múi giờ).")
+            .Must(s => s is null || s.Value > DateTimeOffset.UtcNow)
+            .WithMessage("Không thể đặt lịch ở thời điểm trong quá khứ.");
     }
 }
 

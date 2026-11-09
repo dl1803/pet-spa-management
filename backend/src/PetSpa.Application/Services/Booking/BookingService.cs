@@ -148,12 +148,20 @@ public sealed class BookingService(
             throw new BusinessException(ErrorCodes.BookingLocked);
 
         var slotStartUtc = slotStart.ToUniversalTime();
+        if (slotStartUtc <= DateTimeOffset.UtcNow)
+            throw new BusinessException(
+                ErrorCodes.ValidationError, "Không thể đặt lịch ở thời điểm trong quá khứ.");
+
         var (day, localTime) = shopTimeZone.ToLocal(slotStartUtc);
 
         var slotTimes = await catalog.GetSlotTimesAsync(ct);
         if (!slotTimes.Contains(localTime))
             throw new BusinessException(
                 ErrorCodes.ValidationError, "slotStart phải đúng một mốc giờ đặt lịch của cửa hàng.");
+
+        if (localTime > selection.LatestStartTime)
+            throw new BusinessException(
+                ErrorCodes.ValidationError, "Mốc giờ đã chọn muộn hơn mốc bắt đầu muộn nhất của dịch vụ.");
 
         var bufferMinutes = await schedule.GetBufferMinutesAsync(ct);
         var slotEnd = slotStartUtc.AddMinutes(selection.DurationMinutes);
@@ -173,6 +181,10 @@ public sealed class BookingService(
         await concurrency.RunAsync(async () =>
         {
             await concurrency.LockSpaDayAsync(day, ct);
+
+            if (user.Role == UserRole.Customer
+                && await schedule.IsBookingLockedAsync(selection.Pet.CustomerId, ct))
+                throw new BusinessException(ErrorCodes.BookingLocked);
 
             var data = await LoadSpaScheduleAsync(appointment.SlotStart, appointment.BusyUntil, ct);
             var shifts = data.Shifts
@@ -194,7 +206,11 @@ public sealed class BookingService(
                 .Single()
                 .Status;
 
-            if (status != SlotStatus.Available) throw new BusinessException(ErrorCodes.SlotFull);
+            if (status == SlotStatus.NotAccepted)
+                throw new BusinessException(ErrorCodes.ValidationError, "Dịch vụ không nhận ở mốc giờ đã chọn.");
+
+            if (status != SlotStatus.Available)
+                throw new BusinessException(ErrorCodes.SlotFull);
 
             await schedule.AddSpaAppointmentAsync(
                 appointment, selection.Services.Select(x => x.ServiceId).ToList(), ct);
