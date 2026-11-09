@@ -1,4 +1,12 @@
-import type { PaymentKind, PaymentMethod, PaymentStatus, SizeGroup, Species, StaffRole } from "@/lib/api/types";
+import type {
+  AppointmentStatus,
+  PaymentKind,
+  PaymentMethod,
+  PaymentStatus,
+  SizeGroup,
+  Species,
+  StaffRole,
+} from "@/lib/api/types";
 
 export const SPECIES_LABELS: Record<Species, string> = {
   Dog: "Chó",
@@ -33,4 +41,14 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   Cash: "Tiền mặt",
   BankQR: "Chuyển khoản QR",
   Online: "Trực tuyến",
+};
+
+export const APPOINTMENT_STATUS_LABELS: Record<AppointmentStatus, string> = {
+  Pending: "Chờ xác nhận",
+  Confirmed: "Đã xác nhận",
+  Received: "Đã tiếp nhận",
+  InProgress: "Đang thực hiện",
+  InStay: "Đang lưu trú",
+  Completed: "Hoàn tất",
+  Cancelled: "Đã hủy",
 };
