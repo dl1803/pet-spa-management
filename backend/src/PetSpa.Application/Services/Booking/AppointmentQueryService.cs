@@ -18,6 +18,20 @@ public sealed class AppointmentQueryService(IAppointmentQueryRepository appointm
         return await appointments.ListByCustomerUserAsync(user.UserId, type, status, page, pageSize, ct);
     }
 
+    public async Task<AppointmentDetailData> GetAsync(
+        CurrentUser user, Guid appointmentId, CancellationToken ct = default)
+    {
+        EnsureCustomer(user);
+
+        var detail = await appointments.FindDetailAsync(appointmentId, ct)
+            ?? throw new BusinessException(ErrorCodes.NotFound);
+
+        // Lịch của khách khác -> 403 FORBIDDEN, không trả thông tin (BR-16, kể cả khi truy cập bằng id).
+        OwnershipGuard.EnsureOwner(user, detail.OwnerUserId);
+
+        return detail;
+    }
+
     // Lễ tân, nhân viên spa, quản lý xem lịch hẹn theo phạm vi riêng ở việc khác (ID 77).
     private static void EnsureCustomer(CurrentUser user)
     {

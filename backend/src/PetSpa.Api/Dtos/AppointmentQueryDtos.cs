@@ -1,3 +1,4 @@
+using PetSpa.Application.Ports;
 using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
 
@@ -61,5 +62,32 @@ public record AppointmentResponse(
             appointment.CreatedAt,
             appointment.UpdatedAt);
     }
+}
+
+public sealed record AppointmentServiceItemResponse(
+    Guid ServiceId, string Name, bool IsDone, DateTimeOffset? DoneAt, string? Note);
+
+public sealed record AppointmentStaffItemResponse(
+    Guid StaffId, string FullName, bool IsHolding, DateTimeOffset AssignedAt);
+
+// Chi tiết lịch hẹn (khớp schema AppointmentDetail trong openapi): các trường của lịch hẹn, thêm services và staff.
+public sealed record AppointmentDetailResponse : AppointmentResponse
+{
+    public AppointmentDetailResponse(
+        AppointmentResponse appointment,
+        IReadOnlyList<AppointmentServiceItemResponse> services,
+        IReadOnlyList<AppointmentStaffItemResponse> staff) : base(appointment)
+    {
+        Services = services;
+        Staff = staff;
+    }
+
+    public IReadOnlyList<AppointmentServiceItemResponse> Services { get; init; }
+    public IReadOnlyList<AppointmentStaffItemResponse> Staff { get; init; }
+
+    public static AppointmentDetailResponse From(AppointmentDetailData data) => new(
+        AppointmentResponse.From(data.Appointment, data.PetName),
+        data.Services.Select(s => new AppointmentServiceItemResponse(s.ServiceId, s.Name, s.IsDone, s.DoneAt, s.Note)).ToList(),
+        data.Staff.Select(s => new AppointmentStaffItemResponse(s.StaffId, s.FullName, s.IsHolding, s.AssignedAt)).ToList());
 }
 
