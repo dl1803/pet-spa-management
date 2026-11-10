@@ -115,7 +115,7 @@ test("ô tìm: chỉ cần có nội dung; yêu cầu ghi nhận khách vãng la
 
 test("hàm phụ: chữ cái đầu, mô tả thú cưng, nhận diện lỗi", () => {
   assert.equal(getInitials("Ngô Thanh Bình"), "TB");
-  assert.equal(getInitials("An"), "AN");
+  assert.equal(getInitials("An"), "A");
   assert.equal(getInitials("  "), "");
   const [, , , bong, mochi] = createMockPets();
   assert.equal(describePet(bong), "Chó Poodle, 9,0 kg, nhóm Nhỏ");
@@ -581,10 +581,10 @@ test("khối Lịch hẹn gần đây của SW-04: hiển thị danh sách phi�
 
   const minhAnhAppts = await mockListRecentAppointments(MOCK_CUSTOMER_IDS.minhAnh);
   assert.equal(minhAnhAppts.length, 2);
-  assert.equal(minhAnhAppts[0].petName, "Bông");
-  assert.equal(minhAnhAppts[0].status, "Confirmed");
-  assert.equal(minhAnhAppts[1].petName, "Mochi");
-  assert.equal(minhAnhAppts[1].status, "Pending");
+  assert.equal(minhAnhAppts[0].petName, "Mochi");
+  assert.equal(minhAnhAppts[0].status, "Pending");
+  assert.equal(minhAnhAppts[1].petName, "Bông");
+  assert.equal(minhAnhAppts[1].status, "Confirmed");
 
   const noAppts = await mockListRecentAppointments(MOCK_CUSTOMER_IDS.linh);
   assert.equal(noAppts.length, 0);
@@ -596,13 +596,16 @@ test("khối Lịch hẹn gần đây của SW-04: hiển thị danh sách phi�
     }),
   );
   assert.match(renderedList, /<h3[^>]*>Lịch hẹn gần đây<\/h3>/);
-  assert.match(renderedList, /09:00[\s\S]*06\/10/);
-  assert.match(renderedList, /Bông, spa/);
-  assert.match(renderedList, /Tắm &amp; sấy lông, Cắt tỉa lông/);
-  assert.match(renderedList, /Đã xác nhận/);
   assert.match(renderedList, /14:00[\s\S]*06\/10/);
   assert.match(renderedList, /Mochi, spa/);
   assert.match(renderedList, /Chờ xác nhận/);
+  assert.match(renderedList, /09:00[\s\S]*06\/10/);
+  assert.match(renderedList, /Bông, spa/);
+  assert.match(renderedList, /Đã xác nhận/);
+  assert.match(renderedList, /Tắm &amp; sấy lông, Cắt tỉa lông/);
+  assert.ok(!renderedList.includes("text-foreground"));
+  assert.match(renderedList, /text-ink/);
+  assert.match(renderedList, /bg-lagoon-25/);
 
   const renderedEmpty = render(
     createElement(RecentAppointmentsList, {

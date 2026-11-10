@@ -37,13 +37,8 @@ export function isNotFoundError(error: unknown) {
   return toApiError(error).status === 404;
 }
 
-// Hai chữ cái cuối của tên hiện trong ảnh đại diện: “Ngô Thanh Bình” → “TB”.
-export function getInitials(fullName: string) {
-  const words = fullName.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return "";
-  if (words.length === 1) return words[0].slice(0, 2).toLocaleUpperCase("vi-VN");
-  return `${words[words.length - 2][0]}${words[words.length - 1][0]}`.toLocaleUpperCase("vi-VN");
-}
+// Dùng chung hàm getInitials với reception-booking (Frontend-Architecture §3.3).
+export { getInitials } from "@/features/reception-booking/forms";
 
 // Ví dụ: “Chó Poodle, 9,0 kg, nhóm Nhỏ”.
 export function describePet(pet: Pet) {

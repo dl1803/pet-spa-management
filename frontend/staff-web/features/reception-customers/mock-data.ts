@@ -106,6 +106,7 @@ export function createMockPets(): Pet[] {
 }
 
 // Dữ liệu mô phỏng cho khối "Lịch hẹn gần đây" của màn SW-04 (UI-Screens SW-04 vùng 2 & G-06).
+// Dùng ISO datetime khớp schema Appointment trong openapi.yaml.
 export type CustomerRecentAppointment = {
   appointmentId: string;
   customerId: string;
@@ -113,9 +114,11 @@ export type CustomerRecentAppointment = {
   petName: string;
   type: AppointmentType;
   status: AppointmentStatus;
-  timeText: string;
-  dateText: string;
-  servicesSummary: string;
+  slotStart?: string | null;
+  slotEnd?: string | null;
+  plannedCheckIn?: string | null;
+  plannedCheckOut?: string | null;
+  servicesSummary?: string;
 };
 
 export function createMockRecentAppointments(): CustomerRecentAppointment[] {
@@ -127,8 +130,8 @@ export function createMockRecentAppointments(): CustomerRecentAppointment[] {
       petName: "Bông",
       type: "Spa",
       status: "Confirmed",
-      timeText: "09:00",
-      dateText: "06/10",
+      slotStart: "2026-10-06T09:00:00+07:00",
+      slotEnd: "2026-10-06T10:00:00+07:00",
       servicesSummary: "Tắm & sấy lông, Cắt tỉa lông",
     },
     {
@@ -138,8 +141,8 @@ export function createMockRecentAppointments(): CustomerRecentAppointment[] {
       petName: "Mochi",
       type: "Spa",
       status: "Pending",
-      timeText: "14:00",
-      dateText: "06/10",
+      slotStart: "2026-10-06T14:00:00+07:00",
+      slotEnd: "2026-10-06T15:00:00+07:00",
       servicesSummary: "Tắm & sấy lông, Cắt tỉa lông",
     },
     {
@@ -149,8 +152,8 @@ export function createMockRecentAppointments(): CustomerRecentAppointment[] {
       petName: "Bắp",
       type: "Spa",
       status: "Completed",
-      timeText: "10:00",
-      dateText: "05/10",
+      slotStart: "2026-10-05T10:00:00+07:00",
+      slotEnd: "2026-10-05T11:00:00+07:00",
       servicesSummary: "Tắm & sấy lông",
     },
   ];

@@ -125,11 +125,17 @@ export async function mockListPets(customerId: string): Promise<Pet[]> {
     .map((pet) => ({ ...pet }));
 }
 
-// Lấy tối đa 5 lịch hẹn mới nhất của khách hàng (UI-Screens SW-04 vùng 2, G-06).
+// Lấy tối đa 5 lịch hẹn mới nhất của khách hàng theo thời gian giảm dần (UI-Screens SW-04 vùng 2, G-06; Frontend-Conventions §8).
 export async function mockListRecentAppointments(customerId: string): Promise<CustomerRecentAppointment[]> {
   await wait();
   return getStore()
     .recentAppointments.filter((item) => item.customerId === customerId)
+    .slice()
+    .sort((a, b) => {
+      const timeA = new Date(a.slotStart ?? a.plannedCheckIn ?? 0).getTime();
+      const timeB = new Date(b.slotStart ?? b.plannedCheckIn ?? 0).getTime();
+      return timeB - timeA;
+    })
     .slice(0, 5)
     .map((item) => ({ ...item }));
 }
