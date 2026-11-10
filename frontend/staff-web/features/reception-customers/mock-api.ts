@@ -1,13 +1,20 @@
 import { ApiError } from "@/lib/api/errors";
 import type { Customer, Pet, PetRequest, PetSizeResult, WalkInCreated, WalkInRequest } from "@/lib/api/types";
-import { createMockCustomers, createMockPets, mockUuid } from "@/features/reception-customers/mock-data";
+import {
+  createMockCustomers,
+  createMockPets,
+  createMockRecentAppointments,
+  type CustomerRecentAppointment,
+  mockUuid,
+} from "@/features/reception-customers/mock-data";
 import { getSizeGroup } from "@/lib/size-estimate";
 import { normalizePhone } from "@/lib/validation";
 
-// Dữ liệu mô phỏng thay cho GET /customers, POST /customers/walk-in, GET/POST /pets, GET/PUT /pets/{id};
+// Dữ liệu mô phỏng thay cho GET /customers, POST /customers/walk-in, GET/POST /pets, GET/PUT /pets/{id}, GET /appointments?petId=;
 // bước nối API thật sẽ thay các hàm này bằng hàm trong lib/api/endpoints.
 export const CUSTOMERS_QUERY_KEY = ["customers"] as const;
 export const PETS_QUERY_KEY = ["pets"] as const;
+export const RECENT_APPOINTMENTS_QUERY_KEY = ["appointments", "recent"] as const;
 
 // Mô phỏng độ trễ mạng khi gọi API.
 const MOCK_DELAY_MS = 400;
@@ -16,14 +23,27 @@ export const MOCK_NETWORK_ERROR_PHONE = "0999999999";
 export const MOCK_WEIGHT_INVALID_REQUEST = 77;
 export const MOCK_WEIGHT_NETWORK_ERROR = 88;
 
-type MockStore = { customers: Customer[]; pets: Pet[]; nextCustomerIndex: number; nextPetIndex: number };
+type MockStore = {
+  customers: Customer[];
+  pets: Pet[];
+  recentAppointments: CustomerRecentAppointment[];
+  nextCustomerIndex: number;
+  nextPetIndex: number;
+};
 
 let store: MockStore | null = null;
 
 function createStore(): MockStore {
   const customers = createMockCustomers();
   const pets = createMockPets();
-  return { customers, pets, nextCustomerIndex: customers.length + 1, nextPetIndex: pets.length + 1 };
+  const recentAppointments = createMockRecentAppointments();
+  return {
+    customers,
+    pets,
+    recentAppointments,
+    nextCustomerIndex: customers.length + 1,
+    nextPetIndex: pets.length + 1,
+  };
 }
 
 function getStore() {
@@ -103,6 +123,15 @@ export async function mockListPets(customerId: string): Promise<Pet[]> {
   return getStore()
     .pets.filter((pet) => pet.customerId === customerId && pet.isActive)
     .map((pet) => ({ ...pet }));
+}
+
+// Lấy tối đa 5 lịch hẹn mới nhất của khách hàng (UI-Screens SW-04 vùng 2, G-06).
+export async function mockListRecentAppointments(customerId: string): Promise<CustomerRecentAppointment[]> {
+  await wait();
+  return getStore()
+    .recentAppointments.filter((item) => item.customerId === customerId)
+    .slice(0, 5)
+    .map((item) => ({ ...item }));
 }
 
 export async function mockGetPet(petId: string): Promise<Pet> {

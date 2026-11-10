@@ -12,7 +12,7 @@ type CustomerCardProps = {
   customer: Customer;
   // Gọi khi lễ tân bấm một liên kết của thẻ: đặt khách này làm khách đang phục vụ rồi mới chuyển màn.
   onSelect: () => void;
-  // Khối “Thú cưng” của khách.
+  // Khối “Thú cưng” và “Lịch hẹn gần đây” của khách.
   children?: ReactNode;
 };
 

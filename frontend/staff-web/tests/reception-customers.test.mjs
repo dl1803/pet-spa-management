@@ -6,6 +6,7 @@ import { CustomerCard } from "../features/reception-customers/components/custome
 import { CustomerPetList } from "../features/reception-customers/components/customer-pet-list.tsx";
 import { CustomerSearchForm } from "../features/reception-customers/components/customer-search-form.tsx";
 import { DuplicateCustomerCard } from "../features/reception-customers/components/duplicate-customer-card.tsx";
+import { RecentAppointmentsList } from "../features/reception-customers/components/recent-appointments-list.tsx";
 import { WalkInForm } from "../features/reception-customers/components/walk-in-form.tsx";
 import { CustomerBreadcrumb } from "../features/reception-customers/components/customer-breadcrumb.tsx";
 import { PetFormFields } from "../features/reception-customers/components/pet-form-fields.tsx";
@@ -35,13 +36,19 @@ import {
   validatePetWeight,
   validateSearchTerm,
 } from "../features/reception-customers/forms.ts";
-import { createMockCustomers, createMockPets, MOCK_CUSTOMER_IDS } from "../features/reception-customers/mock-data.ts";
+import {
+  createMockCustomers,
+  createMockPets,
+  createMockRecentAppointments,
+  MOCK_CUSTOMER_IDS,
+} from "../features/reception-customers/mock-data.ts";
 import {
   mockCreatePet,
   mockCreateWalkInCustomer,
   mockGetPet,
   mockListCustomers,
   mockListPets,
+  mockListRecentAppointments,
   mockUpdatePet,
   MOCK_NETWORK_ERROR_PHONE,
   MOCK_WEIGHT_INVALID_REQUEST,
@@ -567,4 +574,43 @@ test("trạng thái chặn và tải/lỗi ở màn Hồ sơ thú cưng: giữ P
   const standaloneNotFound = render(createElement(PetNotFoundState, {}));
   assert.match(standaloneNotFound, /href="\/khach-hang"/);
 });
+
+test("khối Lịch hẹn gần đây của SW-04: hiển thị danh sách phiếu rút gọn và trạng thái rỗng", async () => {
+  resetMockCustomerStore();
+  assert.equal(createMockRecentAppointments().length, 3);
+
+  const minhAnhAppts = await mockListRecentAppointments(MOCK_CUSTOMER_IDS.minhAnh);
+  assert.equal(minhAnhAppts.length, 2);
+  assert.equal(minhAnhAppts[0].petName, "Bông");
+  assert.equal(minhAnhAppts[0].status, "Confirmed");
+  assert.equal(minhAnhAppts[1].petName, "Mochi");
+  assert.equal(minhAnhAppts[1].status, "Pending");
+
+  const noAppts = await mockListRecentAppointments(MOCK_CUSTOMER_IDS.linh);
+  assert.equal(noAppts.length, 0);
+
+  const renderedList = render(
+    createElement(RecentAppointmentsList, {
+      customerId: MOCK_CUSTOMER_IDS.minhAnh,
+      appointments: minhAnhAppts,
+    }),
+  );
+  assert.match(renderedList, /<h3[^>]*>Lịch hẹn gần đây<\/h3>/);
+  assert.match(renderedList, /09:00[\s\S]*06\/10/);
+  assert.match(renderedList, /Bông, spa/);
+  assert.match(renderedList, /Tắm &amp; sấy lông, Cắt tỉa lông/);
+  assert.match(renderedList, /Đã xác nhận/);
+  assert.match(renderedList, /14:00[\s\S]*06\/10/);
+  assert.match(renderedList, /Mochi, spa/);
+  assert.match(renderedList, /Chờ xác nhận/);
+
+  const renderedEmpty = render(
+    createElement(RecentAppointmentsList, {
+      customerId: MOCK_CUSTOMER_IDS.linh,
+      appointments: [],
+    }),
+  );
+  assert.match(renderedEmpty, /Chưa có lịch hẹn nào gần đây\./);
+});
+
 

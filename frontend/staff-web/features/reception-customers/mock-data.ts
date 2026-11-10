@@ -1,4 +1,4 @@
-import type { Customer, Pet } from "@/lib/api/types";
+import type { AppointmentStatus, AppointmentType, Customer, Pet } from "@/lib/api/types";
 
 // Mã giả cố định để dữ liệu mô phỏng ổn định giữa các lần chạy: c2… là khách, b2… là thú cưng.
 // Hai khách đầu và ba thú cưng đầu dùng cùng mã với dữ liệu mô phỏng của màn Đặt lịch thay,
@@ -104,4 +104,56 @@ export function createMockPets(): Pet[] {
     },
   ];
 }
+
+// Dữ liệu mô phỏng cho khối "Lịch hẹn gần đây" của màn SW-04 (UI-Screens SW-04 vùng 2 & G-06).
+export type CustomerRecentAppointment = {
+  appointmentId: string;
+  customerId: string;
+  petId: string;
+  petName: string;
+  type: AppointmentType;
+  status: AppointmentStatus;
+  timeText: string;
+  dateText: string;
+  servicesSummary: string;
+};
+
+export function createMockRecentAppointments(): CustomerRecentAppointment[] {
+  return [
+    {
+      appointmentId: mockUuid("a2", 1),
+      customerId: MOCK_CUSTOMER_IDS.minhAnh,
+      petId: mockUuid("b2", 4),
+      petName: "Bông",
+      type: "Spa",
+      status: "Confirmed",
+      timeText: "09:00",
+      dateText: "06/10",
+      servicesSummary: "Tắm & sấy lông, Cắt tỉa lông",
+    },
+    {
+      appointmentId: mockUuid("a2", 2),
+      customerId: MOCK_CUSTOMER_IDS.minhAnh,
+      petId: mockUuid("b2", 5),
+      petName: "Mochi",
+      type: "Spa",
+      status: "Pending",
+      timeText: "14:00",
+      dateText: "06/10",
+      servicesSummary: "Tắm & sấy lông, Cắt tỉa lông",
+    },
+    {
+      appointmentId: mockUuid("a2", 3),
+      customerId: MOCK_CUSTOMER_IDS.binh,
+      petId: mockUuid("b2", 1),
+      petName: "Bắp",
+      type: "Spa",
+      status: "Completed",
+      timeText: "10:00",
+      dateText: "05/10",
+      servicesSummary: "Tắm & sấy lông",
+    },
+  ];
+}
+
 
