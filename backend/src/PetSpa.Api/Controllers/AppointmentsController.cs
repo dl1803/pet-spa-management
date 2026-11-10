@@ -39,11 +39,11 @@ public sealed class AppointmentsController(
     [HttpGet]
     [Authorize(Policy = AuthorizationPolicies.Customer)]
     [EndpointSummary("Khách hàng xem danh sách lịch hẹn của mình")]
-    [EndpointDescription("Chỉ khách hàng; chỉ thấy lịch spa và lưu trú của chính mình, mới tạo trước. Lọc tùy chọn theo type (Spa, Hotel) và status. Mặc định page = 1, pageSize = 20 (tối đa 100).")]
+    [EndpointDescription("Lọc tùy chọn theo type (Spa, Hotel), status và petId. Xem lịch sử sử dụng dịch vụ: status = Completed kèm petId; thú cưng không thuộc khách trả 403 FORBIDDEN, không tìm thấy trả 404. Mặc định page = 1, pageSize = 20 (tối đa 100).")]
     public async Task<IActionResult> List([FromQuery] ListAppointmentsQuery query, CancellationToken ct)
     {
         var result = await appointmentQueryService.ListAsync(
-            User.ToCurrentUser(), query.Type, query.Status, query.Page, query.PageSize, ct);
+            User.ToCurrentUser(), query.Type, query.Status, query.PetId, query.Page, query.PageSize, ct);
 
         var items = result.Items.Select(i => AppointmentResponse.From(i.Appointment, i.PetName)).ToList();
         return Ok(new PagedResult<AppointmentResponse>(items, result.Page, result.PageSize, result.Total));

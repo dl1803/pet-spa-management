@@ -10,7 +10,7 @@ namespace PetSpa.Infrastructure.Persistence.Repositories;
 public sealed class AppointmentQueryRepository(AppDbContext db) : IAppointmentQueryRepository
 {
     public async Task<PagedResult<AppointmentListItem>> ListByCustomerUserAsync(
-        Guid customerUserId, AppointmentType? type, AppointmentStatus? status, int page, int pageSize,
+        Guid customerUserId, AppointmentType? type, AppointmentStatus? status, Guid? petId, int page, int pageSize,
         CancellationToken ct = default)
     {
         var appointments = db.Set<Appointment>().AsNoTracking();
@@ -19,6 +19,8 @@ public sealed class AppointmentQueryRepository(AppDbContext db) : IAppointmentQu
         else if (type == AppointmentType.Hotel) appointments = appointments.Where(a => a is HotelAppointment);
 
         if (status is { } wantedStatus) appointments = appointments.Where(a => a.Status == wantedStatus);
+
+        if (petId is { } wantedPetId) appointments = appointments.Where(a => a.PetId == wantedPetId);
 
         // Phạm vi theo token (BR-16): chỉ lịch của khách có Customer.UserId trùng người gọi.
         var query =

@@ -25,8 +25,9 @@ public sealed record AppointmentDetailData(
 public interface IAppointmentQueryRepository
 {
     // Lịch hẹn của khách hàng có tài khoản (Customer.UserId = customerUserId), mới tạo trước.
+    // petId: chỉ lấy lịch của thú cưng này (xem lịch sử sử dụng dịch vụ).
     Task<PagedResult<AppointmentListItem>> ListByCustomerUserAsync(
-        Guid customerUserId, AppointmentType? type, AppointmentStatus? status, int page, int pageSize,
+        Guid customerUserId, AppointmentType? type, AppointmentStatus? status, Guid? petId, int page, int pageSize,
         CancellationToken ct = default);
 
     // Chi tiết một lịch hẹn theo id; null nếu không có. Lịch lưu trú trả hai danh sách rỗng.
