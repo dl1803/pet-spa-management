@@ -20,6 +20,7 @@ public static class DependencyInjection
         services.AddScoped<AccountService>();
         services.AddScoped<AuthService>();
         services.AddScoped<NotificationService>();
+        services.AddScoped<AppointmentQueryService>();
         return services;
     }
 }
