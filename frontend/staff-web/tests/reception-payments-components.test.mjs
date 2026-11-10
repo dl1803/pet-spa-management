@@ -11,6 +11,7 @@ import { PaymentsWorkspace } from "../features/reception-payments/components/pay
 import { QrPanel } from "../features/reception-payments/components/qr-panel.tsx";
 import { createCounterFormValues, getCounterFormState } from "../features/reception-payments/forms.ts";
 import { createMockPaymentRows, MOCK_CONFIRMER_NAME } from "../features/reception-payments/mock-data.ts";
+import { ApiError } from "../lib/api/errors.ts";
 
 // 10:00 ngày 11/11/2026 theo giờ cửa hàng.
 const NOW = new Date("2026-11-11T03:00:00Z");
@@ -66,6 +67,10 @@ test("tiền mặt: nhận đủ hiện Tiền thối lại; thiếu tiền đ�
   assert.match(enough, /text-ink[^>]*>50\.000đ<\/div>/);
   assert.doesNotMatch(enough, /Còn thiếu/);
 
+  assert.match(render(""), /aria-live="polite"[^>]*>—<\/div>/);
+  assert.match(render("abc"), /aria-live="polite"[^>]*>—<\/div>/);
+  assert.match(render("250.000"), /aria-live="polite"[^>]*>0đ<\/div>/);
+
   const short = render("200.000", "Số tiền chưa đủ, chưa thể ghi nhận đã thanh toán.");
   assert.match(short, />Còn thiếu<\/div>/);
   assert.match(short, /text-danger[^>]*>50\.000đ<\/div>/);
@@ -112,6 +117,32 @@ test("form: khoản tiền lưu trú hiện đủ các vùng, mặc định ti�
   assert.notEqual(submit, "");
   assert.doesNotMatch(submit, /\sdisabled=""/);
   assert.doesNotMatch(html, /name="amount"/);
+});
+
+test("form: lỗi ghi nhận số tiền hiện dưới ô, lỗi thao tác hiện bằng cảnh báo", () => {
+  const render = (error, receivedAmount = stay.payment.amount) => renderToStaticMarkup(
+    React.createElement(CounterPaymentForm, {
+      row: stay,
+      confirmerName: "Thu Hà",
+      isSubmitting: false,
+      submissionFailure: { error, receivedAmount },
+      onSubmit: () => {},
+    }),
+  );
+  const mismatch = new ApiError({ kind: "http", status: 409, code: "AMOUNT_MISMATCH" });
+  const fieldError = render(mismatch);
+  assert.match(fieldError, /<input[^>]*aria-invalid="true"[^>]*name="receivedAmount"/);
+  assert.match(fieldError, /Số tiền chưa đủ, chưa thể ghi nhận đã thanh toán\./);
+  assert.doesNotMatch(fieldError, /role="alert"/);
+
+  const editedAmount = render(mismatch, 300000);
+  assert.match(editedAmount, /role="alert"/);
+  assert.doesNotMatch(editedAmount, /aria-invalid="true"/);
+
+  const notDue = new ApiError({ kind: "http", status: 409, code: "PAYMENT_NOT_DUE", detail: "Khoản này chưa đến thời điểm thu." });
+  assert.match(render(notDue), /role="alert"[\s\S]*Khoản này chưa đến thời điểm thu\./);
+  assert.match(render(new ApiError({ kind: "network" })), /role="alert"[\s\S]*Không kết nối được máy chủ/);
+  assert.match(render(new ApiError({ kind: "http", status: 500, detail: "Internal detail" })), /role="alert"[\s\S]*Có lỗi xảy ra, vui lòng thử lại sau/);
 });
 
 test("form: đang gửi thì nút xác nhận khóa và hiện Đang ghi nhận…", () => {

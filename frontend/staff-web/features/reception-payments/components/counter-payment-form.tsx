@@ -3,6 +3,7 @@
 import { useId } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { PaymentBadge } from "@/components/domain/payment-badge";
+import { ErrorAlert } from "@/components/feedback/error-alert";
 import { Icon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { CardFooter } from "@/components/ui/card";
@@ -12,6 +13,7 @@ import { PaymentBreakdown } from "@/features/reception-payments/components/payme
 import { QrPanel } from "@/features/reception-payments/components/qr-panel";
 import {
   COUNTER_METHOD_ORDER,
+  FORM_MESSAGES,
   createCounterFormValues,
   getCounterFormState,
   isCounterMethod,
@@ -25,6 +27,7 @@ import {
   getPaymentTitle,
   type CounterPaymentRow,
 } from "@/features/reception-payments/payment";
+import type { ApiError } from "@/lib/api/errors";
 import type { CounterPaymentRequest } from "@/lib/api/types";
 import { formatMoney } from "@/lib/format";
 import { PAYMENT_METHOD_LABELS } from "@/lib/labels";
@@ -35,11 +38,20 @@ type CounterPaymentFormProps = {
   row: CounterPaymentRow;
   confirmerName: string;
   isSubmitting: boolean;
+  submissionFailure?: { error: ApiError; receivedAmount: number };
+  onClearAmountError?: () => void;
   onSubmit: (request: CounterPaymentRequest) => void;
 };
 
 // Vùng 2 đến 8 của một khoản đang chọn. Chỉ gửi { method, receivedAmount }; số tiền phải trả là `amount` do hệ thống tính.
-export function CounterPaymentForm({ row, confirmerName, isSubmitting, onSubmit }: CounterPaymentFormProps) {
+export function CounterPaymentForm({
+  row,
+  confirmerName,
+  isSubmitting,
+  submissionFailure,
+  onClearAmountError,
+  onSubmit,
+}: CounterPaymentFormProps) {
   const { payment } = row;
   const id = useId();
   const receivedId = `${id}-received`;
@@ -58,8 +70,13 @@ export function CounterPaymentForm({ row, confirmerName, isSubmitting, onSubmit 
   const receivedAmount = useWatch({ control, name: "receivedAmount" });
   const bankConfirmed = useWatch({ control, name: "bankConfirmed" });
   const state = getCounterFormState({ method, receivedAmount, bankConfirmed }, payment.amount);
-  const receivedRegistration = register("receivedAmount", { validate: validateReceivedAmount(payment.amount) });
-  const receivedError = errors.receivedAmount?.message;
+  const amountMismatch = submissionFailure?.error.code === "AMOUNT_MISMATCH";
+  const showAmountError = amountMismatch && state.received === submissionFailure.receivedAmount;
+  const receivedRegistration = register("receivedAmount", {
+    validate: validateReceivedAmount(payment.amount),
+    onChange: amountMismatch ? onClearAmountError : undefined,
+  });
+  const receivedError = errors.receivedAmount?.message ?? (showAmountError ? FORM_MESSAGES.receivedAmountInsufficient : undefined);
 
   function submit(values: CounterFormValues) {
     if (isSubmitting || getCounterFormState(values, payment.amount).isLocked) return;
@@ -77,6 +94,7 @@ export function CounterPaymentForm({ row, confirmerName, isSubmitting, onSubmit 
       </div>
 
       <div className="flex flex-col gap-4 p-5">
+        <ErrorAlert error={showAmountError ? null : submissionFailure?.error} />
         <PaymentBreakdown lines={buildBreakdown(row)} />
 
         <div className="flex items-baseline justify-between gap-3">

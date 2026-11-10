@@ -15,6 +15,7 @@ import {
   resolveSelectedRow,
   type CounterPaymentsData,
 } from "@/features/reception-payments/payment";
+import { toApiError } from "@/lib/api/errors";
 import type { CounterPaymentRequest } from "@/lib/api/types";
 import { formatMoney } from "@/lib/format";
 
@@ -35,7 +36,7 @@ export function PaymentsWorkspace({ data, appointmentId, todayKey }: PaymentsWor
   const { rows, confirmerName } = data;
   const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>(null);
   const queryClient = useQueryClient();
-  const { showSuccess } = useToast();
+  const { showSuccess, showError } = useToast();
   const selected = resolveSelectedRow(rows, selectedPaymentId, appointmentId);
 
   const payMutation = useMutation({
@@ -44,6 +45,17 @@ export function PaymentsWorkspace({ data, appointmentId, todayKey }: PaymentsWor
       showSuccess(`Đã ghi nhận thanh toán ${formatMoney(variables.amount)}`);
       // Trả về Promise để nút giữ trạng thái đang gửi tới khi danh sách tải lại, tránh thu một khoản hai lần.
       return queryClient.invalidateQueries({ queryKey: COUNTER_PAYMENTS_QUERY_KEY });
+    },
+    onError: async (error, { paymentId }) => {
+      const failure = toApiError(error);
+      const isNotFound = failure.status === 404;
+      if (isNotFound || (failure.status === 409 && failure.code !== "AMOUNT_MISMATCH")) {
+        await queryClient.invalidateQueries({ queryKey: COUNTER_PAYMENTS_QUERY_KEY });
+      }
+      const latest = queryClient.getQueryData<CounterPaymentsData>(COUNTER_PAYMENTS_QUERY_KEY);
+      if (isNotFound || selected?.payment.paymentId !== paymentId || latest?.rows.every((row) => row.payment.paymentId !== paymentId)) {
+        showError(failure);
+      }
     },
   });
 
@@ -60,6 +72,13 @@ export function PaymentsWorkspace({ data, appointmentId, todayKey }: PaymentsWor
   }
 
   const selectedPayment = selected.payment;
+  const failedVariables = payMutation.variables;
+  const failure = payMutation.isError && failedVariables?.paymentId === selectedPayment.paymentId
+    ? toApiError(payMutation.error)
+    : null;
+  const submissionFailure = failure && failure.status !== 404 && failedVariables
+    ? { error: failure, receivedAmount: failedVariables.request.receivedAmount }
+    : undefined;
 
   return (
     <div className="grid grid-cols-[minmax(300px,400px)_minmax(0,1fr)] items-start gap-6 max-[900px]:grid-cols-1">
@@ -86,6 +105,8 @@ export function PaymentsWorkspace({ data, appointmentId, todayKey }: PaymentsWor
           row={selected}
           confirmerName={confirmerName}
           isSubmitting={payMutation.isPending}
+          submissionFailure={submissionFailure}
+          onClearAmountError={payMutation.reset}
           onSubmit={(request) => {
             if (payMutation.isPending) return;
             payMutation.mutate({ paymentId: selectedPayment.paymentId, amount: selectedPayment.amount, request });

@@ -13,6 +13,7 @@ type CashPanelProps = {
 // Vùng 6: số tiền khách đưa, tiền thối lại (chỉ đọc, tính ở web). Thiếu tiền thì đổi thành “Còn thiếu” chữ đỏ.
 export function CashPanel({ id, registration, error, state }: CashPanelProps) {
   const isShort = state.isInsufficient;
+  const remainder = isShort ? state.shortfall : state.change;
   return (
     <div className="grid grid-cols-2 items-start gap-4 max-[640px]:grid-cols-1">
       <MoneyField id={id} label="Số tiền khách đưa" registration={registration} error={error} />
@@ -22,7 +23,7 @@ export function CashPanel({ id, registration, error, state }: CashPanelProps) {
           aria-live="polite"
           className={`flex h-11 items-center rounded-[10px] bg-mist px-3 text-sm font-semibold tabular-nums ${isShort ? "text-danger" : "text-ink"}`}
         >
-          {formatMoney(isShort ? state.shortfall : state.change)}
+          {state.received === null ? "—" : formatMoney(remainder)}
         </div>
       </div>
     </div>
