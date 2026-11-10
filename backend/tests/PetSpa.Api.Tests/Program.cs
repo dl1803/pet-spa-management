@@ -13,6 +13,7 @@ using PetSpa.Api.Validators;
 using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
+using PetSpa.Application.Services;
 using PetSpa.Application.Services.Booking;
 using PetSpa.Domain.Enums;
 using PetSpa.Infrastructure.Identity;
@@ -699,6 +700,158 @@ var tests = new (string Name, Func<Task> Run)[]
         }
 
         Check(threw, "BookingService must throw SLOT_FULL when staff capacity is zero.");
+    }),
+    ("HotelPricingRowRequestValidator validates species, sizeGroup, and price boundaries", () =>
+    {
+        var validator = new HotelPricingRowRequestValidator();
+        var valid = validator.Validate(new HotelPricingRowRequest(Species.Dog, SizeGroup.Small, 150000, 30000));
+        Check(valid.IsValid, "Valid pricing row must pass validation.");
+
+        var nullSpecies = validator.Validate(new HotelPricingRowRequest(null, SizeGroup.Small, 150000, 30000));
+        Check(!nullSpecies.IsValid && nullSpecies.Errors.Any(e => e.PropertyName == "Species"),
+            "Null species must fail validation.");
+
+        var negativePrice = validator.Validate(new HotelPricingRowRequest(Species.Dog, SizeGroup.Small, -1, 30000));
+        Check(!negativePrice.IsValid && negativePrice.Errors.Any(e => e.PropertyName == "PricePerNight"),
+            "Negative pricePerNight must fail validation.");
+
+        var negativeFood = validator.Validate(new HotelPricingRowRequest(Species.Dog, SizeGroup.Small, 150000, -1));
+        Check(!negativeFood.IsValid && negativeFood.Errors.Any(e => e.PropertyName == "FoodPerNight"),
+            "Negative foodPerNight must fail validation.");
+
+        var excessivePrice = validator.Validate(new HotelPricingRowRequest(Species.Dog, SizeGroup.Small, 1_000_000_000_000, 30000));
+        Check(!excessivePrice.IsValid && excessivePrice.Errors.Any(e => e.PropertyName == "PricePerNight"),
+            "Price exceeding 999_999_999_999 must fail validation.");
+
+        return Task.CompletedTask;
+    }),
+    ("HotelPricingRequestValidator validates pricing list and late fee boundaries", () =>
+    {
+        var validator = new HotelPricingRequestValidator();
+        var valid = validator.Validate(new HotelPricingRequest(
+            [new HotelPricingRowRequest(Species.Dog, SizeGroup.Small, 150000, 30000)], 50000));
+        Check(valid.IsValid, "Valid pricing request must pass validation.");
+
+        var nullPricing = validator.Validate(new HotelPricingRequest(null!, 50000));
+        Check(!nullPricing.IsValid && nullPricing.Errors.Any(e => e.PropertyName == "Pricing"),
+            "Null pricing list must fail validation.");
+
+        var nullLateFee = validator.Validate(new HotelPricingRequest(
+            [new HotelPricingRowRequest(Species.Dog, SizeGroup.Small, 150000, 30000)], null));
+        Check(!nullLateFee.IsValid && nullLateFee.Errors.Any(e => e.PropertyName == "LateFeePerBlock"),
+            "Null lateFeePerBlock must fail validation.");
+
+        var negativeLateFee = validator.Validate(new HotelPricingRequest(
+            [new HotelPricingRowRequest(Species.Dog, SizeGroup.Small, 150000, 30000)], -100));
+        Check(!negativeLateFee.IsValid && negativeLateFee.Errors.Any(e => e.PropertyName == "LateFeePerBlock"),
+            "Negative lateFeePerBlock must fail validation.");
+
+        return Task.CompletedTask;
+    }),
+    ("HotelPricingController.Update rejects null request body with ValidationError", async () =>
+    {
+        var repo = new TestHotelCatalogRepo();
+        var serviceCatalog = new TestCatalogRepo(new ServiceWithPricing(new Service(), []), []);
+        var service = new HotelCatalogService(repo, serviceCatalog);
+        var controller = new HotelPricingController(service);
+
+        var threw = false;
+        try
+        {
+            await controller.Update(null, CancellationToken.None);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.ValidationError)
+        {
+            threw = true;
+        }
+
+        Check(threw, "HotelPricingController.Update must throw ValidationError when request is null.");
+    }),
+    ("HotelPricingController.Get returns pricing snapshot and late fee", async () =>
+    {
+        var repo = new TestHotelCatalogRepo
+        {
+            Prices = [new HotelPricing { Species = Species.Dog, SizeGroup = SizeGroup.Small, PricePerNight = 150000, FoodPerNight = 30000 }],
+            LateFee = 50000m
+        };
+        var serviceCatalog = new TestCatalogRepo(new ServiceWithPricing(new Service(), []), []);
+        var service = new HotelCatalogService(repo, serviceCatalog);
+        var controller = new HotelPricingController(service);
+
+        var actionResult = await controller.Get(CancellationToken.None);
+        var okResult = actionResult as OkObjectResult;
+        Check(okResult != null, "Get must return OkObjectResult.");
+
+        var response = okResult!.Value as HotelPricingResponse;
+        Check(response != null, "Response must be HotelPricingResponse.");
+        Check(response!.Pricing.Count == 1, "Pricing count must be 1.");
+        Check(response.Pricing[0].PricePerNight == 150000, "PricePerNight must match.");
+        Check(response.Pricing[0].FoodPerNight == 30000, "FoodPerNight must match.");
+        Check(response.LateFeePerBlock == 50000, "LateFeePerBlock must match.");
+    }),
+    ("HotelCatalogService.SetLodgingPricesAsync enforces BR-19 size group validation", async () =>
+    {
+        var repo = new TestHotelCatalogRepo();
+        var serviceCatalog = new TestCatalogRepo(new ServiceWithPricing(new Service(), []), []);
+        var service = new HotelCatalogService(repo, serviceCatalog);
+
+        // GuineaPig has only Small and Large in BR-19, Medium must be rejected
+        var invalidPrice = new LodgingPriceInput(Species.GuineaPig, SizeGroup.Medium, 100000, 20000);
+        var threw = false;
+        try
+        {
+            await service.SetLodgingPricesAsync([invalidPrice], 50000m);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.ValidationError && ex.Message.Contains("GuineaPig"))
+        {
+            threw = true;
+        }
+
+        Check(threw, "GuineaPig with SizeGroup.Medium must be rejected by BR-19 size rule.");
+    }),
+    ("HotelCatalogService.SetLodgingPricesAsync rejects duplicate pairs and negative values", async () =>
+    {
+        var repo = new TestHotelCatalogRepo();
+        var serviceCatalog = new TestCatalogRepo(new ServiceWithPricing(new Service(), []), []);
+        var service = new HotelCatalogService(repo, serviceCatalog);
+
+        var duplicatePrices = new[]
+        {
+            new LodgingPriceInput(Species.Dog, SizeGroup.Small, 100000, 20000),
+            new LodgingPriceInput(Species.Dog, SizeGroup.Small, 120000, 25000)
+        };
+
+        var threwDuplicate = false;
+        try
+        {
+            await service.SetLodgingPricesAsync(duplicatePrices, 50000m);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.ValidationError && ex.Message.Contains("Mỗi cặp loài"))
+        {
+            threwDuplicate = true;
+        }
+        Check(threwDuplicate, "Duplicate species-sizeGroup pairs must be rejected.");
+
+        var threwNegativeFee = false;
+        try
+        {
+            await service.SetLodgingPricesAsync([new LodgingPriceInput(Species.Dog, SizeGroup.Small, 100000, 20000)], -100m);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.ValidationError && ex.Message.Contains("Phí phạt"))
+        {
+            threwNegativeFee = true;
+        }
+        Check(threwNegativeFee, "Negative late fee must be rejected.");
+
+        // Valid update succeeds
+        var validPrices = new[]
+        {
+            new LodgingPriceInput(Species.Dog, SizeGroup.Small, 150000, 30000),
+            new LodgingPriceInput(Species.GuineaPig, SizeGroup.Large, 80000, 15000)
+        };
+        await service.SetLodgingPricesAsync(validPrices, 50000m);
+        Check(repo.Prices.Count == 2, "Repo prices count must be 2.");
+        Check(repo.LateFee == 50000m, "Repo late fee must be 50000.");
     })
 
 };
@@ -900,5 +1053,23 @@ sealed class TestConcurrencyGuard : IConcurrencyGuard
 sealed class TestStaffRoleReader(StaffRole? role) : IStaffRoleReader
 {
     public Task<StaffRole?> GetStaffRoleAsync(Guid userId, CancellationToken ct = default) => Task.FromResult(role);
+}
+
+sealed class TestHotelCatalogRepo : IHotelCatalogRepository
+{
+    public List<HotelPricing> Prices { get; set; } = [];
+    public decimal LateFee { get; set; } = 0m;
+
+    public Task AddCageAsync(Cage cage, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<bool> UpdateCageAsync(Guid cageId, string? code, Species? species, SizeGroup? sizeGroup, CancellationToken ct = default) => Task.FromResult(true);
+    public Task<bool> SetCageActiveAsync(Guid cageId, bool isActive, CancellationToken ct = default) => Task.FromResult(true);
+    public Task<IReadOnlyList<HotelPricing>> ListPricingAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<HotelPricing>>(Prices);
+    public Task<decimal> GetLateFeePerBlockAsync(CancellationToken ct = default) => Task.FromResult(LateFee);
+    public Task SetLodgingPricesAsync(IReadOnlyList<HotelPricing> prices, decimal lateFeePerBlock, CancellationToken ct = default)
+    {
+        Prices = prices.ToList();
+        LateFee = lateFeePerBlock;
+        return Task.CompletedTask;
+    }
 }
 
