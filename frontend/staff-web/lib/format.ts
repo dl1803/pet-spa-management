@@ -84,3 +84,9 @@ export function formatDayAndTime(value: string) {
   return `${formatWeekdayShort(value)} ${formatShortDate(value)}, ${formatTime(value)}`;
 }
 
+// Chỉ để hiển thị: “0903412678” → “0903 412 678”; API vẫn nhận dạng liền.
+export function formatPhone(value: string) {
+  return /^\d{10}$/.test(value) ? `${value.slice(0, 4)} ${value.slice(4, 7)} ${value.slice(7)}` : value;
+}
+
+

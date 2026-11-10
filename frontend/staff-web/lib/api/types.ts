@@ -191,3 +191,32 @@ export type StatusResult = {
   status: AppointmentStatus;
 };
 
+export type WalkInRequest = {
+  fullName: string;
+  phone: string;
+};
+
+export type WalkInCreated = {
+  customerId: string;
+};
+
+export type PetRequest = {
+  name: string;
+  species: Species;
+  breed: string;
+  temperament?: Temperament;
+  weightKg: number;
+  heightCm?: number | null;
+  coatNote?: string | null;
+  notes?: string | null;
+  // Lễ tân bắt buộc kèm khi tạo hồ sơ; khi sửa API bỏ qua trường này.
+  customerId?: string;
+};
+
+export type PetSizeResult = {
+  // Chỉ có ở phản hồi tạo hồ sơ.
+  petId?: string;
+  sizeGroup: SizeGroup;
+};
+
+
