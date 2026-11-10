@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { CustomerCard } from "../features/reception-customers/components/customer-card.tsx";
+import { CustomerPetList } from "../features/reception-customers/components/customer-pet-list.tsx";
+import { CustomerSearchForm } from "../features/reception-customers/components/customer-search-form.tsx";
+import { DuplicateCustomerCard } from "../features/reception-customers/components/duplicate-customer-card.tsx";
+import { WalkInForm } from "../features/reception-customers/components/walk-in-form.tsx";
 import {
   describePet,
   getInitials,
@@ -200,3 +207,105 @@ test("khách đang phục vụ: lưu và đọc lại đúng, bỏ trường th�
   assert.equal(parseServingCustomer(JSON.stringify({ customerId: "c1", fullName: "A", phone: "0", isBookingLocked: "no" })), null);
   assert.equal(parseServingCustomer(JSON.stringify({ fullName: "A", phone: "0", isBookingLocked: false })), null);
 });
+
+const render = (element) => renderToStaticMarkup(element);
+const registration = (name) => ({ name, onChange: async () => {}, onBlur: async () => {}, ref: () => {} });
+const noop = () => {};
+const [BINH, , MINH_ANH, HUNG] = createMockCustomers();
+const MINH_ANH_PETS = createMockPets().filter((pet) => pet.customerId === MINH_ANH.customerId);
+
+function walkInForm(props = {}) {
+  return render(
+    createElement(WalkInForm, {
+      fullName: registration("fullName"),
+      phone: registration("phone"),
+      errors: {},
+      submitError: null,
+      isSubmitting: false,
+      isDuplicate: false,
+      onSubmit: noop,
+      onCancel: noop,
+      ...props,
+    }),
+  );
+}
+
+test("thẻ khách: tên, số điện thoại có dấu cách, email, thẻ tự đặt lịch và hai liên kết đi tiếp", () => {
+  const html = render(createElement(CustomerCard, { customer: MINH_ANH, onSelect: noop }));
+  assert.match(html, /<h2>Trần Minh Anh<\/h2>/);
+  assert.match(html, /0903 412 678/);
+  assert.match(html, /minhanh\.tran@gmail\.com/);
+  assert.match(html, /Đang được tự đặt lịch/);
+  assert.match(html, /href="\/khach-hang\/c2000000-0000-4000-8000-000000000003\/thu-cung\/them"[^>]*>[\s\S]*?Thêm thú cưng/);
+  assert.match(html, /href="\/dat-lich\?customerId=c2000000-0000-4000-8000-000000000003"[^>]*>[\s\S]*?Đặt lịch thay/);
+  assert.doesNotMatch(html, /Có tài khoản|vãng lai/);
+});
+
+test("thẻ khách: không có email thì không hiện dòng email; khách bị khóa hiện thẻ khóa; khối thú cưng nằm dưới", () => {
+  const locked = render(createElement(CustomerCard, { customer: HUNG, onSelect: noop }));
+  assert.match(locked, /Bị khóa tự đặt lịch/);
+  assert.doesNotMatch(locked, /Đang được tự đặt lịch/);
+  const noEmail = render(createElement(CustomerCard, { customer: BINH, onSelect: noop }, createElement("p", null, "Khối thú cưng")));
+  assert.doesNotMatch(noEmail, /@/);
+  assert.match(noEmail, /Khối thú cưng/);
+});
+
+test("khối thú cưng: mỗi thú cưng là liên kết sửa hồ sơ; chưa có thì báo chưa có hồ sơ", () => {
+  const html = render(createElement(CustomerPetList, { customerId: MINH_ANH.customerId, pets: MINH_ANH_PETS, onSelect: noop }));
+  assert.match(html, /href="\/khach-hang\/c2000000-0000-4000-8000-000000000003\/thu-cung\/b2000000-0000-4000-8000-000000000004"/);
+  assert.match(html, />Bông</);
+  assert.match(html, /Chó Poodle, 9,0 kg, nhóm Nhỏ/);
+  assert.match(html, /Mèo Anh lông ngắn, 4,2 kg, nhóm Vừa/);
+  const empty = render(createElement(CustomerPetList, { customerId: MINH_ANH.customerId, pets: [], onSelect: noop }));
+  assert.match(empty, /Khách chưa có hồ sơ thú cưng\./);
+  assert.doesNotMatch(empty, /<ul/);
+});
+
+test("ô tìm khách: có nhãn ẩn, biểu tượng tìm kiếm, nút Tìm khách; lỗi gắn aria-describedby", () => {
+  const html = render(createElement(CustomerSearchForm, { registration: registration("search"), isSearching: false, onSubmit: noop }));
+  assert.match(html, /<form[^>]*role="search"/);
+  assert.match(html, /<label[^>]*class="sr-only"[^>]*>Số điện thoại khách hàng<\/label>/);
+  assert.match(html, /pl-\[38px\]/);
+  assert.match(html, />Tìm khách<\/button>/);
+  assert.doesNotMatch(html, /aria-invalid/);
+
+  const invalid = render(
+    createElement(CustomerSearchForm, { registration: registration("search"), error: "Vui lòng nhập số điện thoại.", isSearching: false, onSubmit: noop }),
+  );
+  assert.match(invalid, /aria-invalid="true"/);
+  assert.match(invalid, /aria-describedby="customer-search-error"/);
+  assert.match(invalid, /Vui lòng nhập số điện thoại\./);
+
+  const busy = render(createElement(CustomerSearchForm, { registration: registration("search"), isSearching: true, onSubmit: noop }));
+  assert.match(busy, /Đang tìm…/);
+});
+
+test("form khách vãng lai: hai ô bắt buộc, ghi chú, nút lưu mở được", () => {
+  const html = walkInForm();
+  assert.match(html, /Ghi nhận khách vãng lai/);
+  assert.match(html, /<label[^>]*for="walk-in-name"[^>]*>Họ tên/);
+  assert.match(html, /<label[^>]*for="walk-in-phone"[^>]*>Số điện thoại/);
+  assert.match(html, /Khách vãng lai không có tài khoản đăng nhập và không nhận thông báo trên web\./);
+  assert.match(html, />Hủy bỏ<\/button>/);
+  assert.match(html, /Lưu và tạo hồ sơ thú cưng/);
+  assert.doesNotMatch(html, /<button[^>]*type="submit"[^>]*\sdisabled=""/);
+  assert.doesNotMatch(html, /Chọn khách này/);
+});
+
+test("form khách vãng lai: trùng liên hệ thì hiện thẻ khách trùng và khóa nút lưu; lỗi chung hiện ở đầu form", () => {
+  const duplicate = walkInForm({
+    isDuplicate: true,
+    errors: { phone: "Thông tin liên hệ đã có, vui lòng chọn khách hàng hiện có." },
+    duplicate: createElement(DuplicateCustomerCard, { customer: BINH, onSelect: noop }),
+  });
+  assert.match(duplicate, /Thông tin liên hệ đã có, vui lòng chọn khách hàng hiện có\./);
+  assert.match(duplicate, /aria-invalid="true"/);
+  assert.match(duplicate, /Ngô Thanh Bình/);
+  assert.match(duplicate, /0962 345 118/);
+  assert.match(duplicate, /Chọn khách này/);
+  assert.match(duplicate, /<button[^>]*type="submit"[^>]*\sdisabled=""/);
+
+  const failed = walkInForm({ submitError: new ApiError({ kind: "network" }) });
+  assert.match(failed, /role="alert"[\s\S]*Không kết nối được máy chủ, vui lòng thử lại\./);
+});
+
