@@ -3,6 +3,8 @@ export const ROUTES = {
   appointments: "/lich-hen",
   appointmentExecution: (appointmentId: string) => `/lich-hen/${appointmentId}/thuc-hien`,
   customers: "/khach-hang",
+  customerPetNew: (customerId: string) => `/khach-hang/${customerId}/thu-cung/them`,
+  customerPetEdit: (customerId: string, petId: string) => `/khach-hang/${customerId}/thu-cung/${petId}`,
   booking: "/dat-lich",
   checkIn: "/tiep-nhan",
   cages: "/chuong",

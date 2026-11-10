@@ -5,6 +5,7 @@ import {
   formatDate,
   formatDayAndTime,
   formatMoney,
+  formatPhone,
   formatRelativeDay,
   formatShortDate,
   formatTime,
@@ -43,3 +44,10 @@ test("tiền, cân nặng, thứ viết tắt và mốc ngày giờ gọn", () =
   assert.equal(formatWeekdayShort("2026-10-11T09:00:00+07:00"), "CN");
   assert.equal(formatDayAndTime("2026-10-08T09:00:00+07:00"), "T5 08/10, 09:00");
 });
+
+test("số điện thoại hiển thị có dấu cách; chuỗi không phải 10 chữ số giữ nguyên", () => {
+  assert.equal(formatPhone("0903412678"), "0903 412 678");
+  assert.equal(formatPhone("090341267"), "090341267");
+  assert.equal(formatPhone("0903 412 678"), "0903 412 678");
+});
+

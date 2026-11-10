@@ -6,6 +6,8 @@ import { PetAvatar } from "../components/domain/pet-avatar.tsx";
 import { Alert } from "../components/feedback/alert.tsx";
 import { Icon } from "../components/icons.tsx";
 import { Button, ButtonLink } from "../components/ui/button.tsx";
+import { Field } from "../components/ui/field.tsx";
+import { Input, Textarea } from "../components/ui/input.tsx";
 import { Tag } from "../components/ui/tag.tsx";
 
 const render = (element) => renderToStaticMarkup(element);
@@ -73,9 +75,42 @@ test("PetAvatar: thêm cỡ xl 96px, cỡ cũ không đổi", () => {
 });
 
 test("icon mới đều vẽ được", () => {
-  for (const name of ["check", "lock", "scale", "camera", "image", "note", "play"]) {
+  for (const name of ["check", "lock", "scale", "camera", "image", "note", "play", "search", "mail"]) {
     const html = render(React.createElement(Icon, { name }));
     assert.match(html, /<svg[^>]*aria-hidden="true"/, name);
     assert.match(html, /<(path|rect|circle)\b/, name);
   }
 });
+
+test("Input: không có biểu tượng hay đơn vị thì chỉ là một thẻ input cao 44px như cũ", () => {
+  const html = render(React.createElement(Input, { id: "x" }));
+  assert.match(html, /^<input class="h-11 w-full rounded-\[10px\]/);
+  assert.doesNotMatch(html, /pl-\[38px\]|pr-11|relative/);
+});
+
+test("Input: prefixIcon chừa chỗ cho biểu tượng, suffix hiện đơn vị và ẩn với trình đọc màn hình", () => {
+  const withIcon = render(React.createElement(Input, { id: "x", prefixIcon: "search" }));
+  assert.match(withIcon, /^<div class="relative">/);
+  assert.match(withIcon, /<svg[^>]*aria-hidden="true"/);
+  assert.match(withIcon, /pl-\[38px\]/);
+
+  const withSuffix = render(React.createElement(Input, { id: "x", suffix: "kg" }));
+  assert.match(withSuffix, /pr-11/);
+  assert.match(withSuffix, /<span aria-hidden="true"[^>]*>kg<\/span>/);
+});
+
+test("Textarea: cao tối thiểu 84px, kéo giãn theo chiều dọc", () => {
+  const html = render(React.createElement(Textarea, { rows: 3 }));
+  assert.match(html, /^<textarea class="min-h-\[84px\] resize-y py-2\.5 leading-5 w-full/);
+});
+
+test("Field: optional và note thêm chú thích sau nhãn, mặc định không thêm", () => {
+  const renderField = (props) =>
+    render(React.createElement(Field, { id: "f", label: "Ghi chú", ...props }, (control) => React.createElement("input", control)));
+  assert.match(renderField({ optional: true }), /Ghi chú<span class="font-normal text-muted"> \(không bắt buộc\)<\/span>/);
+  assert.match(renderField({ note: "chỉ cần với chó" }), /<span class="font-normal text-muted"> \(chỉ cần với chó\)<\/span>/);
+  const plain = renderField({ required: true });
+  assert.doesNotMatch(plain, /font-normal text-muted/);
+  assert.match(plain, /aria-required="true"/);
+});
+
