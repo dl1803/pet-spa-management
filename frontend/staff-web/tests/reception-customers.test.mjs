@@ -7,6 +7,10 @@ import { CustomerPetList } from "../features/reception-customers/components/cust
 import { CustomerSearchForm } from "../features/reception-customers/components/customer-search-form.tsx";
 import { DuplicateCustomerCard } from "../features/reception-customers/components/duplicate-customer-card.tsx";
 import { WalkInForm } from "../features/reception-customers/components/walk-in-form.tsx";
+import { CustomerBreadcrumb } from "../features/reception-customers/components/customer-breadcrumb.tsx";
+import { PetFormFields } from "../features/reception-customers/components/pet-form-fields.tsx";
+import { ServingCustomerStrip } from "../features/reception-customers/components/serving-customer-strip.tsx";
+import { SizeEstimateCard } from "../features/reception-customers/components/size-estimate-card.tsx";
 import {
   describePet,
   getInitials,
@@ -307,5 +311,87 @@ test("form khách vãng lai: trùng liên hệ thì hiện thẻ khách trùng v
 
   const failed = walkInForm({ submitError: new ApiError({ kind: "network" }) });
   assert.match(failed, /role="alert"[\s\S]*Không kết nối được máy chủ, vui lòng thử lại\./);
+});
+
+const fakeRegister = (name) => ({ name, onChange: async () => {}, onBlur: async () => {}, ref: () => {} });
+
+function petFields(props = {}) {
+  return render(
+    createElement(PetFormFields, {
+      register: fakeRegister,
+      errors: {},
+      species: "Dog",
+      temperament: "Normal",
+      isEditing: false,
+      onSpeciesChange: noop,
+      onTemperamentChange: noop,
+      ...props,
+    }),
+  );
+}
+
+test("đường dẫn và dải khách đang phục vụ", () => {
+  const crumb = render(createElement(CustomerBreadcrumb, { customerName: "Ngô Thanh Bình", current: "Thêm thú cưng" }));
+  assert.match(crumb, /<nav[^>]*aria-label="Đường dẫn"/);
+  assert.match(crumb, /href="\/khach-hang"[^>]*>Khách hàng<\/a>/);
+  assert.match(crumb, />Ngô Thanh Bình<\/span>/);
+  assert.match(crumb, /<span aria-current="page">Thêm thú cưng<\/span>/);
+
+  const strip = render(createElement(ServingCustomerStrip, { customer: BINH }));
+  assert.match(strip, /<strong>Ngô Thanh Bình<\/strong>/);
+  assert.match(strip, /0962 345 118/);
+  assert.doesNotMatch(strip, /vãng lai|Có tài khoản/);
+});
+
+test("trường form thú cưng khi tạo: chó là mặc định, chiều cao bắt buộc, cảnh báo khó tính chưa hiện", () => {
+  const html = petFields();
+  for (const label of ["Chó", "Mèo", "Thỏ", "Chuột lang"]) assert.match(html, new RegExp(`>${label}<`));
+  assert.match(html, /<label[^>]*for="pet-name"[^>]*>Tên/);
+  assert.match(html, /<label[^>]*for="pet-breed"[^>]*>Giống/);
+  assert.match(html, /Cân nặng \(kg\)/);
+  assert.match(html, /Chiều cao vai \(cm\)/);
+  assert.match(html, /Bắt buộc với chó, đo từ mặt đất tới vai\./);
+  assert.match(html, /Hiền|Điềm tĩnh|Bình thường/);
+  assert.match(html, /\(không bắt buộc\)/);
+  assert.match(html, /tiền sử bệnh, lưu ý chăm sóc/);
+  assert.doesNotMatch(html, /Hãy báo khách điều này khi chọn giờ/);
+  assert.doesNotMatch(html, /Cân nặng thực tế khi tiếp nhận/);
+  assert.doesNotMatch(html, /data-tone="warn"/);
+});
+
+test("trường form thú cưng: tính cách khó tính hiện cảnh báo; loài khác chó khóa ô chiều cao; sửa hồ sơ có ghi chú cân nặng", () => {
+  const difficult = petFields({ temperament: "Difficult" });
+  assert.match(difficult, /data-tone="warn"/);
+  assert.match(difficult, /Hãy báo khách điều này khi chọn giờ\./);
+
+  const cat = petFields({ species: "Cat" });
+  assert.match(cat, /chỉ cần với chó/);
+  assert.match(cat, /<input[^>]*id="pet-height"[^>]*disabled=""/);
+  assert.doesNotMatch(cat, /Bắt buộc với chó, đo từ mặt đất tới vai\./);
+
+  const editing = petFields({ isEditing: true });
+  assert.match(editing, /Cân nặng thực tế khi tiếp nhận sẽ cập nhật vào đây\./);
+  assert.match(editing, /aria-describedby="pet-weight-hint"/);
+
+  const invalid = petFields({ errors: { name: { type: "validate", message: "Vui lòng nhập tên thú cưng." } } });
+  assert.match(invalid, /aria-invalid="true"/);
+  assert.match(invalid, /Vui lòng nhập tên thú cưng\./);
+});
+
+test("thẻ nhóm kích cỡ dự kiến: đủ dữ liệu thì hiện nhóm và căn cứ, chưa đủ thì nhắc nhập; luôn ghi nhóm chính thức do hệ thống xác định", () => {
+  const ready = render(createElement(SizeEstimateCard, { species: "Dog", estimate: estimateSize({ species: "Dog", weightKg: 11, heightCm: 30 }) }));
+  assert.match(ready, /Nhóm kích cỡ dự kiến/);
+  assert.match(ready, />Vừa</);
+  assert.match(ready, /Theo cân nặng 11 kg/);
+  assert.match(ready, /Theo chiều cao 30 cm/);
+  assert.match(ready, /Lấy nhóm cao hơn/);
+  assert.match(ready, /Nhóm chính thức do hệ thống xác định khi lưu/);
+  assert.match(ready, /Chỉ khách hàng mới gỡ được hồ sơ thú cưng\./);
+
+  const incomplete = render(createElement(SizeEstimateCard, { species: "Dog", estimate: estimateSize({ species: "Dog", weightKg: 11, heightCm: null }) }));
+  assert.match(incomplete, /Chưa đủ dữ liệu/);
+  assert.match(incomplete, /Nhập cân nặng và chiều cao để xem nhóm dự kiến\./);
+  const cat = render(createElement(SizeEstimateCard, { species: "Cat", estimate: { status: "incomplete" } }));
+  assert.match(cat, /Nhập cân nặng để xem nhóm dự kiến\./);
 });
 
