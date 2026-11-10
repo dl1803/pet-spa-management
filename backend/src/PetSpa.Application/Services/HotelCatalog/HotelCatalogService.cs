@@ -1,10 +1,12 @@
 using PetSpa.Application.Ports;
 using PetSpa.Domain.Entities;
+using PetSpa.Domain.Enums;
 using PetSpa.Domain.Exceptions;
 
 namespace PetSpa.Application.Services;
 
-public sealed class HotelCatalogService(IHotelCatalogRepository repository)
+public sealed class HotelCatalogService(
+    IHotelCatalogRepository repository, IServiceCatalogRepository serviceCatalog)
 {
     public async Task<Guid> CreateCageAsync(CageInput input, CancellationToken ct = default)
     {
@@ -35,8 +37,20 @@ public sealed class HotelCatalogService(IHotelCatalogRepository repository)
     public Task<IReadOnlyList<HotelPricing>> ListLodgingPricesAsync(CancellationToken ct = default) =>
         repository.ListPricingAsync(ct);
 
-    public async Task SetLodgingPricesAsync(IReadOnlyList<LodgingPriceInput> prices, CancellationToken ct = default)
+    public async Task<HotelPricingSnapshot> GetPricingAsync(CancellationToken ct = default)
     {
+        var pricing = await repository.ListPricingAsync(ct);
+        var lateFeePerBlock = await repository.GetLateFeePerBlockAsync(ct);
+
+        return new HotelPricingSnapshot(pricing, lateFeePerBlock);
+    }
+
+    public async Task SetLodgingPricesAsync(
+        IReadOnlyList<LodgingPriceInput> prices, decimal lateFeePerBlock, CancellationToken ct = default)
+    {
+        if (lateFeePerBlock < 0)
+            throw new BusinessException(ErrorCodes.ValidationError, "Phí phạt trả muộn mỗi lần không được âm.");
+
         if (prices.Any(p => p.PricePerNight < 0))
             throw new BusinessException(ErrorCodes.ValidationError, "Giá lưu trú mỗi đêm không được âm.");
 
@@ -46,6 +60,15 @@ public sealed class HotelCatalogService(IHotelCatalogRepository repository)
         if (prices.GroupBy(p => (p.Species, p.SizeGroup)).Any(g => g.Count() > 1))
             throw new BusinessException(
                 ErrorCodes.ValidationError, "Mỗi cặp loài và nhóm kích cỡ chỉ được có một dòng giá.");
+
+        var sizeRules = await serviceCatalog.GetSizeRulesAsync(ct);
+        foreach (var price in prices)
+        {
+            if (!GetSizeGroups(sizeRules, price.Species).Contains(price.SizeGroup))
+                throw new BusinessException(
+                    ErrorCodes.ValidationError,
+                    $"Loài {price.Species} không có nhóm kích cỡ {price.SizeGroup}.");
+        }
 
         var rows = prices
             .Select(p => new HotelPricing
@@ -57,7 +80,16 @@ public sealed class HotelCatalogService(IHotelCatalogRepository repository)
             })
             .ToList();
 
-        await repository.SetLodgingPricesAsync(rows, ct);
+        await repository.SetLodgingPricesAsync(rows, lateFeePerBlock, ct);
+    }
+
+    private static List<SizeGroup> GetSizeGroups(IReadOnlyList<SizeRule> sizeRules, Species species)
+    {
+        var rulesOfSpecies = sizeRules.Where(r => r.Species == species).ToList();
+        if (rulesOfSpecies.Count == 0) return new List<SizeGroup>();
+
+        return rulesOfSpecies.Any(r => r.MediumUpper is null)
+            ? new List<SizeGroup> { SizeGroup.Small, SizeGroup.Large }
+            : new List<SizeGroup> { SizeGroup.Small, SizeGroup.Medium, SizeGroup.Large };
     }
 }
-

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using PetSpa.Application.Ports;
@@ -9,6 +10,8 @@ namespace PetSpa.Infrastructure.Persistence.Repositories;
 
 public sealed class HotelCatalogRepository(AppDbContext db) : IHotelCatalogRepository
 {
+    private const string LateFeeKey = "Hotel.LateFeePerBlock";
+
     public async Task AddCageAsync(Cage cage, CancellationToken ct = default)
     {
         db.Set<Cage>().Add(cage);
@@ -61,7 +64,18 @@ public sealed class HotelCatalogRepository(AppDbContext db) : IHotelCatalogRepos
             .ThenBy(p => p.SizeGroup)
             .ToListAsync(ct);
 
-    public async Task SetLodgingPricesAsync(IReadOnlyList<HotelPricing> prices, CancellationToken ct = default)
+    public async Task<decimal> GetLateFeePerBlockAsync(CancellationToken ct = default)
+    {
+        var value = await db.Set<SystemConfig>().AsNoTracking()
+            .Where(c => c.ConfigKey == LateFeeKey)
+            .Select(c => c.ConfigValue)
+            .FirstOrDefaultAsync(ct);
+
+        return value is null ? 0m : decimal.Parse(value, CultureInfo.InvariantCulture);
+    }
+
+    public async Task SetLodgingPricesAsync(
+        IReadOnlyList<HotelPricing> prices, decimal lateFeePerBlock, CancellationToken ct = default)
     {
         var current = await db.Set<HotelPricing>().ToListAsync(ct);
 
@@ -77,6 +91,22 @@ public sealed class HotelCatalogRepository(AppDbContext db) : IHotelCatalogRepos
                 existing.PricePerNight = price.PricePerNight;
                 existing.FoodPerNight = price.FoodPerNight;
             }
+        }
+
+        var value = lateFeePerBlock.ToString("0", CultureInfo.InvariantCulture);
+        var config = await db.Set<SystemConfig>().FirstOrDefaultAsync(c => c.ConfigKey == LateFeeKey, ct);
+        if (config is null)
+        {
+            db.Set<SystemConfig>().Add(new SystemConfig
+            {
+                ConfigKey = LateFeeKey,
+                ConfigValue = value,
+                Description = "Mức phí phạt trả muộn mỗi lần (VND), do quản lý thiết lập (BR-22, FR-HTL-03)",
+            });
+        }
+        else
+        {
+            config.ConfigValue = value;
         }
 
         await db.SaveChangesAsync(ct);

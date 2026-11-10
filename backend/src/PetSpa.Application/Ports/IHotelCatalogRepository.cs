@@ -14,6 +14,8 @@ public interface IHotelCatalogRepository
 
     Task<IReadOnlyList<HotelPricing>> ListPricingAsync(CancellationToken ct = default);
 
-    Task SetLodgingPricesAsync(IReadOnlyList<HotelPricing> prices, CancellationToken ct = default);
-}
+    Task<decimal> GetLateFeePerBlockAsync(CancellationToken ct = default);
 
+    Task SetLodgingPricesAsync(
+        IReadOnlyList<HotelPricing> prices, decimal lateFeePerBlock, CancellationToken ct = default);
+}
