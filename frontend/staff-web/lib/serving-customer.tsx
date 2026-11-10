@@ -32,19 +32,20 @@ export function serializeServingCustomer(customer: ServingCustomer): string {
   return JSON.stringify({ customerId, fullName, phone, isBookingLocked });
 }
 
-// undefined: chưa đọc sessionStorage. Giữ bản trong bộ nhớ để vẫn dùng được khi trình duyệt chặn sessionStorage.
-let currentRaw: string | null | undefined;
+// Dự phòng trong bộ nhớ chỉ dùng khi trình duyệt chặn sessionStorage.
+let memoryRaw: string | null = null;
 const listeners = new Set<() => void>();
 
 function readStoredRaw(): string | null {
   try {
     return window.sessionStorage.getItem(SERVING_CUSTOMER_STORAGE_KEY);
   } catch {
-    return null;
+    return memoryRaw;
   }
 }
 
 function writeStoredRaw(raw: string | null) {
+  memoryRaw = raw;
   try {
     if (raw === null) window.sessionStorage.removeItem(SERVING_CUSTOMER_STORAGE_KEY);
     else window.sessionStorage.setItem(SERVING_CUSTOMER_STORAGE_KEY, raw);
@@ -54,7 +55,6 @@ function writeStoredRaw(raw: string | null) {
 }
 
 function setRaw(raw: string | null) {
-  currentRaw = raw;
   writeStoredRaw(raw);
   listeners.forEach((listener) => listener());
 }
@@ -67,8 +67,7 @@ function subscribe(listener: () => void) {
 }
 
 function getSnapshot() {
-  currentRaw ??= readStoredRaw();
-  return currentRaw;
+  return readStoredRaw();
 }
 
 function getServerSnapshot() {

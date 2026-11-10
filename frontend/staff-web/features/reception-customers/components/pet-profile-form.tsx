@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
+import { useMemo } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { ErrorAlert } from "@/components/feedback/error-alert";
 import { useToast } from "@/components/feedback/toast";
@@ -28,14 +29,16 @@ type PetProfileFormProps = {
   customer: ServingCustomer;
   // Có pet là sửa hồ sơ; không có là tạo mới.
   pet?: Pet;
+  cancelHref?: string;
 };
 
 // SW-05: form tạo/sửa hồ sơ thú cưng thay khách và thẻ nhóm kích cỡ dự kiến.
-export function PetProfileForm({ customer, pet }: PetProfileFormProps) {
+export function PetProfileForm({ customer, pet, cancelHref = ROUTES.customers }: PetProfileFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { showSuccess } = useToast();
   const isEditing = pet !== undefined;
+  const initialValues = useMemo(() => (pet ? toPetFormValues(pet) : PET_FORM_DEFAULT_VALUES), [pet]);
   const {
     register,
     handleSubmit,
@@ -47,7 +50,9 @@ export function PetProfileForm({ customer, pet }: PetProfileFormProps) {
     mode: "onTouched",
     reValidateMode: "onChange",
     shouldFocusError: true,
-    defaultValues: pet ? toPetFormValues(pet) : PET_FORM_DEFAULT_VALUES,
+    defaultValues: initialValues,
+    values: initialValues,
+    resetOptions: { keepDirtyValues: true },
   });
   const [species, temperament, weight, height] = useWatch({
     control,
@@ -59,8 +64,10 @@ export function PetProfileForm({ customer, pet }: PetProfileFormProps) {
     heightCm: isDog(species) ? parseDecimal(height) : null,
   });
 
-  const createPet = useMutation({ mutationFn: mockCreatePet });
-  const updatePet = useMutation({ mutationFn: mockUpdatePet });
+  // Đợi làm mới cả các query đang ẩn (danh sách ở /khach-hang và chi tiết) trước khi chuyển trang.
+  const refreshPets = () => queryClient.invalidateQueries({ queryKey: PETS_QUERY_KEY, refetchType: "all" });
+  const createPet = useMutation({ mutationFn: mockCreatePet, onSuccess: refreshPets });
+  const updatePet = useMutation({ mutationFn: mockUpdatePet, onSuccess: refreshPets });
   const isPending = createPet.isPending || updatePet.isPending;
 
   function handleSpeciesChange(next: Species) {
@@ -79,7 +86,6 @@ export function PetProfileForm({ customer, pet }: PetProfileFormProps) {
         { petId: pet.petId, request },
         {
           onSuccess: () => {
-            void queryClient.invalidateQueries({ queryKey: PETS_QUERY_KEY });
             showSuccess(PET_SAVED_MESSAGE);
             router.push(withQuery(ROUTES.customers, { search: customer.phone }));
           },
@@ -92,7 +98,6 @@ export function PetProfileForm({ customer, pet }: PetProfileFormProps) {
     if (request === null) return;
     createPet.mutate(request, {
       onSuccess: (created) => {
-        void queryClient.invalidateQueries({ queryKey: PETS_QUERY_KEY });
         showSuccess(PET_SAVED_MESSAGE);
         router.push(withQuery(ROUTES.booking, { customerId: customer.customerId, petId: created.petId }));
       },
@@ -118,7 +123,7 @@ export function PetProfileForm({ customer, pet }: PetProfileFormProps) {
             </div>
           </CardBody>
           <CardFooter className="items-center justify-between">
-            <ButtonLink href={ROUTES.customers} variant="ghost">
+            <ButtonLink href={cancelHref} variant="ghost">
               Hủy bỏ
             </ButtonLink>
             <Button type="submit" loading={isPending} loadingText="Đang lưu…">

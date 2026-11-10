@@ -171,7 +171,7 @@ export function toPetFormValues(pet: Pet): PetFormValues {
   };
 }
 
-// Request không có sizeGroup (backend xác định); trường tùy chọn rỗng thì bỏ khỏi request.
+// Request không có sizeGroup (backend xác định); trường tùy chọn rỗng gửi null (giống Web Khách hàng).
 // `customerId` chỉ truyền khi tạo hồ sơ (lễ tân bắt buộc kèm); khi sửa API bỏ qua trường này.
 // Trả null khi số nhập không hợp lệ (đã bị validate chặn trước khi gọi hàm này).
 export function toPetRequest(values: PetFormValues, customerId?: string): PetRequest | null {

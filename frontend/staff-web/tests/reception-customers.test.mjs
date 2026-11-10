@@ -11,6 +11,12 @@ import { CustomerBreadcrumb } from "../features/reception-customers/components/c
 import { PetFormFields } from "../features/reception-customers/components/pet-form-fields.tsx";
 import { ServingCustomerStrip } from "../features/reception-customers/components/serving-customer-strip.tsx";
 import { SizeEstimateCard } from "../features/reception-customers/components/size-estimate-card.tsx";
+import { WalkInDuplicatePanel } from "../features/reception-customers/components/walk-in-section.tsx";
+import {
+  PetNotFoundState,
+  PetProfileBlockedState,
+  PetProfileFallback,
+} from "../features/reception-customers/screens/pet-profile-screen.tsx";
 import {
   describePet,
   getInitials,
@@ -21,7 +27,11 @@ import {
   toPetFormValues,
   toPetRequest,
   toWalkInRequest,
+  validateCoatNote,
+  validatePetBreed,
   validatePetHeight,
+  validatePetName,
+  validatePetNotes,
   validatePetWeight,
   validateSearchTerm,
 } from "../features/reception-customers/forms.ts";
@@ -39,7 +49,12 @@ import {
   resetMockCustomerStore,
 } from "../features/reception-customers/mock-api.ts";
 import { ApiError } from "../lib/api/errors.ts";
-import { parseServingCustomer, serializeServingCustomer } from "../lib/serving-customer.tsx";
+import {
+  parseServingCustomer,
+  serializeServingCustomer,
+  ServingCustomerProvider,
+  useServingCustomer,
+} from "../lib/serving-customer.tsx";
 import { estimateSize, getSizeGroup } from "../lib/size-estimate.ts";
 import { normalizePhone, validateFullName, validateOptionalEmail, validatePhone } from "../lib/validation.ts";
 
@@ -393,5 +408,163 @@ test("thẻ nhóm kích cỡ dự kiến: đủ dữ liệu thì hiện nhóm v�
   assert.match(incomplete, /Nhập cân nặng và chiều cao để xem nhóm dự kiến\./);
   const cat = render(createElement(SizeEstimateCard, { species: "Cat", estimate: { status: "incomplete" } }));
   assert.match(cat, /Nhập cân nặng để xem nhóm dự kiến\./);
+});
+
+test("luật nhập liệu thú cưng mở rộng: tên, giống, đặc điểm lông, ghi chú, chiều cao cận trên, dấu chấm và request có ghi chú", () => {
+  assert.equal(parseDecimal("9.5"), 9.5);
+  assert.equal(validatePetName("  "), "Vui lòng nhập tên thú cưng.");
+  assert.equal(validatePetName("a".repeat(101)), "Tên tối đa 100 ký tự.");
+  assert.equal(validatePetName("Bông"), true);
+  assert.equal(validatePetBreed("  "), "Vui lòng nhập giống.");
+  assert.equal(validatePetBreed("a".repeat(101)), "Giống tối đa 100 ký tự.");
+  assert.equal(validatePetBreed("Corgi"), true);
+  assert.equal(validateCoatNote("a".repeat(256)), "Đặc điểm lông tối đa 255 ký tự.");
+  assert.equal(validateCoatNote("Lông trắng"), true);
+  assert.equal(validatePetNotes("a".repeat(1001)), "Ghi chú tối đa 1000 ký tự.");
+  assert.equal(validatePetNotes("Sợ tiếng máy sấy"), true);
+  assert.equal(validatePetHeight("151", DOG_VALUES), "Chiều cao tối đa 150 cm.");
+
+  const withNotes = toPetRequest({
+    ...DOG_VALUES,
+    coatNote: " Lông vàng trắng ",
+    notes: " Đã tiêm dại ",
+  });
+  assert.equal(withNotes?.coatNote, "Lông vàng trắng");
+  assert.equal(withNotes?.notes, "Đã tiêm dại");
+});
+
+test("khách đang phục vụ: customerId rỗng thì null và Provider render an toàn ở SSR", () => {
+  assert.equal(
+    parseServingCustomer(JSON.stringify({ customerId: "", fullName: "A", phone: "0962345118", isBookingLocked: false })),
+    null,
+  );
+  function Probe() {
+    const { isReady, customer } = useServingCustomer();
+    return createElement("span", null, `${String(isReady)}:${String(customer)}`);
+  }
+  const html = render(createElement(ServingCustomerProvider, null, createElement(Probe)));
+  assert.equal(html, "<span>false:null</span>");
+});
+
+test("tìm khách trùng khi ghi nhận vãng lai: đủ trạng thái tải, lỗi kèm thử lại, thẻ khách và dự phòng rỗng", () => {
+  const pending = render(
+    createElement(WalkInDuplicatePanel, {
+      duplicatePhone: "0962345118",
+      isPending: true,
+      isFetching: false,
+      error: null,
+      customer: undefined,
+      onSelect: noop,
+      onRetry: noop,
+    }),
+  );
+  assert.match(pending, /role="status"[^>]*aria-label="Đang tìm thông tin khách trùng"/);
+
+  const failed = render(
+    createElement(WalkInDuplicatePanel, {
+      duplicatePhone: "0962345118",
+      isPending: false,
+      isFetching: false,
+      error: new ApiError({ kind: "network" }),
+      customer: undefined,
+      onSelect: noop,
+      onRetry: noop,
+    }),
+  );
+  assert.match(failed, /role="alert"[\s\S]*Không kết nối được máy chủ/);
+  assert.match(failed, />Thử lại<\/button>/);
+
+  const found = render(
+    createElement(WalkInDuplicatePanel, {
+      duplicatePhone: "0962345118",
+      isPending: false,
+      isFetching: false,
+      error: null,
+      customer: BINH,
+      onSelect: noop,
+      onRetry: noop,
+    }),
+  );
+  assert.match(found, /Ngô Thanh Bình/);
+  assert.match(found, /Chọn khách này/);
+
+  const missing = render(
+    createElement(WalkInDuplicatePanel, {
+      duplicatePhone: "0962345118",
+      isPending: false,
+      isFetching: false,
+      error: null,
+      customer: undefined,
+      onSelect: noop,
+      onRetry: noop,
+    }),
+  );
+  assert.match(missing, /Không tải được thẻ khách với số[\s\S]*0962 345 118/);
+});
+
+test("trạng thái chặn và tải/lỗi ở màn Hồ sơ thú cưng: giữ PageHeader h1, phân biệt chưa chọn và lệch khách, giữ ngữ cảnh tìm kiếm", () => {
+  const crumbWithSearch = render(
+    createElement(CustomerBreadcrumb, {
+      customerName: "Ngô Thanh Bình",
+      current: "Bắp",
+      customersHref: "/khach-hang?search=0962345118",
+    }),
+  );
+  assert.match(crumbWithSearch, /href="\/khach-hang\?search=0962345118"/);
+
+  const noCustomer = render(createElement(PetProfileBlockedState, { isEditing: true, servingCustomer: null }));
+  assert.match(noCustomer, /<h1>Sửa hồ sơ thú cưng<\/h1>/);
+  assert.match(noCustomer, /<h2>Chưa chọn khách hàng<\/h2>/);
+  assert.match(noCustomer, /href="\/khach-hang"[^>]*>Tìm khách<\/a>/);
+
+  const mismatch = render(createElement(PetProfileBlockedState, { isEditing: false, servingCustomer: BINH }));
+  assert.match(mismatch, /<h1>Tạo hồ sơ thú cưng<\/h1>/);
+  assert.match(mismatch, /<h2>Không khớp khách đang phục vụ<\/h2>/);
+  assert.match(mismatch, /Ngô Thanh Bình/);
+
+  const loading = render(
+    createElement(PetProfileFallback, {
+      error: null,
+      isFetching: false,
+      backHref: "/khach-hang?search=0962345118",
+      onRetry: noop,
+    }),
+  );
+  assert.match(loading, /role="status"[^>]*aria-label="Đang tải hồ sơ thú cưng"/);
+
+  const forbidden = render(
+    createElement(PetProfileFallback, {
+      error: new ApiError({ kind: "http", status: 403, code: "FORBIDDEN" }),
+      isFetching: false,
+      backHref: "/khach-hang",
+      onRetry: noop,
+    }),
+  );
+  assert.match(forbidden, /Bạn không có quyền xem trang này/);
+
+  const notFound = render(
+    createElement(PetProfileFallback, {
+      error: new ApiError({ kind: "http", status: 404, code: "NOT_FOUND" }),
+      isFetching: false,
+      backHref: "/khach-hang?search=0962345118",
+      onRetry: noop,
+    }),
+  );
+  assert.match(notFound, /Không tìm thấy thú cưng/);
+  assert.match(notFound, /href="\/khach-hang\?search=0962345118"[^>]*>Về danh sách khách hàng<\/a>/);
+
+  const networkFail = render(
+    createElement(PetProfileFallback, {
+      error: new ApiError({ kind: "network" }),
+      isFetching: false,
+      backHref: "/khach-hang",
+      onRetry: noop,
+    }),
+  );
+  assert.match(networkFail, /role="alert"[\s\S]*Không kết nối được máy chủ/);
+  assert.match(networkFail, />Thử lại<\/button>/);
+
+  const standaloneNotFound = render(createElement(PetNotFoundState, {}));
+  assert.match(standaloneNotFound, /href="\/khach-hang"/);
 });
 

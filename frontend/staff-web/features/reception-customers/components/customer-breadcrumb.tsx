@@ -5,13 +5,18 @@ import { ROUTES } from "@/lib/routes";
 type CustomerBreadcrumbProps = {
   customerName: string;
   current: string;
+  customersHref?: string;
 };
 
 // SW-05 đường dẫn: Khách hàng › <tên khách> › Thêm thú cưng / <tên thú cưng>.
-export function CustomerBreadcrumb({ customerName, current }: CustomerBreadcrumbProps) {
+export function CustomerBreadcrumb({
+  customerName,
+  current,
+  customersHref = ROUTES.customers,
+}: CustomerBreadcrumbProps) {
   return (
     <nav aria-label="Đường dẫn" className="mb-2 flex flex-wrap items-center gap-1.5 text-[13px] text-muted">
-      <Link href={ROUTES.customers} className="hover:text-lagoon">
+      <Link href={customersHref} className="hover:text-lagoon">
         Khách hàng
       </Link>
       <Icon name="chev-r" className="size-3.5" />
