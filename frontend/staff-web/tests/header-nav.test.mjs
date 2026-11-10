@@ -51,7 +51,7 @@ test("Nhân viên spa thấy 3 mục và thông báo, không có mục của L�
 
 // Trang đích đã có theo vai trò. Khi người làm trang mới bật `available` trong header-nav.tsx thì thêm đường dẫn vào đây.
 const AVAILABLE_HREFS = {
-  Receptionist: ["/tiep-nhan", "/khach-hang", "/dat-lich"],
+  Receptionist: ["/tiep-nhan", "/khach-hang", "/dat-lich", "/thanh-toan"],
   SpaStaff: ["/lich-su-cong-viec", "/thong-bao"],
 };
 
@@ -74,4 +74,10 @@ test("Nhân viên spa: Lịch sử công việc và Thông báo đánh dấu ari
   const notifications = render("SpaStaff", "/thong-bao");
   assert.match(notifications, /<a\b[^>]*aria-label="Thông báo"[^>]*aria-current="page"/);
   assert.doesNotMatch(notifications, /<a\b[^>]*aria-current="page"[^>]*href="\/lich-su-cong-viec"/);
+});
+
+test("Lễ tân: Thanh toán là liên kết và đánh dấu aria-current khi đang ở trang đó", () => {
+  const html = render("Receptionist", "/thanh-toan");
+  assert.match(html, /<a\b[^>]*aria-current="page"[^>]*href="\/thanh-toan"/);
+  assert.doesNotMatch(html, /<a\b[^>]*aria-current="page"[^>]*href="\/tiep-nhan"/);
 });

@@ -1,4 +1,14 @@
-import type { AppointmentStatus, AppointmentType, SizeGroup, Species, StaffRole, Temperament } from "@/lib/api/types";
+import type {
+  AppointmentStatus,
+  AppointmentType,
+  PaymentKind,
+  PaymentMethod,
+  PaymentStatus,
+  SizeGroup,
+  Species,
+  StaffRole,
+  Temperament,
+} from "@/lib/api/types";
 
 export const STAFF_ROLE_LABELS: Record<StaffRole, string> = {
   Receptionist: "Lễ tân",
@@ -37,4 +47,21 @@ export const APPOINTMENT_STATUS_LABELS: Record<AppointmentStatus, string> = {
   InStay: "Đang lưu trú",
   Completed: "Hoàn tất",
   Cancelled: "Đã hủy",
+};
+
+export const PAYMENT_KIND_LABELS: Record<PaymentKind, string> = {
+  Spa: "Khoản spa",
+  Stay: "Tiền lưu trú",
+  LateFee: "Phí trả muộn",
+};
+
+export const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
+  Unpaid: "Chưa thanh toán",
+  Paid: "Đã thanh toán",
+};
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  Cash: "Tiền mặt",
+  BankQR: "Chuyển khoản QR",
+  Online: "Trực tuyến",
 };
