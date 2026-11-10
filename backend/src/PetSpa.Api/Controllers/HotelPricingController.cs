@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using PetSpa.Api.Dtos;
 using PetSpa.Api.Security;
 using PetSpa.Application.Services;
+using PetSpa.Domain.Exceptions;
 
 namespace PetSpa.Api.Controllers;
 
@@ -24,9 +25,12 @@ public sealed class HotelPricingController(HotelCatalogService hotelCatalog) : C
     [Authorize(Policy = AuthorizationPolicies.Manager)]
     [EndpointSummary("Thiết lập giá lưu trú, giá thức ăn và phí phạt trả muộn")]
     [EndpointDescription("Chỉ quản lý. Mỗi dòng pricing thêm mới hoặc cập nhật giá của một cặp loài và nhóm kích cỡ; dòng không gửi thì giữ nguyên. Cặp loài và nhóm kích cỡ không hợp lệ hoặc bị trùng trả 400 VALIDATION_ERROR. lateFeePerBlock chỉ chỉnh tại đây. Có hiệu lực cho các lịch hẹn lưu trú tạo sau đó.")]
-    public async Task<IActionResult> Update([FromBody] HotelPricingRequest request, CancellationToken ct)
+    public async Task<IActionResult> Update([FromBody] HotelPricingRequest? request, CancellationToken ct)
     {
-        await hotelCatalog.SetLodgingPricesAsync(request.ToPriceInputs(), request.LateFeePerBlock!.Value, ct);
+        if (request is null)
+            throw new BusinessException(ErrorCodes.ValidationError, "Dữ liệu yêu cầu không được để trống.");
+
+        await hotelCatalog.SetLodgingPricesAsync(request.ToPriceInputs(), request.LateFeePerBlock ?? 0, ct);
         return Ok();
     }
 }

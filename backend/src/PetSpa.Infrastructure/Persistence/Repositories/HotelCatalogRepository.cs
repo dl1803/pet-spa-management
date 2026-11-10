@@ -71,7 +71,9 @@ public sealed class HotelCatalogRepository(AppDbContext db) : IHotelCatalogRepos
             .Select(c => c.ConfigValue)
             .FirstOrDefaultAsync(ct);
 
-        return value is null ? 0m : decimal.Parse(value, CultureInfo.InvariantCulture);
+        return decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var fee)
+            ? fee
+            : 0m;
     }
 
     public async Task SetLodgingPricesAsync(
@@ -109,7 +111,16 @@ public sealed class HotelCatalogRepository(AppDbContext db) : IHotelCatalogRepos
             config.ConfigValue = value;
         }
 
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+        {
+            await db.Set<SystemConfig>()
+                .Where(c => c.ConfigKey == LateFeeKey)
+                .ExecuteUpdateAsync(s => s.SetProperty(c => c.ConfigValue, value), ct);
+        }
     }
 
     private static bool IsUniqueViolation(DbUpdateException ex) =>

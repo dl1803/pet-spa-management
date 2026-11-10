@@ -100,6 +100,7 @@ public static class DatabaseSeeder
             new SystemConfig { ConfigKey = "CostConfirm.TimeoutMinutes", ConfigValue = "30", Description = "Thời gian khách xác nhận chi phí mới trước khi tự hủy (phút) (BR-23)" },
             new SystemConfig { ConfigKey = "Hotel.LateGraceMinutes", ConfigValue = "30", Description = "Số phút trả muộn được miễn phí phạt (BR-22)" },
             new SystemConfig { ConfigKey = "Hotel.LateBlockMinutes", ConfigValue = "60", Description = "Độ dài mỗi khối tính phí phạt trả muộn (phút) (BR-22)" },
+            new SystemConfig { ConfigKey = "Hotel.LateFeePerBlock", ConfigValue = "0", Description = "Mức phí phạt trả muộn mỗi lần (VND), do quản lý thiết lập (BR-22, FR-HTL-03)" },
             new SystemConfig { ConfigKey = "Photo.ValidityDays", ConfigValue = "7", Description = "Số ngày hiệu lực của ảnh trước chăm sóc (BR-20)" },
         };
 

@@ -86,10 +86,15 @@ public sealed class HotelCatalogService(
     private static List<SizeGroup> GetSizeGroups(IReadOnlyList<SizeRule> sizeRules, Species species)
     {
         var rulesOfSpecies = sizeRules.Where(r => r.Species == species).ToList();
-        if (rulesOfSpecies.Count == 0) return new List<SizeGroup>();
+        if (rulesOfSpecies.Count == 0)
+        {
+            return species == Species.GuineaPig
+                ? [SizeGroup.Small, SizeGroup.Large]
+                : [SizeGroup.Small, SizeGroup.Medium, SizeGroup.Large];
+        }
 
         return rulesOfSpecies.Any(r => r.MediumUpper is null)
-            ? new List<SizeGroup> { SizeGroup.Small, SizeGroup.Large }
-            : new List<SizeGroup> { SizeGroup.Small, SizeGroup.Medium, SizeGroup.Large };
+            ? [SizeGroup.Small, SizeGroup.Large]
+            : [SizeGroup.Small, SizeGroup.Medium, SizeGroup.Large];
     }
 }
