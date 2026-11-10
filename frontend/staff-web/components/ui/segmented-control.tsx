@@ -28,7 +28,7 @@ export function SegmentedControl({ label, items, value, onChange }: SegmentedCon
             type="button"
             aria-pressed={isActive}
             onClick={() => onChange(item.value)}
-            className={`inline-flex min-h-11 cursor-pointer items-center gap-2 whitespace-nowrap rounded-[9px] px-3.5 text-sm max-sm:flex-1 max-sm:justify-center ${
+            className={`inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-[9px] px-3.5 text-sm sm:whitespace-nowrap max-sm:min-w-0 max-sm:flex-1 max-sm:justify-center max-sm:px-2 max-sm:py-1.5 max-sm:text-center max-sm:leading-tight ${
               isActive
                 ? "bg-white font-semibold text-lagoon-700 shadow-[0_1px_3px_rgba(20,50,58,0.12)]"
                 : "font-medium text-ink"

@@ -151,6 +151,7 @@ test("SegmentedControl: nút đang chọn có aria-pressed, mỗi nút cao tối
   assert.match(html, /aria-pressed=\"false\"[^>]*>Tiền mặt<\/button>/);
   assert.match(html, /aria-pressed=\"true\"[^>]*>Chuyển khoản QR<\/button>/);
   assert.equal(html.match(/min-h-11/g)?.length, 2);
+  assert.match(html, /max-sm:min-w-0/);
 });
 
 test("nhãn thanh toán và thông tin ngân hàng cửa hàng", () => {
