@@ -1,4 +1,4 @@
-import type { Pet, Service } from "@/lib/api/types";
+import type { HotelPricing, Pet, Service } from "@/lib/api/types";
 
 const CUSTOMER_ID = "c0000000-0000-4000-8000-000000000001";
 
@@ -92,4 +92,14 @@ export const MOCK_SERVICES: Service[] = [
     ],
   },
 ];
+
+// Giá lưu trú giả cho đúng loài và nhóm kích cỡ của ba thú cưng giả ở trên.
+export const MOCK_HOTEL_PRICING: HotelPricing = {
+  pricing: [
+    { species: "Dog", sizeGroup: "Small", pricePerNight: 150000, foodPerNight: 40000 },
+    { species: "Cat", sizeGroup: "Medium", pricePerNight: 170000, foodPerNight: 40000 },
+    { species: "Rabbit", sizeGroup: "Small", pricePerNight: 90000, foodPerNight: 20000 },
+  ],
+  lateFeePerBlock: 50000,
+};
 
