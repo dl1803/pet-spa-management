@@ -47,7 +47,7 @@ export function formatWeekday(value: string) {
   return WEEKDAY_FORMAT.format(new Date(value)).toLocaleLowerCase("vi-VN");
 }
 
-// Thời gian của thông báo (UI-Screens CW-12): hôm nay chỉ có giờ, hôm qua có nhãn, còn lại là ngày/tháng kèm giờ.
+// Thời gian của thông báo: hôm nay chỉ có giờ, hôm qua có nhãn, còn lại là ngày/tháng kèm giờ.
 export function formatRelativeDay(value: string, todayKey: string) {
   const dayKey = getStoreDateKey(value);
   if (dayKey === todayKey) return formatTime(value);
@@ -79,5 +79,10 @@ export function formatWeekdayShort(value: string) {
 export function formatLongDate(value: string) {
   const weekday = formatWeekday(value);
   return `${weekday.charAt(0).toLocaleUpperCase("vi-VN")}${weekday.slice(1)} ${formatDate(value)}`;
+}
+
+// Mốc ngày giờ gọn cho tóm tắt: "T5 08/10, 09:00".
+export function formatDayAndTime(value: string) {
+  return `${formatWeekdayShort(value)} ${formatShortDate(value)}, ${formatTime(value)}`;
 }
 

@@ -1,6 +1,8 @@
 import { toApiError } from "@/lib/api/errors";
-import type { Pet, PricingRow, Service, SpaBookingRequest } from "@/lib/api/types";
-import { addDaysToDateKey, buildStoreDateTime } from "@/lib/time";
+import type { HotelBookingRequest, HotelPricingRow, Pet, PricingRow, Service, SpaBookingRequest } from "@/lib/api/types";
+import { formatDate, formatNameList, formatShortDate } from "@/lib/format";
+import { SIZE_GROUP_LABELS, SPECIES_LABELS } from "@/lib/labels";
+import { addDaysToDateKey, buildStoreDateTime, getStoreDateKey } from "@/lib/time";
 
 export type SpaBookingFormValues = {
   petId: string;
@@ -113,5 +115,131 @@ export function isSlotFullError(error: unknown) {
 export function isBookingLockedError(error: unknown) {
   const { status, code } = toApiError(error);
   return status === 403 && code === "BOOKING_LOCKED";
+}
+
+// ── Đặt lịch lưu trú ──
+
+export type HotelBookingFormValues = {
+  petId: string;
+  // Ngày YYYY-MM-DD theo múi giờ cửa hàng; rỗng khi chưa nhập.
+  checkInDate: string;
+  // Giờ HH:mm; rỗng khi chưa nhập.
+  checkInTime: string;
+  checkOutDate: string;
+  checkOutTime: string;
+};
+
+export type HotelStay = { from: string; to: string };
+
+export const EMPTY_HOTEL_STAY_VALUES: Omit<HotelBookingFormValues, "petId"> = {
+  checkInDate: "",
+  checkInTime: "",
+  checkOutDate: "",
+  checkOutTime: "",
+};
+
+export const CHECK_IN_DATE_REQUIRED_MESSAGE = "Vui lòng chọn ngày nhận.";
+export const CHECK_IN_TIME_REQUIRED_MESSAGE = "Vui lòng chọn giờ nhận.";
+export const CHECK_OUT_DATE_REQUIRED_MESSAGE = "Vui lòng chọn ngày trả.";
+export const CHECK_OUT_TIME_REQUIRED_MESSAGE = "Vui lòng chọn giờ trả.";
+export const CHECK_OUT_NOT_AFTER_MESSAGE = "Ngày trả phải sau ngày nhận.";
+export const CHECK_IN_PAST_MESSAGE = "Ngày nhận không thể ở quá khứ.";
+export const NO_CAPACITY_TITLE = "Hết chỗ";
+export const NO_CAPACITY_MESSAGE = "Hết chỗ trong thời gian này, vui lòng chọn ngày khác.";
+export const NO_CAPACITY_REASON = "Hết chỗ trong thời gian đã chọn.";
+export const BOOKING_LOCKED_REASON = "Tài khoản tạm thời không thể tự đặt lịch.";
+
+export function isValidDateKey(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const time = Date.parse(`${value}T00:00:00Z`);
+  return !Number.isNaN(time);
+}
+
+export function isCheckInPast(checkInDate: string, todayKey: string) {
+  if (checkInDate === "" || !isValidDateKey(checkInDate)) return false;
+  return checkInDate < todayKey;
+}
+
+export function validateCheckInDate(checkInDate: string, todayKey: string): true | string {
+  return !isCheckInPast(checkInDate, todayKey) || CHECK_IN_PAST_MESSAGE;
+}
+
+// Ngày trả phải sau ngày nhận; chỉ so sánh khi cả hai ngày đã nhập và hợp lệ.
+export function isCheckOutNotAfter(values: Pick<HotelBookingFormValues, "checkInDate" | "checkOutDate">) {
+  if (values.checkInDate === "" || values.checkOutDate === "") return false;
+  if (!isValidDateKey(values.checkInDate) || !isValidDateKey(values.checkOutDate)) return true;
+  return Date.parse(values.checkOutDate) <= Date.parse(values.checkInDate);
+}
+
+export function validateCheckOutDate(
+  checkOutDate: string,
+  values: Pick<HotelBookingFormValues, "checkInDate">,
+): true | string {
+  return !isCheckOutNotAfter({ checkInDate: values.checkInDate, checkOutDate }) || CHECK_OUT_NOT_AFTER_MESSAGE;
+}
+
+// Khoảng lưu trú hợp lệ để hỏi chỗ trống; null khi thiếu ô hoặc ngày trả không sau ngày nhận.
+export function getStay(values: Omit<HotelBookingFormValues, "petId">, todayKey?: string): HotelStay | null {
+  const { checkInDate, checkInTime, checkOutDate, checkOutTime } = values;
+  if (checkInDate === "" || checkInTime === "" || checkOutDate === "" || checkOutTime === "") return null;
+  if (!isValidDateKey(checkInDate) || !isValidDateKey(checkOutDate)) return null;
+  if (todayKey !== undefined && isCheckInPast(checkInDate, todayKey)) return null;
+  if (isCheckOutNotAfter(values)) return null;
+  return {
+    from: buildStoreDateTime(checkInDate, checkInTime),
+    to: buildStoreDateTime(checkOutDate, checkOutTime),
+  };
+}
+
+export function getStayKey(stay: HotelStay | null) {
+  return stay === null ? null : `${stay.from}|${stay.to}`;
+}
+
+// Request chỉ gồm petId, plannedCheckIn, plannedCheckOut; không gửi giá, số đêm, trạng thái.
+export function toHotelBookingRequest(petId: string, stay: HotelStay): HotelBookingRequest {
+  return { petId, plannedCheckIn: stay.from, plannedCheckOut: stay.to };
+}
+
+export function findHotelPricingRow(rows: HotelPricingRow[], pet: Pet): HotelPricingRow | null {
+  return rows.find((row) => row.species === pet.species && row.sizeGroup === pet.sizeGroup) ?? null;
+}
+
+// Liệt kê ngày của các đêm; rút gọn khi nhiều hơn 7 đêm.
+export function formatNightList(checkIn: string, nights: number) {
+  if (nights <= 0) return "";
+  const startKey = getStoreDateKey(checkIn);
+  if (nights > 7) {
+    const endKey = addDaysToDateKey(startKey, nights - 1);
+    const fromLabel = formatShortDate(buildStoreDateTime(startKey, "12:00"));
+    const toLabel =
+      startKey.slice(0, 4) !== endKey.slice(0, 4)
+        ? formatDate(buildStoreDateTime(endKey, "12:00"))
+        : formatShortDate(buildStoreDateTime(endKey, "12:00"));
+    return `từ ${fromLabel} đến ${toLabel}`;
+  }
+  const labels = Array.from({ length: nights }, (_, index) =>
+    formatShortDate(buildStoreDateTime(addDaysToDateKey(startKey, index), "12:00")),
+  );
+  return formatNameList(labels);
+}
+
+// Số đêm lấy từ server (HotelAvailability.nights), web không tự tính.
+export function describeAvailable(pet: Pet, stay: HotelStay, nights: number) {
+  const speciesLabel = SPECIES_LABELS[pet.species].toLocaleLowerCase("vi-VN");
+  const sizeLabel = SIZE_GROUP_LABELS[pet.sizeGroup];
+  if (nights <= 0) {
+    return `Còn chuồng phù hợp cho ${speciesLabel} nhóm ${sizeLabel}.`;
+  }
+  const nightText = nights > 7 ? `trong ${nights} đêm (${formatNightList(stay.from, nights)})` : `trong cả ${nights} đêm ${formatNightList(stay.from, nights)}`;
+  return `Còn chuồng phù hợp cho ${speciesLabel} nhóm ${sizeLabel} ${nightText}.`;
+}
+
+export function isNoCapacityError(error: unknown) {
+  const { status, code } = toApiError(error);
+  return status === 409 && code === "NO_CAPACITY";
+}
+
+export function isValidationError(error: unknown) {
+  return toApiError(error).status === 400;
 }
 

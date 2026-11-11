@@ -93,6 +93,41 @@ export type SpaBookingCreated = {
   estimatedAmount: number;
 };
 
+export type HotelPricingRow = {
+  species: Species;
+  sizeGroup: SizeGroup;
+  // VND mỗi đêm.
+  pricePerNight: number;
+  foodPerNight: number;
+};
+
+export type HotelPricing = {
+  pricing: HotelPricingRow[];
+  // Phí phạt mỗi khối giờ trả muộn, VND; 0 khi quản lý chưa thiết lập.
+  lateFeePerBlock: number;
+};
+
+export type HotelAvailability = {
+  available: boolean;
+  nights: number;
+  // Số tiền do server tính, VND.
+  estimatedAmount: number;
+};
+
+export type HotelBookingRequest = {
+  petId: string;
+  // ISO 8601 có độ lệch +07:00, dựng bằng buildStoreDateTime.
+  plannedCheckIn: string;
+  plannedCheckOut: string;
+};
+
+export type HotelBookingCreated = {
+  appointmentId: string;
+  status: AppointmentStatus;
+  nights: number;
+  estimatedAmount: number;
+};
+
 export type AppointmentType = "Spa" | "Hotel";
 export type AppointmentStatus =
   | "Pending"
