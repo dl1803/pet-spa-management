@@ -64,6 +64,30 @@ export type Cage = {
   occupant?: CageOccupant | null;
 };
 
+export type CageCreateRequest = {
+  // Tối đa 20 ký tự.
+  code: string;
+  species: Species;
+  sizeGroup: SizeGroup;
+};
+
+// Mọi trường đều tùy chọn theo openapi; web luôn gửi đủ cả ba.
+export type CageUpdateRequest = Partial<CageCreateRequest>;
+
+export type HotelPricingRow = {
+  species: Species;
+  sizeGroup: SizeGroup;
+  // VND, số nguyên ≥ 0.
+  pricePerNight: number;
+  foodPerNight: number;
+};
+
+export type HotelPricing = {
+  pricing: HotelPricingRow[];
+  // VND, số nguyên ≥ 0 (Hotel.LateFeePerBlock).
+  lateFeePerBlock: number;
+};
+
 export type HotelSuggestions = {
   cage: Cage;
 };
