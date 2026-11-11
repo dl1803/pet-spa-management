@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 type TagProps = {
-  tone: "default" | "suggest" | "ok";
+  tone: "default" | "suggest" | "ok" | "busy";
   children: ReactNode;
 };
 
@@ -9,6 +9,8 @@ const TONE_CLASS = {
   default: "bg-line-soft font-medium text-ink",
   suggest: "bg-apricot font-semibold text-ink",
   ok: "bg-success-50 font-semibold text-success",
+  // Chuồng đang chứa (`.st-pill.busy` của UI demo MW-07).
+  busy: "bg-st-active-bg font-semibold text-st-active",
 } as const;
 
 export function Tag({ tone, children }: TagProps) {
