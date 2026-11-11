@@ -17,7 +17,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: ROUTES.appointments, label: "Lịch hẹn", icon: "list" },
   { href: ROUTES.pending, label: "Chờ xác nhận", icon: "clipboard", available: true },
   { href: ROUTES.services, label: "Dịch vụ", icon: "scissors", available: true },
-  { href: ROUTES.cages, label: "Chuồng & giá", icon: "grid" },
+  { href: ROUTES.cages, label: "Chuồng & giá", icon: "grid", available: true },
   { href: ROUTES.staff, label: "Nhân viên", icon: "users", available: true },
   { href: ROUTES.workShifts, label: "Lịch làm việc", icon: "calendar" },
   { href: ROUTES.lockedCustomers, label: "Khách bị khóa", icon: "lock" },
