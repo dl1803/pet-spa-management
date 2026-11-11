@@ -21,6 +21,8 @@ type HotelBookingSummaryProps = {
   quote: HotelQuote | null;
   submitError: unknown;
   isSubmitting: boolean;
+  pricingError?: boolean;
+  onRetryPricing?: () => void;
   // Lý do khóa nút gửi; null khi được gửi.
   lockReason: string | null;
 };
@@ -46,6 +48,8 @@ export function HotelBookingSummary({
   quote,
   submitError,
   isSubmitting,
+  pricingError = false,
+  onRetryPricing,
   lockReason,
 }: HotelBookingSummaryProps) {
   const formula =
@@ -95,6 +99,16 @@ export function HotelBookingSummary({
           invalid={checkOutInvalid}
         />
         <SummaryRow label="Số đêm" value={quote === null ? "—" : String(quote.nights)} />
+        {pricingError && (
+          <div className="flex items-center justify-between gap-2 py-1 text-xs text-danger">
+            <span>Không tải được bảng giá.</span>
+            {onRetryPricing && (
+              <button type="button" onClick={onRetryPricing} className="font-semibold underline hover:no-underline">
+                Thử lại
+              </button>
+            )}
+          </div>
+        )}
         <SummaryRow label="Chỗ ở / đêm" value={rate === null ? "—" : formatMoney(rate.pricePerNight)} />
         <SummaryRow label="Thức ăn / đêm" value={rate === null ? "—" : formatMoney(rate.foodPerNight)} />
       </div>

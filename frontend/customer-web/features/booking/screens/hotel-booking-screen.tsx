@@ -1,6 +1,6 @@
 "use client";
 
-import { keepPreviousData, skipToken, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { skipToken, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -9,7 +9,7 @@ import { Alert } from "@/components/feedback/alert";
 import { useToast } from "@/components/feedback/toast";
 import { Icon } from "@/components/icons";
 import { PageHeader } from "@/components/layout/page-header";
-import { ButtonLink } from "@/components/ui/button";
+import { ButtonLink, LinkButton } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
@@ -31,7 +31,6 @@ import {
   isBookingLockedError,
   isCheckOutNotAfter,
   isNoCapacityError,
-  isValidationError,
   NO_CAPACITY_REASON,
   toHotelBookingRequest,
   type HotelBookingFormValues,
@@ -44,10 +43,9 @@ import {
   mockGetHotelAvailability,
   mockGetHotelPricing,
 } from "@/features/booking/mock-hotel";
-import { getErrorMessage } from "@/lib/api/errors";
 import { formatDayAndTime } from "@/lib/format";
 import { ROUTES } from "@/lib/routes";
-import { buildStoreDateTime } from "@/lib/time";
+import { buildStoreDateTime, getStoreDateKey } from "@/lib/time";
 
 const DESCRIPTION = "Bé ở chuồng riêng hợp loài và kích cỡ, có thức ăn do cửa hàng chuẩn bị. Lưu trú không kèm dịch vụ spa.";
 
@@ -61,6 +59,7 @@ export function HotelBookingScreen() {
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const { showSuccess } = useToast();
+  const [todayKey] = useState(() => getStoreDateKey(new Date()));
   const [isBookingLocked, setIsBookingLocked] = useState(false);
 
   const {
@@ -89,7 +88,7 @@ export function HotelBookingScreen() {
 
   const pet = pets.find((item) => item.petId === petId);
   const stayValues = { checkInDate, checkInTime, checkOutDate, checkOutTime };
-  const stay = getStay(stayValues);
+  const stay = getStay(stayValues, todayKey);
   const stayKey = getStayKey(stay);
   const checkOutInvalid = isCheckOutNotAfter(stayValues);
 
@@ -107,7 +106,6 @@ export function HotelBookingScreen() {
       pet !== undefined && settledStay !== null
         ? () => mockGetHotelAvailability({ petId: pet.petId, from: settledStay.from, to: settledStay.to })
         : skipToken,
-    placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
   });
   const pricingQuery = useQuery({ queryKey: HOTEL_PRICING_QUERY_KEY, queryFn: mockGetHotelPricing });
@@ -166,8 +164,6 @@ export function HotelBookingScreen() {
 
   const availability = availabilityQuery.data;
   const isNoCapacity = submitError !== null && isNoCapacityError(submitError);
-  const checkOutDateServerError =
-    submitError !== null && isValidationError(submitError) ? getErrorMessage(submitError) : undefined;
   const generalError =
     submitError !== null &&
     !isNoCapacityError(submitError) &&
@@ -175,7 +171,9 @@ export function HotelBookingScreen() {
       ? submitError
       : null;
 
-  const isChecking = settledStay === null || (availabilityQuery.isLoading && !availabilityQuery.isPlaceholderData);
+  const isChecking =
+    stay !== null &&
+    (settledStay === null || availabilityQuery.isPending || (availabilityQuery.isError && availabilityQuery.isFetching));
 
   let notice: HotelAvailabilityNoticeState = { kind: "idle" };
   if (isBookingLocked) {
@@ -233,7 +231,12 @@ export function HotelBookingScreen() {
         <div className="grid grid-cols-[minmax(0,1fr)_360px] items-start gap-6 max-[1180px]:grid-cols-1">
           <div className="flex flex-col gap-4">
             <Card>
-              <CardHeader title="Chọn thú cưng" />
+              <CardHeader title="Chọn thú cưng">
+                <LinkButton href={ROUTES.petCreate}>
+                  <Icon name="plus" className="size-3.5" />
+                  Thêm thú cưng
+                </LinkButton>
+              </CardHeader>
               <CardBody>
                 <HotelPetPicker pets={pets} selectedPetId={petId} onSelect={(id) => setValue("petId", id)} />
               </CardBody>
@@ -242,7 +245,7 @@ export function HotelBookingScreen() {
             <HotelStayForm
               register={register}
               errors={errors}
-              checkOutDateServerError={checkOutDateServerError}
+              todayKey={todayKey}
               onCheckInDateChange={revalidateCheckOutDate}
             >
               <HotelAvailabilityNotice notice={notice} onRetry={() => void availabilityQuery.refetch()} />
@@ -267,6 +270,8 @@ export function HotelBookingScreen() {
             quote={quote}
             submitError={generalError}
             isSubmitting={isPending}
+            pricingError={pricingQuery.isError}
+            onRetryPricing={() => void pricingQuery.refetch()}
             lockReason={lockReason}
           />
         </div>

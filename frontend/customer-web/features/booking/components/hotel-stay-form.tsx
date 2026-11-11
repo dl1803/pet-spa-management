@@ -8,16 +8,15 @@ import {
   CHECK_IN_TIME_REQUIRED_MESSAGE,
   CHECK_OUT_DATE_REQUIRED_MESSAGE,
   CHECK_OUT_TIME_REQUIRED_MESSAGE,
+  validateCheckInDate,
   validateCheckOutDate,
   type HotelBookingFormValues,
 } from "@/features/booking/forms";
-import { getStoreDateKey } from "@/lib/time";
 
 type HotelStayFormProps = {
   register: UseFormRegister<HotelBookingFormValues>;
   errors: FieldErrors<HotelBookingFormValues>;
-  // Lỗi 400 từ lần gửi gần nhất, hiện dưới ô Ngày trả.
-  checkOutDateServerError?: string;
+  todayKey: string;
   // Đổi ngày nhận thì kiểm tra lại ô Ngày trả.
   onCheckInDateChange: () => void;
   children: ReactNode;
@@ -26,12 +25,10 @@ type HotelStayFormProps = {
 export function HotelStayForm({
   register,
   errors,
-  checkOutDateServerError,
+  todayKey,
   onCheckInDateChange,
   children,
 }: HotelStayFormProps) {
-  const todayKey = getStoreDateKey(new Date());
-
   return (
     <Card>
       <CardHeader title="Thời gian gửi và đón" />
@@ -46,6 +43,7 @@ export function HotelStayForm({
                 {...control}
                 {...register("checkInDate", {
                   required: CHECK_IN_DATE_REQUIRED_MESSAGE,
+                  validate: (value) => validateCheckInDate(value, todayKey),
                   onChange: onCheckInDateChange,
                 })}
               />
@@ -60,7 +58,7 @@ export function HotelStayForm({
             id="hotel-check-out-date"
             label="Ngày trả"
             required
-            error={errors.checkOutDate?.message ?? checkOutDateServerError}
+            error={errors.checkOutDate?.message}
           >
             {(control) => (
               <Input

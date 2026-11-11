@@ -1,6 +1,6 @@
 import { toApiError } from "@/lib/api/errors";
 import type { HotelBookingRequest, HotelPricingRow, Pet, PricingRow, Service, SpaBookingRequest } from "@/lib/api/types";
-import { formatNameList, formatShortDate } from "@/lib/format";
+import { formatDate, formatNameList, formatShortDate } from "@/lib/format";
 import { SIZE_GROUP_LABELS, SPECIES_LABELS } from "@/lib/labels";
 import { addDaysToDateKey, buildStoreDateTime, getStoreDateKey } from "@/lib/time";
 
@@ -143,6 +143,7 @@ export const CHECK_IN_TIME_REQUIRED_MESSAGE = "Vui lòng chọn giờ nhận.";
 export const CHECK_OUT_DATE_REQUIRED_MESSAGE = "Vui lòng chọn ngày trả.";
 export const CHECK_OUT_TIME_REQUIRED_MESSAGE = "Vui lòng chọn giờ trả.";
 export const CHECK_OUT_NOT_AFTER_MESSAGE = "Ngày trả phải sau ngày nhận.";
+export const CHECK_IN_PAST_MESSAGE = "Ngày nhận không thể ở quá khứ.";
 export const NO_CAPACITY_TITLE = "Hết chỗ";
 export const NO_CAPACITY_MESSAGE = "Hết chỗ trong thời gian này, vui lòng chọn ngày khác.";
 export const NO_CAPACITY_REASON = "Hết chỗ trong thời gian đã chọn.";
@@ -152,6 +153,15 @@ export function isValidDateKey(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const time = Date.parse(`${value}T00:00:00Z`);
   return !Number.isNaN(time);
+}
+
+export function isCheckInPast(checkInDate: string, todayKey: string) {
+  if (checkInDate === "" || !isValidDateKey(checkInDate)) return false;
+  return checkInDate < todayKey;
+}
+
+export function validateCheckInDate(checkInDate: string, todayKey: string): true | string {
+  return !isCheckInPast(checkInDate, todayKey) || CHECK_IN_PAST_MESSAGE;
 }
 
 // Ngày trả phải sau ngày nhận; chỉ so sánh khi cả hai ngày đã nhập và hợp lệ.
@@ -169,10 +179,11 @@ export function validateCheckOutDate(
 }
 
 // Khoảng lưu trú hợp lệ để hỏi chỗ trống; null khi thiếu ô hoặc ngày trả không sau ngày nhận.
-export function getStay(values: Omit<HotelBookingFormValues, "petId">): HotelStay | null {
+export function getStay(values: Omit<HotelBookingFormValues, "petId">, todayKey?: string): HotelStay | null {
   const { checkInDate, checkInTime, checkOutDate, checkOutTime } = values;
   if (checkInDate === "" || checkInTime === "" || checkOutDate === "" || checkOutTime === "") return null;
   if (!isValidDateKey(checkInDate) || !isValidDateKey(checkOutDate)) return null;
+  if (todayKey !== undefined && isCheckInPast(checkInDate, todayKey)) return null;
   if (isCheckOutNotAfter(values)) return null;
   return {
     from: buildStoreDateTime(checkInDate, checkInTime),
@@ -198,8 +209,12 @@ export function formatNightList(checkIn: string, nights: number) {
   if (nights <= 0) return "";
   const startKey = getStoreDateKey(checkIn);
   if (nights > 7) {
+    const endKey = addDaysToDateKey(startKey, nights - 1);
     const fromLabel = formatShortDate(buildStoreDateTime(startKey, "12:00"));
-    const toLabel = formatShortDate(buildStoreDateTime(addDaysToDateKey(startKey, nights - 1), "12:00"));
+    const toLabel =
+      startKey.slice(0, 4) !== endKey.slice(0, 4)
+        ? formatDate(buildStoreDateTime(endKey, "12:00"))
+        : formatShortDate(buildStoreDateTime(endKey, "12:00"));
     return `từ ${fromLabel} đến ${toLabel}`;
   }
   const labels = Array.from({ length: nights }, (_, index) =>
