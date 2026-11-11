@@ -13,6 +13,9 @@ public static class PricingService
         IEnumerable<Guid> serviceIds,
         IReadOnlyCollection<ServicePricing> pricing)
     {
+        ArgumentNullException.ThrowIfNull(serviceIds);
+        ArgumentNullException.ThrowIfNull(pricing);
+
         var prices = new List<SpaServicePrice>();
 
         foreach (var serviceId in serviceIds)
@@ -42,6 +45,11 @@ public static class PricingService
         DateOnly checkOutDate,
         IReadOnlyCollection<HotelPricing> pricing)
     {
+        ArgumentNullException.ThrowIfNull(pricing);
+
+        if (checkOutDate <= checkInDate)
+            throw new ArgumentException("Ngày trả phòng phải sau ngày nhận phòng ít nhất 1 đêm.");
+
         var row = pricing.FirstOrDefault(p => p.Species == species && p.SizeGroup == sizeGroup)
             ?? throw new InvalidOperationException(
                 $"Thiếu giá lưu trú của loài {species}, nhóm kích cỡ {sizeGroup}.");
@@ -58,10 +66,22 @@ public static class PricingService
         int blockMinutes,
         decimal feePerBlock)
     {
+        if (blockMinutes <= 0)
+            throw new ArgumentOutOfRangeException(nameof(blockMinutes), "Block minutes phải lớn hơn 0.");
+
+        if (graceMinutes < 0)
+            throw new ArgumentOutOfRangeException(nameof(graceMinutes), "Grace minutes không được âm.");
+
+        if (feePerBlock < 0)
+            throw new ArgumentOutOfRangeException(nameof(feePerBlock), "Fee per block không được âm.");
+
         var excess = actualCheckOut - plannedCheckOut - TimeSpan.FromMinutes(graceMinutes);
         if (excess <= TimeSpan.Zero) return 0m;
 
-        var blocks = Math.Ceiling(excess / TimeSpan.FromMinutes(blockMinutes));
-        return (decimal)blocks * feePerBlock;
+        long excessTicks = excess.Ticks;
+        long blockTicks = TimeSpan.FromMinutes(blockMinutes).Ticks;
+        long blocks = (excessTicks + blockTicks - 1) / blockTicks;
+
+        return blocks * feePerBlock;
     }
 }

@@ -128,6 +128,33 @@ public class PricingServiceTests
     }
 
     [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(-5)]
+    public void StayAmount_WhenCheckOutDateNotAfterCheckInDate_ThrowsArgumentException(int nightDelta)
+    {
+        var checkIn = new DateOnly(2026, 11, 10);
+        var checkOut = checkIn.AddDays(nightDelta);
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            PricingService.StayAmount(Species.Dog, SizeGroup.Small, checkIn, checkOut, HotelPrices));
+
+        Assert.Contains("sau ngày nhận phòng ít nhất 1 đêm", ex.Message);
+    }
+
+    [Fact]
+    public void StayAmount_WhenPricingNull_ThrowsArgumentNullException()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+            PricingService.StayAmount(
+                Species.Dog,
+                SizeGroup.Small,
+                new DateOnly(2026, 11, 10),
+                new DateOnly(2026, 11, 12),
+                null!));
+    }
+
+    [Theory]
     [InlineData(-120, 0)]
     [InlineData(0, 0)]
     [InlineData(30, 0)]
@@ -167,5 +194,35 @@ public class PricingServiceTests
         var fee = PricingService.LateFee(PlannedCheckOut, actualCheckOut, 15, 30, FeePerBlock);
 
         Assert.Equal(expectedBlocks * FeePerBlock, fee);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(-60)]
+    public void LateFee_WhenBlockMinutesZeroOrNegative_ThrowsArgumentOutOfRangeException(int blockMinutes)
+    {
+        var actual = PlannedCheckOut.AddMinutes(45);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            PricingService.LateFee(PlannedCheckOut, actual, 30, blockMinutes, FeePerBlock));
+    }
+
+    [Fact]
+    public void LateFee_WhenGraceMinutesNegative_ThrowsArgumentOutOfRangeException()
+    {
+        var actual = PlannedCheckOut.AddMinutes(45);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            PricingService.LateFee(PlannedCheckOut, actual, -1, 60, FeePerBlock));
+    }
+
+    [Fact]
+    public void LateFee_WhenFeePerBlockNegative_ThrowsArgumentOutOfRangeException()
+    {
+        var actual = PlannedCheckOut.AddMinutes(45);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            PricingService.LateFee(PlannedCheckOut, actual, 30, 60, -10_000m));
     }
 }
