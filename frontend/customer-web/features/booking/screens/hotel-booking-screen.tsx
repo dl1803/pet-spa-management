@@ -108,6 +108,7 @@ export function HotelBookingScreen() {
         ? () => mockGetHotelAvailability({ petId: pet.petId, from: settledStay.from, to: settledStay.to })
         : skipToken,
     placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
   });
   const pricingQuery = useQuery({ queryKey: HOTEL_PRICING_QUERY_KEY, queryFn: mockGetHotelPricing });
 
@@ -118,9 +119,9 @@ export function HotelBookingScreen() {
     reset: resetSubmit,
   } = useMutation({
     mutationFn: mockCreateHotelAppointment,
-    onSuccess: async () => {
+    onSuccess: () => {
       showSuccess("Đã gửi yêu cầu lưu trú");
-      await queryClient.invalidateQueries({ queryKey: HOTEL_AVAILABILITY_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: HOTEL_AVAILABILITY_QUERY_KEY });
       // Chi tiết lịch hẹn chưa có route, nên về danh sách lịch hẹn như luồng đặt lịch spa.
       router.push(ROUTES.appointments);
     },
@@ -129,6 +130,13 @@ export function HotelBookingScreen() {
       if (isBookingLockedError(failure)) setIsBookingLocked(true);
     },
   });
+
+  // Đồng bộ petId khi danh sách thú cưng tải xong hoặc thay đổi.
+  useEffect(() => {
+    if (getValues("petId") === "" && pets.length > 0) {
+      setValue("petId", getInitialPetId(pets, searchParams.get("petId")));
+    }
+  }, [pets, searchParams, setValue, getValues]);
 
   // Đổi thú cưng hoặc khoảng lưu trú thì bỏ lỗi của lần gửi trước.
   useEffect(() => {
@@ -163,10 +171,11 @@ export function HotelBookingScreen() {
   const generalError =
     submitError !== null &&
     !isNoCapacityError(submitError) &&
-    !isBookingLockedError(submitError) &&
-    !isValidationError(submitError)
+    !isBookingLockedError(submitError)
       ? submitError
       : null;
+
+  const isChecking = settledStay === null || (availabilityQuery.isLoading && !availabilityQuery.isPlaceholderData);
 
   let notice: HotelAvailabilityNoticeState = { kind: "idle" };
   if (isBookingLocked) {
@@ -174,7 +183,7 @@ export function HotelBookingScreen() {
   } else if (stay !== null) {
     if (isNoCapacity) {
       notice = { kind: "full" };
-    } else if (settledStay === null || availabilityQuery.isFetching) {
+    } else if (isChecking) {
       notice = { kind: "checking" };
     } else if (availabilityQuery.error !== null) {
       notice = { kind: "error", error: availabilityQuery.error };
@@ -198,9 +207,13 @@ export function HotelBookingScreen() {
     ? BOOKING_LOCKED_REASON
     : notice.kind === "full"
       ? NO_CAPACITY_REASON
-      : checkOutInvalid
-        ? CHECK_OUT_NOT_AFTER_MESSAGE
-        : null;
+      : notice.kind === "error"
+        ? "Chưa kiểm tra được chỗ trống, vui lòng thử lại."
+        : notice.kind === "checking"
+          ? "Đang kiểm tra chỗ trống, vui lòng đợi trong giây lát."
+          : checkOutInvalid
+            ? CHECK_OUT_NOT_AFTER_MESSAGE
+            : null;
 
   // Chỉ kiểm tra lại khi ngày trả đã nhập, để không báo thiếu ngày trả quá sớm.
   function revalidateCheckOutDate() {
@@ -209,7 +222,7 @@ export function HotelBookingScreen() {
 
   function onSubmit() {
     if (isPending || pet === undefined || stay === null) return;
-    if (notice.kind === "checking" || notice.kind === "full" || notice.kind === "locked") return;
+    if (notice.kind === "checking" || notice.kind === "full" || notice.kind === "locked" || notice.kind === "error") return;
     mutate(toHotelBookingRequest(pet.petId, stay));
   }
 
@@ -263,6 +276,9 @@ export function HotelBookingScreen() {
 }
 
 function toDayAndTime(date: string, time: string) {
-  return date === "" || time === "" ? null : formatDayAndTime(buildStoreDateTime(date, time));
+  if (date === "" || time === "" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const iso = buildStoreDateTime(date, time);
+  if (Number.isNaN(Date.parse(iso))) return null;
+  return formatDayAndTime(iso);
 }
 

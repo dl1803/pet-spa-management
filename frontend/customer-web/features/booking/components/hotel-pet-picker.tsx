@@ -23,9 +23,9 @@ export function HotelPetPicker({ pets, selectedPetId, onSelect }: HotelPetPicker
             onChange={() => onSelect(item.petId)}
           >
             <PetAvatar species={item.species} />
-            <div>
-              <div className="font-semibold">{item.name}</div>
-              <div className="text-xs text-muted">
+            <div className="min-w-0">
+              <div className="font-semibold truncate">{item.name}</div>
+              <div className="text-xs text-muted break-words">
                 {`${SPECIES_LABELS[item.species]} ${item.breed}, nhóm ${SIZE_GROUP_LABELS[item.sizeGroup]}`}
               </div>
             </div>

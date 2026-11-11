@@ -1,6 +1,6 @@
 import { toApiError } from "@/lib/api/errors";
 import type { HotelBookingRequest, HotelPricingRow, Pet, PricingRow, Service, SpaBookingRequest } from "@/lib/api/types";
-import { formatShortDate } from "@/lib/format";
+import { formatNameList, formatShortDate } from "@/lib/format";
 import { SIZE_GROUP_LABELS, SPECIES_LABELS } from "@/lib/labels";
 import { addDaysToDateKey, buildStoreDateTime, getStoreDateKey } from "@/lib/time";
 
@@ -148,9 +148,17 @@ export const NO_CAPACITY_MESSAGE = "Hết chỗ trong thời gian này, vui lòn
 export const NO_CAPACITY_REASON = "Hết chỗ trong thời gian đã chọn.";
 export const BOOKING_LOCKED_REASON = "Tài khoản tạm thời không thể tự đặt lịch.";
 
-// Ngày trả phải sau ngày nhận; chỉ so sánh khi cả hai ngày đã nhập.
+export function isValidDateKey(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const time = Date.parse(`${value}T00:00:00Z`);
+  return !Number.isNaN(time);
+}
+
+// Ngày trả phải sau ngày nhận; chỉ so sánh khi cả hai ngày đã nhập và hợp lệ.
 export function isCheckOutNotAfter(values: Pick<HotelBookingFormValues, "checkInDate" | "checkOutDate">) {
-  return values.checkInDate !== "" && values.checkOutDate !== "" && values.checkOutDate <= values.checkInDate;
+  if (values.checkInDate === "" || values.checkOutDate === "") return false;
+  if (!isValidDateKey(values.checkInDate) || !isValidDateKey(values.checkOutDate)) return true;
+  return Date.parse(values.checkOutDate) <= Date.parse(values.checkInDate);
 }
 
 export function validateCheckOutDate(
@@ -164,6 +172,7 @@ export function validateCheckOutDate(
 export function getStay(values: Omit<HotelBookingFormValues, "petId">): HotelStay | null {
   const { checkInDate, checkInTime, checkOutDate, checkOutTime } = values;
   if (checkInDate === "" || checkInTime === "" || checkOutDate === "" || checkOutTime === "") return null;
+  if (!isValidDateKey(checkInDate) || !isValidDateKey(checkOutDate)) return null;
   if (isCheckOutNotAfter(values)) return null;
   return {
     from: buildStoreDateTime(checkInDate, checkInTime),
@@ -184,19 +193,30 @@ export function findHotelPricingRow(rows: HotelPricingRow[], pet: Pet): HotelPri
   return rows.find((row) => row.species === pet.species && row.sizeGroup === pet.sizeGroup) ?? null;
 }
 
-// Liệt kê ngày của các đêm: "16/10 và 17/10", "16/10, 17/10 và 18/10".
+// Liệt kê ngày của các đêm; rút gọn khi nhiều hơn 7 đêm.
 export function formatNightList(checkIn: string, nights: number) {
+  if (nights <= 0) return "";
   const startKey = getStoreDateKey(checkIn);
+  if (nights > 7) {
+    const fromLabel = formatShortDate(buildStoreDateTime(startKey, "12:00"));
+    const toLabel = formatShortDate(buildStoreDateTime(addDaysToDateKey(startKey, nights - 1), "12:00"));
+    return `từ ${fromLabel} đến ${toLabel}`;
+  }
   const labels = Array.from({ length: nights }, (_, index) =>
     formatShortDate(buildStoreDateTime(addDaysToDateKey(startKey, index), "12:00")),
   );
-  if (labels.length <= 1) return labels.join("");
-  return `${labels.slice(0, -1).join(", ")} và ${labels[labels.length - 1]}`;
+  return formatNameList(labels);
 }
 
 // Số đêm lấy từ server (HotelAvailability.nights), web không tự tính.
 export function describeAvailable(pet: Pet, stay: HotelStay, nights: number) {
-  return `Còn chuồng phù hợp cho ${SPECIES_LABELS[pet.species].toLocaleLowerCase("vi-VN")} nhóm ${SIZE_GROUP_LABELS[pet.sizeGroup]} trong cả ${nights} đêm ${formatNightList(stay.from, nights)}.`;
+  const speciesLabel = SPECIES_LABELS[pet.species].toLocaleLowerCase("vi-VN");
+  const sizeLabel = SIZE_GROUP_LABELS[pet.sizeGroup];
+  if (nights <= 0) {
+    return `Còn chuồng phù hợp cho ${speciesLabel} nhóm ${sizeLabel}.`;
+  }
+  const nightText = nights > 7 ? `trong ${nights} đêm (${formatNightList(stay.from, nights)})` : `trong cả ${nights} đêm ${formatNightList(stay.from, nights)}`;
+  return `Còn chuồng phù hợp cho ${speciesLabel} nhóm ${sizeLabel} ${nightText}.`;
 }
 
 export function isNoCapacityError(error: unknown) {

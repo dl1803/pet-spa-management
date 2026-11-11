@@ -23,9 +23,14 @@ const MOCK_DELAY_MS = 600;
 const SATURDAY = 6;
 const MAX_AVAILABLE_NIGHTS = 6;
 
-// Khoảng vừa bị 409 NO_CAPACITY, khóa dạng "from|to", để lần kiểm tra lại thấy đã kín.
+// Khoảng vừa bị 409 NO_CAPACITY theo loài và nhóm kích cỡ, để lần kiểm tra lại thấy đã kín.
 const justFilledStays = new Set<string>();
 let createdCount = 0;
+
+function getCapacityKey(petId: string, from: string, to: string) {
+  const pet = MOCK_PETS.find((item) => item.petId === petId);
+  return pet ? `${pet.species}|${pet.sizeGroup}|${from}|${to}` : `${from}|${to}`;
+}
 
 function wait() {
   return new Promise<void>((resolve) => setTimeout(resolve, MOCK_DELAY_MS));
@@ -53,7 +58,7 @@ function getQuote(petId: string, from: string, to: string) {
   const row = findHotelPricingRow(MOCK_HOTEL_PRICING.pricing, pet);
   if (!row) throw invalidRequest();
 
-  const available = nights <= MAX_AVAILABLE_NIGHTS && !justFilledStays.has(`${from}|${to}`);
+  const available = nights <= MAX_AVAILABLE_NIGHTS && !justFilledStays.has(getCapacityKey(petId, from, to));
   return { nights, available, estimatedAmount: nights * (row.pricePerNight + row.foodPerNight) };
 }
 
@@ -113,7 +118,7 @@ export async function mockCreateHotelAppointment(request: HotelBookingRequest): 
   // plannedCheckOut luôn có dạng "YYYY-MM-DDTHH:mm:00+07:00" (buildStoreDateTime).
   const failure = getCreateFailure(request.plannedCheckOut.slice(11, 16));
   if (failure) {
-    if (failure.code === "NO_CAPACITY") justFilledStays.add(`${request.plannedCheckIn}|${request.plannedCheckOut}`);
+    if (failure.code === "NO_CAPACITY") justFilledStays.add(getCapacityKey(request.petId, request.plannedCheckIn, request.plannedCheckOut));
     throw failure;
   }
   if (!available) throw noCapacity();

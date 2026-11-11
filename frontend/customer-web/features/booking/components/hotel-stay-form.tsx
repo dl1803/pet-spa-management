@@ -11,6 +11,7 @@ import {
   validateCheckOutDate,
   type HotelBookingFormValues,
 } from "@/features/booking/forms";
+import { getStoreDateKey } from "@/lib/time";
 
 type HotelStayFormProps = {
   register: UseFormRegister<HotelBookingFormValues>;
@@ -29,6 +30,8 @@ export function HotelStayForm({
   onCheckInDateChange,
   children,
 }: HotelStayFormProps) {
+  const todayKey = getStoreDateKey(new Date());
+
   return (
     <Card>
       <CardHeader title="Thời gian gửi và đón" />
@@ -38,6 +41,8 @@ export function HotelStayForm({
             {(control) => (
               <Input
                 type="date"
+                min={todayKey}
+                max="9999-12-31"
                 {...control}
                 {...register("checkInDate", {
                   required: CHECK_IN_DATE_REQUIRED_MESSAGE,
@@ -60,6 +65,7 @@ export function HotelStayForm({
             {(control) => (
               <Input
                 type="date"
+                max="9999-12-31"
                 {...control}
                 {...register("checkOutDate", {
                   required: CHECK_OUT_DATE_REQUIRED_MESSAGE,
