@@ -216,5 +216,27 @@ public class SlotServiceTests
 
         Assert.Equal(new[] { "An" }, NamesOf(result));
     }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void AvailableStaff_WhenHoldStartNotBeforeHoldEnd_ThrowsArgumentException(int minutesDelta)
+    {
+        var staff = Candidate("An");
+        var start = HoldStart;
+        var end = start.AddMinutes(-minutesDelta);
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            SlotService.AvailableStaff([staff], [ShiftOf(staff, 8, 22)], [], start, end));
+
+        Assert.Contains("holdStart phải nhỏ hơn holdEnd", ex.Message);
+    }
+
+    [Fact]
+    public void AvailableStaff_WhenCandidatesNull_ThrowsArgumentNullException()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+            SlotService.AvailableStaff(null!, [], [], HoldStart, HoldEnd));
+    }
 }
 

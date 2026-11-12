@@ -860,9 +860,10 @@ var tests = new (string Name, Func<Task> Run)[]
         var service = new AppointmentQueryService(repo, new TestPetRepo(pet, Guid.NewGuid()));
 
         var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
-        await service.ListAsync(manager, null, AppointmentStatus.Pending, null, 1, 20);
-        Check(repo.ListAllCalls == 1 && repo.ListByCustomerCalls == 0,
-            "Manager must be served by the store-wide query.");
+        var targetPetId = Guid.NewGuid();
+        await service.ListAsync(manager, null, AppointmentStatus.Pending, targetPetId, 1, 20);
+        Check(repo.ListAllCalls == 1 && repo.ListByCustomerCalls == 0 && repo.LastListAllPetId == targetPetId,
+            "Manager must be served by the store-wide query with petId passed.");
 
         var customer = new CurrentUser(Guid.NewGuid(), UserRole.Customer);
         await service.ListAsync(customer, null, null, null, 1, 20);
@@ -1107,6 +1108,7 @@ sealed class TestAppointmentQueryRepo : IAppointmentQueryRepository
 {
     public int ListAllCalls { get; private set; }
     public int ListByCustomerCalls { get; private set; }
+    public Guid? LastListAllPetId { get; private set; }
 
     public Task<PagedResult<AppointmentListItem>> ListByCustomerUserAsync(
         Guid customerUserId, AppointmentType? type, AppointmentStatus? status, Guid? petId, int page, int pageSize,
@@ -1117,9 +1119,10 @@ sealed class TestAppointmentQueryRepo : IAppointmentQueryRepository
     }
 
     public Task<PagedResult<AppointmentListItem>> ListAllAsync(
-        AppointmentType? type, AppointmentStatus? status, int page, int pageSize, CancellationToken ct = default)
+        AppointmentType? type, AppointmentStatus? status, Guid? petId, int page, int pageSize, CancellationToken ct = default)
     {
         ListAllCalls++;
+        LastListAllPetId = petId;
         return Task.FromResult(new PagedResult<AppointmentListItem>([], page, pageSize, 0));
     }
 

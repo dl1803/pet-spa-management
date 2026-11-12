@@ -73,6 +73,13 @@ public static class SlotService
         DateTimeOffset holdStart,
         DateTimeOffset holdEnd)
     {
+        ArgumentNullException.ThrowIfNull(candidates);
+        ArgumentNullException.ThrowIfNull(shifts);
+        ArgumentNullException.ThrowIfNull(busy);
+
+        if (holdStart >= holdEnd)
+            throw new ArgumentException("holdStart phải nhỏ hơn holdEnd.");
+
         return candidates
             .Where(c => shifts.Any(s => s.StaffId == c.StaffId && s.Start <= holdStart && s.End >= holdEnd))
             .Where(c => !busy.Any(b => b.StaffId == c.StaffId && b.Start < holdEnd && b.BusyUntil > holdStart))

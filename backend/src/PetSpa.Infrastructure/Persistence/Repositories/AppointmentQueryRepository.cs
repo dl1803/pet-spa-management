@@ -43,7 +43,7 @@ public sealed class AppointmentQueryRepository(AppDbContext db) : IAppointmentQu
     }
 
     public async Task<PagedResult<AppointmentListItem>> ListAllAsync(
-        AppointmentType? type, AppointmentStatus? status, int page, int pageSize, CancellationToken ct = default)
+        AppointmentType? type, AppointmentStatus? status, Guid? petId, int page, int pageSize, CancellationToken ct = default)
     {
         var appointments = db.Set<Appointment>().AsNoTracking();
 
@@ -51,6 +51,8 @@ public sealed class AppointmentQueryRepository(AppDbContext db) : IAppointmentQu
         else if (type == AppointmentType.Hotel) appointments = appointments.Where(a => a is HotelAppointment);
 
         if (status is { } wantedStatus) appointments = appointments.Where(a => a.Status == wantedStatus);
+
+        if (petId is { } wantedPetId) appointments = appointments.Where(a => a.PetId == wantedPetId);
 
         var query =
             from a in appointments

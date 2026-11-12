@@ -14,7 +14,7 @@ public sealed class AppointmentQueryService(IAppointmentQueryRepository appointm
         CancellationToken ct = default)
     {
         if (user.Role == UserRole.Manager)
-            return await appointments.ListAllAsync(type, status, page, pageSize, ct);
+            return await appointments.ListAllAsync(type, status, petId, page, pageSize, ct);
 
         EnsureCustomer(user);
 
