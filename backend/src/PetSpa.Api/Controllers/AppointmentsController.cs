@@ -37,9 +37,9 @@ public sealed class AppointmentsController(
     }
 
     [HttpGet]
-    [Authorize(Policy = AuthorizationPolicies.Customer)]
-    [EndpointSummary("Khách hàng xem danh sách lịch hẹn của mình")]
-    [EndpointDescription("Lọc tùy chọn theo type (Spa, Hotel), status và petId. Xem lịch sử sử dụng dịch vụ: status = Completed kèm petId; thú cưng không thuộc khách trả 403 FORBIDDEN, không tìm thấy trả 404. Mặc định page = 1, pageSize = 20 (tối đa 100).")]
+    [Authorize(Policy = AuthorizationPolicies.CustomerOrManager)]
+    [EndpointSummary("Khách hàng xem lịch hẹn của mình; quản lý xem lịch hẹn toàn cửa hàng")]
+    [EndpointDescription("Khách hàng: chỉ lịch hẹn của mình, lọc tùy chọn theo type (Spa, Hotel), status và petId. Xem lịch sử sử dụng dịch vụ: status = Completed kèm petId; thú cưng không thuộc khách trả 403 FORBIDDEN, không tìm thấy trả 404. Quản lý: toàn cửa hàng, lọc tùy chọn theo type, status (status = Pending cho danh sách Chờ xác nhận) và petId, lịch tạo sớm nhất trước. Lễ tân, nhân viên spa nhận 403 FORBIDDEN cho tới khi có phạm vi riêng. Mặc định page = 1, pageSize = 20 (tối đa 100).")]
     public async Task<IActionResult> List([FromQuery] ListAppointmentsQuery query, CancellationToken ct)
     {
         var result = await appointmentQueryService.ListAsync(

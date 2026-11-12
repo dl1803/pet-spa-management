@@ -42,6 +42,35 @@ public sealed class AppointmentQueryRepository(AppDbContext db) : IAppointmentQu
         return new PagedResult<AppointmentListItem>(items, page, pageSize, total);
     }
 
+    public async Task<PagedResult<AppointmentListItem>> ListAllAsync(
+        AppointmentType? type, AppointmentStatus? status, Guid? petId, int page, int pageSize, CancellationToken ct = default)
+    {
+        var appointments = db.Set<Appointment>().AsNoTracking();
+
+        if (type == AppointmentType.Spa) appointments = appointments.Where(a => a is SpaAppointment);
+        else if (type == AppointmentType.Hotel) appointments = appointments.Where(a => a is HotelAppointment);
+
+        if (status is { } wantedStatus) appointments = appointments.Where(a => a.Status == wantedStatus);
+
+        if (petId is { } wantedPetId) appointments = appointments.Where(a => a.PetId == wantedPetId);
+
+        var query =
+            from a in appointments
+            join p in db.Set<Pet>() on a.PetId equals p.PetId
+            select new { Appointment = a, PetName = p.Name };
+
+        var total = await query.CountAsync(ct);
+        var rows = await query
+            .OrderBy(x => x.Appointment.CreatedAt)
+            .ThenBy(x => x.Appointment.AppointmentId)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        var items = rows.Select(r => new AppointmentListItem(r.Appointment, r.PetName)).ToList();
+        return new PagedResult<AppointmentListItem>(items, page, pageSize, total);
+    }
+
     public async Task<AppointmentDetailData?> FindDetailAsync(Guid appointmentId, CancellationToken ct = default)
     {
         var row = await (

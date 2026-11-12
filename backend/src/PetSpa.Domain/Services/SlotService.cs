@@ -10,6 +10,10 @@ public sealed record SlotStaffShift(Guid StaffId, DateTimeOffset Start, DateTime
 
 public sealed record SlotHeldBooking(DateTimeOffset Start, DateTimeOffset BusyUntil, int StaffRequired);
 
+public sealed record SlotStaffCandidate(Guid StaffId, string FullName);
+
+public sealed record SlotStaffBusy(Guid StaffId, DateTimeOffset Start, DateTimeOffset BusyUntil);
+
 public static class SlotService
 {
     private static readonly TimeOnly AfternoonStart = new(12, 0);
@@ -60,6 +64,26 @@ public static class SlotService
         }
 
         return results;
+    }
+
+    public static IReadOnlyList<SlotStaffCandidate> AvailableStaff(
+        IReadOnlyList<SlotStaffCandidate> candidates,
+        IReadOnlyList<SlotStaffShift> shifts,
+        IReadOnlyList<SlotStaffBusy> busy,
+        DateTimeOffset holdStart,
+        DateTimeOffset holdEnd)
+    {
+        ArgumentNullException.ThrowIfNull(candidates);
+        ArgumentNullException.ThrowIfNull(shifts);
+        ArgumentNullException.ThrowIfNull(busy);
+
+        if (holdStart >= holdEnd)
+            throw new ArgumentException("holdStart phải nhỏ hơn holdEnd.");
+
+        return candidates
+            .Where(c => shifts.Any(s => s.StaffId == c.StaffId && s.Start <= holdStart && s.End >= holdEnd))
+            .Where(c => !busy.Any(b => b.StaffId == c.StaffId && b.Start < holdEnd && b.BusyUntil > holdStart))
+            .ToList();
     }
 
     private static int PeakLoad(IReadOnlyList<SlotHeldBooking> held, DateTimeOffset from, DateTimeOffset to)

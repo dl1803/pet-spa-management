@@ -30,6 +30,9 @@ public interface IAppointmentQueryRepository
         Guid customerUserId, AppointmentType? type, AppointmentStatus? status, Guid? petId, int page, int pageSize,
         CancellationToken ct = default);
 
+    Task<PagedResult<AppointmentListItem>> ListAllAsync(
+        AppointmentType? type, AppointmentStatus? status, Guid? petId, int page, int pageSize, CancellationToken ct = default);
+
     // Chi tiết một lịch hẹn theo id; null nếu không có. Lịch lưu trú trả hai danh sách rỗng.
     Task<AppointmentDetailData?> FindDetailAsync(Guid appointmentId, CancellationToken ct = default);
 }
