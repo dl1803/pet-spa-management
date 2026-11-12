@@ -125,5 +125,96 @@ public class SlotServiceTests
         Assert.Equal(SlotStatus.Full, StatusOf(10, 120, 2, shifts, held));
         Assert.Equal(SlotStatus.Available, StatusOf(10, 120, 1, shifts, held));
     }
+
+    private static readonly DateTimeOffset HoldStart = At(10);
+    private static readonly DateTimeOffset HoldEnd = At(12, 15);
+
+    private static SlotStaffCandidate Candidate(string name) => new(Guid.NewGuid(), name);
+
+    private static SlotStaffShift ShiftOf(SlotStaffCandidate c, int fromHour, int toHour) =>
+        new(c.StaffId, At(fromHour), At(toHour));
+
+    private static SlotStaffBusy BusyOf(
+        SlotStaffCandidate c, int fromHour, int fromMinute, int toHour, int toMinute) =>
+        new(c.StaffId, At(fromHour, fromMinute), At(toHour, toMinute));
+
+    private static string[] NamesOf(IReadOnlyList<SlotStaffCandidate> list) =>
+        list.Select(x => x.FullName).ToArray();
+
+    [Fact]
+    public void AvailableStaff_OnlyStaffWhoseShiftCoversWholeHoldRange()
+    {
+        var covered = Candidate("An");
+        var shortShift = Candidate("Binh");
+        var noShift = Candidate("Chi");
+
+        var result = SlotService.AvailableStaff(
+            [covered, shortShift, noShift],
+            [ShiftOf(covered, 8, 22), ShiftOf(shortShift, 8, 11)],
+            [],
+            HoldStart,
+            HoldEnd);
+
+        Assert.Equal(new[] { "An" }, NamesOf(result));
+    }
+
+    [Fact]
+    public void AvailableStaff_ShiftExactlyEqualToHoldRange_IsCovered()
+    {
+        var staff = Candidate("An");
+
+        var result = SlotService.AvailableStaff(
+            [staff], [new SlotStaffShift(staff.StaffId, HoldStart, HoldEnd)], [], HoldStart, HoldEnd);
+
+        Assert.Equal(new[] { "An" }, NamesOf(result));
+    }
+
+    [Fact]
+    public void AvailableStaff_StaffWithOverlappingHold_IsExcluded()
+    {
+        var busy = Candidate("An");
+        var free = Candidate("Binh");
+
+        var result = SlotService.AvailableStaff(
+            [busy, free],
+            [ShiftOf(busy, 8, 22), ShiftOf(free, 8, 22)],
+            [BusyOf(busy, 11, 0, 13, 0)],
+            HoldStart,
+            HoldEnd);
+
+        Assert.Equal(new[] { "Binh" }, NamesOf(result));
+    }
+
+    [Fact]
+    public void AvailableStaff_HoldsTouchingTheRangeBoundaries_DoNotOverlap()
+    {
+        var before = Candidate("An");
+        var after = Candidate("Binh");
+
+        var result = SlotService.AvailableStaff(
+            [before, after],
+            [ShiftOf(before, 8, 22), ShiftOf(after, 8, 22)],
+            [BusyOf(before, 8, 0, 10, 0), BusyOf(after, 12, 15, 14, 0)],
+            HoldStart,
+            HoldEnd);
+
+        Assert.Equal(new[] { "An", "Binh" }, NamesOf(result));
+    }
+
+    [Fact]
+    public void AvailableStaff_HoldOfAnotherStaff_DoesNotExcludeThisStaff()
+    {
+        var an = Candidate("An");
+        var binh = Candidate("Binh");
+
+        var result = SlotService.AvailableStaff(
+            [an],
+            [ShiftOf(an, 8, 22)],
+            [BusyOf(binh, 10, 0, 12, 15)],
+            HoldStart,
+            HoldEnd);
+
+        Assert.Equal(new[] { "An" }, NamesOf(result));
+    }
 }
 
