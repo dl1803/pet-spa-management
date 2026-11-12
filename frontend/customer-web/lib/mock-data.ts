@@ -243,6 +243,22 @@ export const MOCK_APPOINTMENTS: AppointmentDetail[] = [
     services: [{ ...SERVICE_BATH, isDone: false }],
     staff: [],
   },
+  {
+    appointmentId: "6e2b9d84-0000-4000-8000-000000000013",
+    type: "Spa",
+    customerId: CUSTOMER_ID,
+    petId: BUN_ID,
+    petName: "Bún",
+    status: "Confirmed",
+    sizeGroup: "Small",
+    slotStart: "2026-11-13T09:00:00+07:00",
+    slotEnd: "2026-11-13T09:45:00+07:00",
+    staffRequired: 2,
+    createdAt: "2026-11-09T10:00:00+07:00",
+    updatedAt: "2026-11-10T08:30:00+07:00",
+    services: [{ ...SERVICE_BATH, isDone: false }],
+    staff: [STAFF_HANH, STAFF_QUYEN],
+  },
 ];
 
 export const MOCK_PAYMENTS: Payment[] = [

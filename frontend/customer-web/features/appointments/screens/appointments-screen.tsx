@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { AppointmentTicket } from "@/components/domain/appointment-ticket";
 import { Icon } from "@/components/icons";
 import { PageHeader } from "@/components/layout/page-header";
@@ -26,7 +27,8 @@ import type { AppointmentType } from "@/lib/api/types";
 import { sortByStart } from "@/lib/appointments";
 import { formatNameList } from "@/lib/format";
 import { APPOINTMENT_TYPE_LABELS } from "@/lib/labels";
-import { MOCK_APPOINTMENTS, MOCK_PETS } from "@/lib/mock-data";
+import { getMockAppointmentsSnapshot, subscribeMockAppointments } from "@/lib/mock-appointments";
+import { MOCK_PETS } from "@/lib/mock-data";
 import { ROUTES, withQuery } from "@/lib/routes";
 import { getStoreDateKey } from "@/lib/time";
 
@@ -43,7 +45,12 @@ export function AppointmentsScreen() {
   const todayKey = getStoreDateKey(now);
 
   const pets = MOCK_PETS;
-  const appointments = MOCK_APPOINTMENTS;
+  // Cùng kho dữ liệu giả với màn chi tiết để thấy kết quả đổi/hủy. Chờ nối API thật: thay bằng truy vấn danh sách lịch hẹn.
+  const appointments = useSyncExternalStore(
+    subscribeMockAppointments,
+    getMockAppointmentsSnapshot,
+    getMockAppointmentsSnapshot,
+  );
   const petById = new Map(pets.map((pet) => [pet.petId, pet]));
 
   const tab = parseTab(searchParams.get("tab"));
@@ -126,13 +133,18 @@ export function AppointmentsScreen() {
               const pet = petById.get(appointment.petId);
               return (
                 <li key={appointment.appointmentId}>
-                  <AppointmentTicket
-                    appointment={appointment}
-                    petName={pet?.name ?? appointment.petName ?? "—"}
-                    species={pet?.species ?? null}
-                    description={describeAppointment(appointment)}
-                    todayKey={todayKey}
-                  />
+                  <Link
+                    href={ROUTES.appointmentDetail(appointment.appointmentId)}
+                    className="block rounded-2xl transition-opacity hover:opacity-90"
+                  >
+                    <AppointmentTicket
+                      appointment={appointment}
+                      petName={pet?.name ?? appointment.petName ?? "—"}
+                      species={pet?.species ?? null}
+                      description={describeAppointment(appointment)}
+                      todayKey={todayKey}
+                    />
+                  </Link>
                 </li>
               );
             })}

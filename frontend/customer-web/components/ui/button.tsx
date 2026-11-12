@@ -8,14 +8,14 @@ type ButtonStyleProps = {
 };
 
 const baseClass =
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[10px] border font-semibold leading-none transition-colors max-[640px]:whitespace-normal max-[640px]:text-center max-[640px]:leading-[18px]";
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[10px] border font-semibold leading-none transition-colors disabled:border-transparent disabled:bg-[#E5ECEE] disabled:text-[#869AA0] max-[640px]:whitespace-normal max-[640px]:text-center max-[640px]:leading-[18px]";
 
 const variantClass = {
-  primary: "border-transparent bg-lagoon text-white hover:bg-lagoon-700",
-  secondary: "border-lagoon bg-white text-lagoon-700 hover:bg-lagoon-25",
-  ghost: "border-transparent bg-transparent text-ink hover:bg-line-soft",
+  primary: "border-transparent bg-lagoon text-white not-disabled:hover:bg-lagoon-700",
+  secondary: "border-lagoon bg-white text-lagoon-700 not-disabled:hover:bg-lagoon-25",
+  ghost: "border-transparent bg-transparent text-ink not-disabled:hover:bg-line-soft",
   // Nút xác nhận trong hộp thoại nguy hiểm.
-  "danger-solid": "border-transparent bg-danger text-white hover:bg-danger/90",
+  "danger-solid": "border-transparent bg-danger text-white not-disabled:hover:bg-danger/90",
 };
 
 const sizeClass = {
@@ -45,7 +45,7 @@ export function Button({
       type={type}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
-      className={`${buttonClass({ variant, size, block })} ${loading ? "cursor-wait" : "cursor-pointer"}`}
+      className={`${buttonClass({ variant, size, block })} ${loading ? "cursor-wait" : "cursor-pointer disabled:cursor-not-allowed"}`}
       {...rest}
     >
       {loading ? (
