@@ -248,4 +248,37 @@ export type PaymentStatusResult = {
   status: PaymentStatus;
 };
 
+export type Role = "Customer" | "Staff" | "Manager";
+
+export type Me = {
+  userId: string;
+  userName: string;
+  role: Role;
+  // Chỉ có khi role là Staff.
+  staffRole?: StaffRole | null;
+  fullName?: string | null;
+  phone?: string | null;
+  email?: string | null;
+};
+
+export type LoginRequest = {
+  userName: string;
+  password: string;
+};
+
+export type TokenPair = {
+  accessToken: string;
+  refreshToken: string;
+};
+
+// Phản hồi của route handler phiên (/api/session/*); refresh token chỉ nằm trong cookie httpOnly.
+export type SessionLoginResponse = {
+  accessToken: string;
+  me: Me;
+};
+
+export type SessionRefreshResponse = {
+  accessToken: string;
+};
+
 

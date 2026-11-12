@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { SiteHeader } from "@/components/layout/site-header";
+import { SessionSiteHeader } from "@/components/layout/session-site-header";
+import { SessionGate } from "@/lib/auth/session-gate";
 
 export default function MainLayout({ children }: { children: ReactNode }) {
   return (
@@ -10,14 +11,13 @@ export default function MainLayout({ children }: { children: ReactNode }) {
       >
         Đến nội dung chính
       </a>
-      {/* Tạm thời null. Nhận vai trò thật ở A-05 (sau ID121/A-04). */}
-      <SiteHeader role={null} />
+      <SessionSiteHeader />
       <main
         id="main-content"
         tabIndex={-1}
         className="mx-auto w-full max-w-[1320px] px-6 pb-[72px] pt-6 max-[980px]:px-4 max-[980px]:pb-14 max-[980px]:pt-5"
       >
-        {children}
+        <SessionGate>{children}</SessionGate>
       </main>
     </>
   );

@@ -81,3 +81,16 @@ test("Lễ tân: Thanh toán là liên kết và đánh dấu aria-current khi �
   assert.match(html, /<a\b[^>]*aria-current="page"[^>]*href="\/thanh-toan"/);
   assert.doesNotMatch(html, /<a\b[^>]*aria-current="page"[^>]*href="\/tiep-nhan"/);
 });
+
+test("có onLogout thì nút Đăng xuất hoạt động; không có thì bị vô hiệu hóa", () => {
+  const withLogout = renderToStaticMarkup(React.createElement(HeaderNav, { role: "Receptionist", pathname: null, onLogout: () => {} }));
+  assert.match(withLogout, /Đăng xuất/);
+  assert.doesNotMatch(withLogout, /<button[^>]*disabled[^>]*>(?:(?!<\/button>).)*Đăng xuất/s);
+  assert.match(render("Receptionist"), /<button[^>]*disabled[^>]*>(?:(?!<\/button>).)*Đăng xuất/s);
+});
+
+test("đang khôi phục phiên: hiện “Đang tải…” thay cho “Chưa đăng nhập”", () => {
+  const html = renderToStaticMarkup(React.createElement(HeaderNav, { role: null, pathname: null, pending: true }));
+  assert.match(html, /Đang tải…/);
+  assert.doesNotMatch(html, /Chưa đăng nhập/);
+});

@@ -120,6 +120,12 @@ const ICON_PATHS = {
     </>
   ),
   check: <path d="M20 6 9 17l-5-5" />,
+  key: (
+    <>
+      <circle cx="7.5" cy="15.5" r="5.5" />
+      <path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3" />
+    </>
+  ),
   lock: (
     <>
       <rect x="3" y="11" width="18" height="11" rx="2" />

@@ -1,5 +1,6 @@
 export const ROUTES = {
   home: "/",
+  login: "/dang-nhap",
   appointments: "/lich-hen",
   appointmentExecution: (appointmentId: string) => `/lich-hen/${appointmentId}/thuc-hien`,
   customers: "/khach-hang",

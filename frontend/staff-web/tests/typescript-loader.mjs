@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 const root = new URL("../", import.meta.url);
-const NEXT_CJS_SUBPATHS = new Set(["next/link", "next/navigation"]);
+const NEXT_CJS_SUBPATHS = new Set(["next/link", "next/navigation", "next/server"]);
 
 export async function resolve(specifier, context, nextResolve) {
   const alias = specifier.startsWith("@/");

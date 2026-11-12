@@ -83,9 +83,13 @@ type HeaderNavProps = {
   pathname: string | null;
   // null khi chưa có phiên đăng nhập: chỉ hiện logo, chưa hiện mục menu nào.
   role: StaffRole | null;
+  // Đang khôi phục phiên: thay chữ “Chưa đăng nhập” bằng ô chờ.
+  pending?: boolean;
+  // Có hàm này thì nút Đăng xuất hoạt động; không có thì nút bị vô hiệu hóa.
+  onLogout?: () => void;
 };
 
-export function HeaderNav({ pathname, role }: HeaderNavProps) {
+export function HeaderNav({ pathname, role, pending = false, onLogout }: HeaderNavProps) {
   const navItems = NAV_ITEMS.filter((item) => canSee(item, role));
   const accountItems = ACCOUNT_ITEMS.filter((item) => canSee(item, role));
   const showNotifications = canSee(NOTIFICATION_ITEM, role);
@@ -166,7 +170,7 @@ export function HeaderNav({ pathname, role }: HeaderNavProps) {
         {role === null ? (
           <div className={`${chipClass} opacity-70`}>
             <AccountAvatar />
-            <span className="max-[860px]:sr-only">Chưa đăng nhập</span>
+            <span className="max-[860px]:sr-only">{pending ? "Đang tải…" : "Chưa đăng nhập"}</span>
           </div>
         ) : (
           <Dropdown
@@ -203,11 +207,17 @@ export function HeaderNav({ pathname, role }: HeaderNavProps) {
               ),
             )}
             <div className="mx-1 my-1.5 h-px bg-line" />
-            {/* Đăng xuất chỉ hoạt động khi có phiên đăng nhập. */}
-            <button type="button" disabled className={disabledMenuItemClass}>
-              <Icon name="logout" />
-              Đăng xuất
-            </button>
+            {onLogout ? (
+              <button type="button" onClick={onLogout} className={dropdownItemClass}>
+                <Icon name="logout" />
+                Đăng xuất
+              </button>
+            ) : (
+              <button type="button" disabled className={disabledMenuItemClass}>
+                <Icon name="logout" />
+                Đăng xuất
+              </button>
+            )}
           </Dropdown>
         )}
       </div>
@@ -215,6 +225,6 @@ export function HeaderNav({ pathname, role }: HeaderNavProps) {
   );
 }
 
-export function ActiveHeaderNav({ role }: { role: StaffRole | null }) {
-  return <HeaderNav pathname={usePathname()} role={role} />;
+export function ActiveHeaderNav(props: Omit<HeaderNavProps, "pathname">) {
+  return <HeaderNav pathname={usePathname()} {...props} />;
 }
