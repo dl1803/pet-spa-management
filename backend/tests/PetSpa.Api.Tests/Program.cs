@@ -17,6 +17,7 @@ using PetSpa.Application.Services;
 using PetSpa.Application.Services.Booking;
 using PetSpa.Domain.Enums;
 using PetSpa.Infrastructure.Identity;
+using PetSpa.Infrastructure.Payments.Vnpay;
 using System.Text.Json;
 using System.Threading.RateLimiting;
 using FluentValidation;
@@ -884,6 +885,109 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(threw, "Staff must be rejected with Forbidden.");
         Check(repo.ListAllCalls == 1 && repo.ListByCustomerCalls == 1,
             "Rejected staff must not reach any repository query.");
+    }),
+    ("VnpayPaymentRequestBuilder builds the unsigned sandbox payload from the transaction", () =>
+    {
+        var builder = new VnpayPaymentRequestBuilder(ValidVnpayOptions());
+        var payload = builder.Build(VnpayTransaction(), "203.0.113.7");
+
+        var expected = new SortedDictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["vnp_Amount"] = "15000000",
+            ["vnp_Command"] = "pay",
+            ["vnp_CreateDate"] = "20261112170000",
+            ["vnp_CurrCode"] = "VND",
+            ["vnp_ExpireDate"] = "20261112171500",
+            ["vnp_IpAddr"] = "203.0.113.7",
+            ["vnp_Locale"] = "vn",
+            ["vnp_OrderInfo"] = "Thanh toan lich hen ABC123def456",
+            ["vnp_OrderType"] = "other",
+            ["vnp_ReturnUrl"] = "https://example.test/payments/vnpay/return",
+            ["vnp_TmnCode"] = "TESTCODE",
+            ["vnp_TxnRef"] = "ABC123def456",
+            ["vnp_Version"] = "2.1.0",
+        };
+
+        Check(payload.Keys.SequenceEqual(expected.Keys), "Payload keys must match the VNPAY parameter set in ascending order.");
+        Check(payload.Values.SequenceEqual(expected.Values), "Payload values must match the transaction data and fixed VNPAY constants.");
+        Check(!payload.ContainsKey("vnp_SecureHash") && !payload.ContainsKey("vnp_SecureHashType") && !payload.ContainsKey("vnp_BankCode"),
+            "Payload must not contain signature or bank code parameters.");
+        return Task.CompletedTask;
+    }),
+    ("VnpayPaymentRequestBuilder takes the amount from RequestedAmount and multiplies it by 100", () =>
+    {
+        var builder = new VnpayPaymentRequestBuilder(ValidVnpayOptions());
+
+        var small = builder.Build(VnpayTransaction(amount: 1m), "203.0.113.7");
+        Check(small["vnp_Amount"] == "100", "1 VND must be sent as 100.");
+
+        var max = builder.Build(VnpayTransaction(amount: 9_999_999_999m), "203.0.113.7");
+        Check(max["vnp_Amount"] == "999999999900", "Largest accepted amount must be sent as 999999999900.");
+
+        foreach (var invalid in new[] { 0m, -1m, 100.5m, 10_000_000_000m })
+        {
+            AssertThrows<ArgumentOutOfRangeException>(
+                () => builder.Build(VnpayTransaction(amount: invalid), "203.0.113.7"),
+                $"RequestedAmount {invalid} must be rejected.");
+        }
+
+        return Task.CompletedTask;
+    }),
+    ("VnpayPaymentRequestBuilder rejects non-VNPAY transactions and invalid TxnRef", () =>
+    {
+        var builder = new VnpayPaymentRequestBuilder(ValidVnpayOptions());
+
+        AssertThrows<ArgumentException>(
+            () => builder.Build(VnpayTransaction(gateway: PaymentGateway.MoMo), "203.0.113.7"),
+            "A MoMo transaction must be rejected.");
+
+        foreach (var invalid in new[] { "", "ABC 123", "ABC-123", "Mã1", new string('A', 65) })
+        {
+            AssertThrows<ArgumentException>(
+                () => builder.Build(VnpayTransaction(txnRef: invalid), "203.0.113.7"),
+                $"TxnRef '{invalid}' must be rejected.");
+        }
+
+        var longest = builder.Build(VnpayTransaction(txnRef: new string('A', 64)), "203.0.113.7");
+        Check(longest["vnp_TxnRef"].Length == 64, "A 64-character TxnRef must be accepted.");
+        return Task.CompletedTask;
+    }),
+    ("VnpayPaymentRequestBuilder validates the customer IP address", () =>
+    {
+        var builder = new VnpayPaymentRequestBuilder(ValidVnpayOptions());
+
+        foreach (var invalid in new[] { "", "not-an-ip", "999.1.1.1" })
+        {
+            AssertThrows<ArgumentException>(
+                () => builder.Build(VnpayTransaction(), invalid),
+                $"IP '{invalid}' must be rejected.");
+        }
+
+        var ipv6 = builder.Build(VnpayTransaction(), "2001:db8::1");
+        Check(ipv6["vnp_IpAddr"] == "2001:db8::1", "A valid IPv6 address must be passed through unchanged.");
+        return Task.CompletedTask;
+    }),
+    ("VnpayPaymentRequestBuilder rejects invalid configuration", () =>
+    {
+        foreach (var tmnCode in new[] { "", "SHORT", "TESTCOD!", "TOOLONGCODE" })
+        {
+            AssertThrows<InvalidOperationException>(
+                () => new VnpayPaymentRequestBuilder(new VnpayOptions
+                {
+                    TmnCode = tmnCode,
+                    ReturnUrl = "https://example.test/payments/vnpay/return",
+                }),
+                $"TmnCode '{tmnCode}' must be rejected.");
+        }
+
+        foreach (var returnUrl in new[] { "", "/payments/vnpay/return", "ftp://example.test/return", "http://a", "https://example.test/" + new string('a', 250) })
+        {
+            AssertThrows<InvalidOperationException>(
+                () => new VnpayPaymentRequestBuilder(new VnpayOptions { TmnCode = "TESTCODE", ReturnUrl = returnUrl }),
+                $"ReturnUrl '{returnUrl}' must be rejected.");
+        }
+
+        return Task.CompletedTask;
     })
 };
 
@@ -971,6 +1075,39 @@ static void Check(bool condition, string message)
         throw new InvalidOperationException(message);
     }
 }
+
+static void AssertThrows<TException>(Action action, string message) where TException : Exception
+{
+    try
+    {
+        action();
+    }
+    catch (TException)
+    {
+        return;
+    }
+
+    throw new InvalidOperationException(message);
+}
+
+static VnpayOptions ValidVnpayOptions() => new()
+{
+    TmnCode = "TESTCODE",
+    ReturnUrl = "https://example.test/payments/vnpay/return",
+};
+
+static PaymentTransaction VnpayTransaction(
+    decimal amount = 150000m,
+    string txnRef = "ABC123def456",
+    PaymentGateway gateway = PaymentGateway.VNPAY) => new()
+    {
+        TxnId = Guid.NewGuid(),
+        PaymentId = Guid.NewGuid(),
+        Gateway = gateway,
+        TxnRef = txnRef,
+        RequestedAmount = amount,
+        CreatedAt = new DateTimeOffset(2026, 11, 12, 10, 0, 0, TimeSpan.Zero),
+    };
 
 static string CreateTestJwt(string signingKey, Guid userId, string role, TimeSpan lifetime)
 {
