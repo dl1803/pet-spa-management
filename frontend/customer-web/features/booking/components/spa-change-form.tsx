@@ -59,7 +59,7 @@ export function SpaChangeForm({ appointment }: { appointment: AppointmentDetail 
   const { showSuccess } = useToast();
   const [todayKey] = useState(() => getStoreDateKey(new Date()));
   const dates = getBookingDates(todayKey);
-  const [initialValues] = useState(() => getSpaChangeDefaults(appointment, pets, dates));
+  const [initialValues] = useState(() => getSpaChangeDefaults(appointment, pets, services, dates));
 
   const { control, handleSubmit, setValue, getValues } = useForm<SpaBookingFormValues>({
     mode: "onTouched",
@@ -124,17 +124,28 @@ export function SpaChangeForm({ appointment }: { appointment: AppointmentDetail 
     submitError !== null && !isSlotFull && !isChangeWindowClosedError(submitError) ? submitError : null;
 
   if (pet === undefined) {
+    const hasOtherPets = pets.length > 0;
     return (
       <Card>
         <EmptyState
           icon="paw"
-          title="Chưa có thú cưng"
-          description="Thêm hồ sơ cho bé để đổi lịch hẹn."
+          title={hasOtherPets ? "Không tìm thấy thú cưng của lịch hẹn" : "Chưa có thú cưng"}
+          description={
+            hasOtherPets
+              ? "Hồ sơ thú cưng của lịch hẹn này không còn hoạt động để đổi lịch."
+              : "Thêm hồ sơ cho bé để đổi lịch hẹn."
+          }
           action={
-            <ButtonLink href={ROUTES.petCreate} variant="secondary">
-              <Icon name="plus" />
-              Thêm thú cưng
-            </ButtonLink>
+            hasOtherPets ? (
+              <ButtonLink href={ROUTES.appointmentDetail(appointmentId)} variant="secondary">
+                Về chi tiết lịch hẹn
+              </ButtonLink>
+            ) : (
+              <ButtonLink href={ROUTES.petCreate} variant="secondary">
+                <Icon name="plus" />
+                Thêm thú cưng
+              </ButtonLink>
+            )
           }
         />
       </Card>
@@ -150,34 +161,37 @@ export function SpaChangeForm({ appointment }: { appointment: AppointmentDetail 
     ? CHANGE_UNCHANGED_REASON
     : selected.length === 0
       ? SERVICE_REQUIRED_MESSAGE
-      : slots === undefined && !slotsQuery.isError
+      : slotsQuery.isPending || (slotsQuery.isError && slotsQuery.isFetching)
         ? "Đang kiểm tra khung giờ, vui lòng đợi trong giây lát."
-        : !isSlotAvailable
-          ? SLOT_REQUIRED_MESSAGE
-          : null;
+        : slotsQuery.isError
+          ? "Chưa kiểm tra được khung giờ, vui lòng thử lại."
+          : !isSlotAvailable
+            ? SLOT_REQUIRED_MESSAGE
+            : null;
 
   // Đổi ngày thì mốc giờ cũ không còn ý nghĩa.
   function handleDateChange(next: string) {
-    if (next === date) return;
+    if (isPending || next === date) return;
     setValue("date", next);
     setValue("slotTime", "");
     resetSubmit();
   }
 
   function handleSlotChange(time: string) {
+    if (isPending) return;
     setValue("slotTime", time);
     resetSubmit();
   }
 
   function onSubmit(values: SpaBookingFormValues) {
     if (isPending || lockReason !== null) return;
-    mutate({ appointmentId, request: toSpaBookingRequest(values) });
+    mutate({ appointmentId, request: toSpaBookingRequest({ ...values, serviceIds: selectedServiceIds }) });
   }
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate>
       <div className="grid grid-cols-[minmax(0,1fr)_360px] items-start gap-6 max-[1180px]:grid-cols-1">
-        <div className="flex flex-col gap-4">
+        <fieldset disabled={isPending} className="flex min-w-0 flex-col gap-4">
           <Card>
             <CardHeader title="Chọn thú cưng" />
             <CardBody>
@@ -196,10 +210,12 @@ export function SpaChangeForm({ appointment }: { appointment: AppointmentDetail 
                             value={item.petId}
                             checked={field.value === item.petId}
                             onChange={() => {
+                              if (isPending) return;
                               field.onChange(item.petId);
                               setValue(
                                 "serviceIds",
                                 keepApplicableServiceIds(getValues("serviceIds"), getApplicableServices(services, item)),
+                                { shouldValidate: true },
                               );
                               setValue("slotTime", "");
                               resetSubmit();
@@ -248,11 +264,11 @@ export function SpaChangeForm({ appointment }: { appointment: AppointmentDetail 
                         pricing={pricing}
                         checked={field.value.includes(service.serviceId)}
                         onChange={(checked) => {
-                          field.onChange(
-                            checked
-                              ? [...field.value, service.serviceId]
-                              : field.value.filter((id) => id !== service.serviceId),
-                          );
+                          if (isPending) return;
+                          const nextIds = checked
+                            ? [...field.value, service.serviceId]
+                            : field.value.filter((id) => id !== service.serviceId);
+                          setValue("serviceIds", nextIds, { shouldValidate: true });
                           setValue("slotTime", "");
                           resetSubmit();
                         }}
@@ -287,7 +303,7 @@ export function SpaChangeForm({ appointment }: { appointment: AppointmentDetail 
               </CardBody>
             </Card>
           )}
-        </div>
+        </fieldset>
 
         <SpaChangeSummary
           pet={pet}

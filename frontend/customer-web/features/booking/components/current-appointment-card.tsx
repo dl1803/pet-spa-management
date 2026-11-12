@@ -15,7 +15,7 @@ type CurrentAppointmentCardProps = {
 export function CurrentAppointmentCard({ appointment, petName, species }: CurrentAppointmentCardProps) {
   const serviceNames = (appointment.services ?? []).flatMap((service) => (service.name ? [service.name] : []));
   const schedule = describeSchedule(appointment);
-  const summary = serviceNames.length > 0 ? `${schedule}. ${formatNameList(serviceNames)}` : schedule;
+  const summary = [schedule, serviceNames.length > 0 ? formatNameList(serviceNames) : ""].filter(Boolean).join(". ");
 
   return (
     <div className="mb-4 flex items-center gap-3.5 rounded-xl bg-mist px-4 py-3.5">
@@ -23,7 +23,7 @@ export function CurrentAppointmentCard({ appointment, petName, species }: Curren
       <div className="min-w-0 flex-1">
         <div className="text-xs text-muted">Lịch hiện tại</div>
         <div className="font-semibold">{`${petName} · ${APPOINTMENT_TYPE_LABELS[appointment.type]}`}</div>
-        <div className="text-[13px] text-muted">{summary}</div>
+        {summary !== "" && <div className="text-[13px] text-muted">{summary}</div>}
       </div>
       <StatusBadge status={appointment.status} />
     </div>

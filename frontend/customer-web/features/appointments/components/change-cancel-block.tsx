@@ -49,20 +49,20 @@ export function ChangeCancelBlock({ appointment, petName, isWindowClosed, onCanc
       <CardFooter>
         {isLocked ? (
           <>
-            <Button variant="secondary" disabled aria-describedby={LOCK_REASON_ID}>
+            <Button key="change-locked" variant="secondary" disabled aria-describedby={LOCK_REASON_ID}>
               Đổi lịch
             </Button>
-            <Button variant="danger-solid" disabled aria-describedby={LOCK_REASON_ID}>
+            <Button key="cancel-locked" variant="danger-solid" disabled aria-describedby={LOCK_REASON_ID}>
               Hủy lịch
             </Button>
           </>
         ) : (
           <>
-            <ButtonLink href={ROUTES.appointmentChange(appointment.appointmentId)} variant="secondary">
+            <ButtonLink key="change-active" href={ROUTES.appointmentChange(appointment.appointmentId)} variant="secondary">
               <Icon name="calendar" className="size-4" />
               Đổi lịch
             </ButtonLink>
-            <Button variant="danger-solid" onClick={onCancel}>
+            <Button key="cancel-active" variant="danger-solid" onClick={onCancel}>
               <Icon name="x-circle" className="size-4" />
               Hủy lịch
             </Button>

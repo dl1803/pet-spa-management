@@ -3,19 +3,17 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import type { ReactNode } from "react";
+import { AppointmentErrorState } from "@/components/domain/appointment-error-state";
 import { Alert } from "@/components/feedback/alert";
-import { ErrorAlert } from "@/components/feedback/error-alert";
-import { ForbiddenState } from "@/components/feedback/forbidden-state";
-import { NotFoundState } from "@/components/feedback/not-found-state";
 import { Icon } from "@/components/icons";
 import { PageHeader } from "@/components/layout/page-header";
-import { Button, ButtonLink } from "@/components/ui/button";
+import { ButtonLink } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CurrentAppointmentCard } from "@/features/booking/components/current-appointment-card";
 import { HotelChangeForm } from "@/features/booking/components/hotel-change-form";
 import { SpaChangeForm } from "@/features/booking/components/spa-change-form";
-import { isForbiddenError, isNotFoundError } from "@/lib/api/errors";
+import type { AppointmentStatus } from "@/lib/api/types";
 import { CHANGE_WINDOW_CLOSED_MESSAGE, canSelfChangeOrCancel } from "@/lib/appointments";
 import { formatAppointmentCode } from "@/lib/format";
 import { useAppointment } from "@/lib/queries/appointments";
@@ -39,6 +37,12 @@ function AppointmentChangeSkeleton() {
   );
 }
 
+function getChangeBlockedMessage(status: AppointmentStatus) {
+  if (status === "Cancelled") return "Lịch hẹn đã hủy nên không thể đổi lịch.";
+  if (status === "Completed") return "Lịch hẹn đã hoàn tất nên không thể đổi lịch.";
+  return CHANGE_WINDOW_CLOSED_MESSAGE;
+}
+
 export function AppointmentChangeScreen() {
   const { appointmentId } = useParams<{ appointmentId?: string }>();
   const id = typeof appointmentId === "string" ? appointmentId : "";
@@ -48,39 +52,14 @@ export function AppointmentChangeScreen() {
 
   let content: ReactNode;
   if (error !== null) {
-    if (isForbiddenError(error)) {
-      content = <ForbiddenState />;
-    } else if (isNotFoundError(error)) {
-      content = (
-        <NotFoundState
-          title="Không tìm thấy lịch hẹn"
-          description="Không tìm thấy dữ liệu, có thể đã bị thay đổi."
-          action={
-            <ButtonLink href={ROUTES.appointments} variant="secondary">
-              Về lịch hẹn của tôi
-            </ButtonLink>
-          }
-        />
-      );
-    } else {
-      content = (
-        <div>
-          <ErrorAlert error={error} />
-          <div className="mt-4">
-            <Button variant="secondary" onClick={() => void refetch()} disabled={isFetching}>
-              Thử lại
-            </Button>
-          </div>
-        </div>
-      );
-    }
+    content = <AppointmentErrorState error={error} isRetrying={isFetching} onRetry={() => void refetch()} />;
   } else if (appointment === undefined) {
     content = <AppointmentChangeSkeleton />;
   } else if (!canSelfChangeOrCancel(appointment.status)) {
     content = (
       <div className="flex flex-col gap-4">
         <Alert tone="info" icon="lock">
-          {CHANGE_WINDOW_CLOSED_MESSAGE}
+          {getChangeBlockedMessage(appointment.status)}
         </Alert>
         <div>
           <ButtonLink href={ROUTES.appointmentDetail(id)} variant="secondary">

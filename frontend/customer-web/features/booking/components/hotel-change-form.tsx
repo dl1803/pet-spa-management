@@ -2,7 +2,7 @@
 
 import { skipToken, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { useToast } from "@/components/feedback/toast";
 import { Icon } from "@/components/icons";
@@ -59,7 +59,7 @@ export function HotelChangeForm({ appointment }: { appointment: AppointmentDetai
   const queryClient = useQueryClient();
   const { showSuccess } = useToast();
   const [todayKey] = useState(() => getStoreDateKey(new Date()));
-  const [initialValues] = useState(() => getHotelChangeDefaults(appointment, pets));
+  const [initialValues] = useState(() => getHotelChangeDefaults(appointment));
 
   const {
     register,
@@ -136,23 +136,39 @@ export function HotelChangeForm({ appointment }: { appointment: AppointmentDetai
     },
   });
 
-  // Đổi thú cưng hoặc khoảng lưu trú thì bỏ lỗi của lần gửi trước.
+  const isPendingRef = useRef(false);
   useEffect(() => {
-    resetSubmit();
+    isPendingRef.current = isPending;
+  }, [isPending]);
+
+  // Đổi thú cưng hoặc khoảng lưu trú thì bỏ lỗi của lần gửi trước (không reset khi đang gửi).
+  useEffect(() => {
+    if (!isPendingRef.current) resetSubmit();
   }, [petId, stayKey, resetSubmit]);
 
   if (pet === undefined) {
+    const hasOtherPets = pets.length > 0;
     return (
       <Card>
         <EmptyState
           icon="paw"
-          title="Chưa có thú cưng"
-          description="Thêm hồ sơ cho bé để đổi lịch hẹn."
+          title={hasOtherPets ? "Không tìm thấy thú cưng của lịch hẹn" : "Chưa có thú cưng"}
+          description={
+            hasOtherPets
+              ? "Hồ sơ thú cưng của lịch hẹn này không còn hoạt động để đổi lịch."
+              : "Thêm hồ sơ cho bé để đổi lịch hẹn."
+          }
           action={
-            <ButtonLink href={ROUTES.petCreate} variant="secondary">
-              <Icon name="plus" />
-              Thêm thú cưng
-            </ButtonLink>
+            hasOtherPets ? (
+              <ButtonLink href={ROUTES.appointmentDetail(appointmentId)} variant="secondary">
+                Về chi tiết lịch hẹn
+              </ButtonLink>
+            ) : (
+              <ButtonLink href={ROUTES.petCreate} variant="secondary">
+                <Icon name="plus" />
+                Thêm thú cưng
+              </ButtonLink>
+            )
           }
         />
       </Card>
@@ -225,11 +241,17 @@ export function HotelChangeForm({ appointment }: { appointment: AppointmentDetai
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate>
       <div className="grid grid-cols-[minmax(0,1fr)_360px] items-start gap-6 max-[1180px]:grid-cols-1">
-        <div className="flex flex-col gap-4">
+        <fieldset disabled={isPending} className="flex min-w-0 flex-col gap-4">
           <Card>
             <CardHeader title="Chọn thú cưng" />
             <CardBody>
-              <HotelPetPicker pets={pets} selectedPetId={petId} onSelect={(id) => setValue("petId", id)} />
+              <HotelPetPicker
+                pets={pets}
+                selectedPetId={petId}
+                onSelect={(id) => {
+                  if (!isPending) setValue("petId", id);
+                }}
+              />
             </CardBody>
           </Card>
 
@@ -241,7 +263,7 @@ export function HotelChangeForm({ appointment }: { appointment: AppointmentDetai
           >
             <HotelAvailabilityNotice notice={notice} onRetry={() => void availabilityQuery.refetch()} />
           </HotelStayForm>
-        </div>
+        </fieldset>
 
         <HotelChangeSummary
           pet={pet}

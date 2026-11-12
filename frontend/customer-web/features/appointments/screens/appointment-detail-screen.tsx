@@ -3,20 +3,16 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useRef, useState, type ReactNode } from "react";
-import { ErrorAlert } from "@/components/feedback/error-alert";
-import { ForbiddenState } from "@/components/feedback/forbidden-state";
-import { NotFoundState } from "@/components/feedback/not-found-state";
+import { AppointmentErrorState } from "@/components/domain/appointment-error-state";
 import { useToast } from "@/components/feedback/toast";
 import { Icon } from "@/components/icons";
 import { PageHeader } from "@/components/layout/page-header";
-import { Button, ButtonLink } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { APPOINTMENT_CANCELLED_MESSAGE } from "@/features/appointments/change-cancel";
 import { AppointmentDetailHeader } from "@/features/appointments/components/appointment-detail-header";
 import { CancelAppointmentDialog } from "@/features/appointments/components/cancel-appointment-dialog";
 import { ChangeCancelBlock } from "@/features/appointments/components/change-cancel-block";
-import { isForbiddenError, isNotFoundError } from "@/lib/api/errors";
 import { isChangeWindowClosedError } from "@/lib/appointments";
 import { formatAppointmentCode } from "@/lib/format";
 import { useAppointment, useCancelAppointment } from "@/lib/queries/appointments";
@@ -96,32 +92,7 @@ export function AppointmentDetailScreen() {
 
   let content: ReactNode;
   if (error !== null) {
-    if (isForbiddenError(error)) {
-      content = <ForbiddenState />;
-    } else if (isNotFoundError(error)) {
-      content = (
-        <NotFoundState
-          title="Không tìm thấy lịch hẹn"
-          description="Không tìm thấy dữ liệu, có thể đã bị thay đổi."
-          action={
-            <ButtonLink href={ROUTES.appointments} variant="secondary">
-              Về lịch hẹn của tôi
-            </ButtonLink>
-          }
-        />
-      );
-    } else {
-      content = (
-        <div>
-          <ErrorAlert error={error} />
-          <div className="mt-4">
-            <Button variant="secondary" onClick={() => void refetch()} disabled={isFetching}>
-              Thử lại
-            </Button>
-          </div>
-        </div>
-      );
-    }
+    content = <AppointmentErrorState error={error} isRetrying={isFetching} onRetry={() => void refetch()} />;
   } else if (appointment === undefined) {
     content = <AppointmentDetailSkeleton />;
   } else {

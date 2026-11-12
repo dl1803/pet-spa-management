@@ -15,6 +15,9 @@ type AppointmentDetailHeaderProps = {
 
 export function AppointmentDetailHeader({ appointment, petName, species }: AppointmentDetailHeaderProps) {
   const title = appointment.type === "Hotel" ? `Lịch lưu trú của ${petName}` : `Lịch spa của ${petName}`;
+  const meta = [`Mã ${formatAppointmentCode(appointment.appointmentId)}`, describeSchedule(appointment)]
+    .filter(Boolean)
+    .join(". ");
 
   return (
     <Card>
@@ -32,9 +35,7 @@ export function AppointmentDetailHeader({ appointment, petName, species }: Appoi
               <h1>{title}</h1>
               <StatusBadge status={appointment.status} />
             </div>
-            <p className="mt-1 text-muted">
-              Mã {formatAppointmentCode(appointment.appointmentId)}. {describeSchedule(appointment)}
-            </p>
+            <p className="mt-1 text-muted">{meta}</p>
           </div>
         </div>
       </CardBody>

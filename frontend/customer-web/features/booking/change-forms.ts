@@ -1,9 +1,10 @@
 import {
-  getInitialPetId,
+  getApplicableServices,
+  keepApplicableServiceIds,
   type HotelBookingFormValues,
   type SpaBookingFormValues,
 } from "@/features/booking/forms";
-import type { AppointmentDetail, Pet } from "@/lib/api/types";
+import type { AppointmentDetail, Pet, Service } from "@/lib/api/types";
 import { formatTime } from "@/lib/format";
 import { getStoreDateKey } from "@/lib/time";
 
@@ -16,14 +17,22 @@ function hasSameIds(first: string[], second: string[]) {
 }
 
 // Khi ngày hiện tại không nằm trong các ngày đặt được thì chọn ngày đầu tiên và để trống khung giờ.
-export function getSpaChangeDefaults(appointment: AppointmentDetail, pets: Pet[], dates: string[]): SpaBookingFormValues {
+export function getSpaChangeDefaults(
+  appointment: AppointmentDetail,
+  pets: Pet[],
+  services: Service[],
+  dates: string[],
+): SpaBookingFormValues {
   const { slotStart } = appointment;
   const currentDate = slotStart ? getStoreDateKey(slotStart) : "";
   const isInRange = dates.includes(currentDate);
+  const pet = pets.find((item) => item.petId === appointment.petId);
+  const rawServiceIds = (appointment.services ?? []).map((service) => service.serviceId);
+  const serviceIds = pet ? keepApplicableServiceIds(rawServiceIds, getApplicableServices(services, pet)) : [];
 
   return {
-    petId: getInitialPetId(pets, appointment.petId),
-    serviceIds: (appointment.services ?? []).map((service) => service.serviceId),
+    petId: appointment.petId,
+    serviceIds,
     date: isInRange ? currentDate : (dates[0] ?? ""),
     slotTime: slotStart && isInRange ? formatTime(slotStart) : "",
   };
@@ -38,11 +47,11 @@ export function isSpaChangeUnchanged(initial: SpaBookingFormValues, current: Spa
   );
 }
 
-export function getHotelChangeDefaults(appointment: AppointmentDetail, pets: Pet[]): HotelBookingFormValues {
+export function getHotelChangeDefaults(appointment: AppointmentDetail): HotelBookingFormValues {
   const { plannedCheckIn, plannedCheckOut } = appointment;
 
   return {
-    petId: getInitialPetId(pets, appointment.petId),
+    petId: appointment.petId,
     checkInDate: plannedCheckIn ? getStoreDateKey(plannedCheckIn) : "",
     checkInTime: plannedCheckIn ? formatTime(plannedCheckIn) : "",
     checkOutDate: plannedCheckOut ? getStoreDateKey(plannedCheckOut) : "",
