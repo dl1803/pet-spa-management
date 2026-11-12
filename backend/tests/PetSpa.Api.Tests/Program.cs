@@ -852,8 +852,38 @@ var tests = new (string Name, Func<Task> Run)[]
         await service.SetLodgingPricesAsync(validPrices, 50000m);
         Check(repo.Prices.Count == 2, "Repo prices count must be 2.");
         Check(repo.LateFee == 50000m, "Repo late fee must be 50000.");
-    })
+    }),
+    ("AppointmentQueryService.ListAsync: Quản lý xem toàn cửa hàng, Khách hàng theo phạm vi riêng, Nhân viên bị từ chối", async () =>
+    {
+        var repo = new TestAppointmentQueryRepo();
+        var pet = new Pet { PetId = Guid.NewGuid(), CustomerId = Guid.NewGuid(), IsActive = true };
+        var service = new AppointmentQueryService(repo, new TestPetRepo(pet, Guid.NewGuid()));
 
+        var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+        await service.ListAsync(manager, null, AppointmentStatus.Pending, null, 1, 20);
+        Check(repo.ListAllCalls == 1 && repo.ListByCustomerCalls == 0,
+            "Manager must be served by the store-wide query.");
+
+        var customer = new CurrentUser(Guid.NewGuid(), UserRole.Customer);
+        await service.ListAsync(customer, null, null, null, 1, 20);
+        Check(repo.ListAllCalls == 1 && repo.ListByCustomerCalls == 1,
+            "Customer must be served by the owner-scoped query.");
+
+        var staff = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+        var threw = false;
+        try
+        {
+            await service.ListAsync(staff, null, null, null, 1, 20);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.Forbidden)
+        {
+            threw = true;
+        }
+
+        Check(threw, "Staff must be rejected with Forbidden.");
+        Check(repo.ListAllCalls == 1 && repo.ListByCustomerCalls == 1,
+            "Rejected staff must not reach any repository query.");
+    })
 };
 
 var failures = 0;
@@ -1072,4 +1102,29 @@ sealed class TestHotelCatalogRepo : IHotelCatalogRepository
         return Task.CompletedTask;
     }
 }
+
+sealed class TestAppointmentQueryRepo : IAppointmentQueryRepository
+{
+    public int ListAllCalls { get; private set; }
+    public int ListByCustomerCalls { get; private set; }
+
+    public Task<PagedResult<AppointmentListItem>> ListByCustomerUserAsync(
+        Guid customerUserId, AppointmentType? type, AppointmentStatus? status, Guid? petId, int page, int pageSize,
+        CancellationToken ct = default)
+    {
+        ListByCustomerCalls++;
+        return Task.FromResult(new PagedResult<AppointmentListItem>([], page, pageSize, 0));
+    }
+
+    public Task<PagedResult<AppointmentListItem>> ListAllAsync(
+        AppointmentType? type, AppointmentStatus? status, int page, int pageSize, CancellationToken ct = default)
+    {
+        ListAllCalls++;
+        return Task.FromResult(new PagedResult<AppointmentListItem>([], page, pageSize, 0));
+    }
+
+    public Task<AppointmentDetailData?> FindDetailAsync(Guid appointmentId, CancellationToken ct = default) =>
+        Task.FromResult<AppointmentDetailData?>(null);
+}
+
 

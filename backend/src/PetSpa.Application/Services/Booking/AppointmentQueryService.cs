@@ -13,6 +13,9 @@ public sealed class AppointmentQueryService(IAppointmentQueryRepository appointm
         CurrentUser user, AppointmentType? type, AppointmentStatus? status, Guid? petId, int page, int pageSize,
         CancellationToken ct = default)
     {
+        if (user.Role == UserRole.Manager)
+            return await appointments.ListAllAsync(type, status, page, pageSize, ct);
+
         EnsureCustomer(user);
 
         // Xem lịch sử theo thú cưng (FR-BOOK-05): thú cưng phải thuộc khách đang đăng nhập (BR-16).
@@ -41,7 +44,7 @@ public sealed class AppointmentQueryService(IAppointmentQueryRepository appointm
         return detail;
     }
 
-    // Lễ tân, nhân viên spa, quản lý xem lịch hẹn theo phạm vi riêng ở việc khác (ID 77).
+    // Lễ tân, nhân viên spa xem lịch hẹn theo phạm vi riêng ở việc khác (ID 77).
     private static void EnsureCustomer(CurrentUser user)
     {
         if (user.Role != UserRole.Customer) throw new BusinessException(ErrorCodes.Forbidden);
