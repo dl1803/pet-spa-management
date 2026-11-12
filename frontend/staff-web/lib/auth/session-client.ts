@@ -31,12 +31,21 @@ export function singleFlight<T>(task: () => Promise<T>): () => Promise<T> {
   };
 }
 
+async function withRefreshLock<T>(task: () => Promise<T>): Promise<T> {
+  if (typeof navigator !== "undefined" && typeof navigator.locks?.request === "function") {
+    return navigator.locks.request("ps_staff_session_refresh", task);
+  }
+  return task();
+}
+
 // Refresh token xoay vòng: gửi hai lần cùng một token sẽ bị backend coi là bị lộ và thu hồi cả phiên.
-// Vì vậy mọi nơi cần làm mới (khôi phục phiên, interceptor 401, React StrictMode) dùng chung một lời gọi đang chạy.
-export const refreshAccessToken = singleFlight(async () => {
-  const { data } = await sessionClient.post<SessionRefreshResponse>("/refresh");
-  return data.accessToken;
-});
+// Kết hợp singleFlight trong tab và Web Lock giữa các tab để không gửi trùng refresh token cũ.
+export const refreshAccessToken = singleFlight(() =>
+  withRefreshLock(async () => {
+    const { data } = await sessionClient.post<SessionRefreshResponse>("/refresh");
+    return data.accessToken;
+  }),
+);
 
 export async function requestLogout() {
   await sessionClient.post("/logout");

@@ -10,6 +10,10 @@ let baseUrl;
 let refreshStatus;
 let meBody;
 
+let loginBodyRaw = null;
+let refreshBodyRaw = null;
+let meBodyRaw = null;
+
 const server = createServer(async (request, response) => {
   let raw = "";
   for await (const chunk of request) raw += chunk;
@@ -20,11 +24,13 @@ const server = createServer(async (request, response) => {
   const fail = (status, code) => { response.statusCode = status; response.end(JSON.stringify({ status, code, title: "Lỗi", detail: "Chi tiết" })); };
 
   if (path === "/auth/login") {
+    if (loginBodyRaw !== null) return response.end(loginBodyRaw);
     if (body.password !== "đúng") return fail(401, "UNAUTHENTICATED");
     return response.end(JSON.stringify({ accessToken: "access-1", refreshToken: "refresh+/=1" }));
   }
-  if (path === "/me") return response.end(JSON.stringify(meBody));
+  if (path === "/me") return response.end(meBodyRaw !== null ? meBodyRaw : JSON.stringify(meBody));
   if (path === "/auth/refresh") {
+    if (refreshBodyRaw !== null) return response.end(refreshBodyRaw);
     if (refreshStatus !== 200) return fail(refreshStatus, refreshStatus === 429 ? "RATE_LIMITED" : "UNAUTHENTICATED");
     return response.end(JSON.stringify({ accessToken: "access-2", refreshToken: "refresh-2" }));
   }
@@ -41,6 +47,9 @@ after(() => new Promise((resolve) => server.close(resolve)));
 beforeEach(() => {
   calls.length = 0;
   refreshStatus = 200;
+  loginBodyRaw = null;
+  refreshBodyRaw = null;
+  meBodyRaw = null;
   meBody = { userId: "u1", userName: "0900000001", role: "Staff", staffRole: "Receptionist", fullName: "Lễ Tân A" };
 });
 
@@ -51,7 +60,7 @@ function post(path, { body, cookie, origin = ORIGIN, headers = {} } = {}) {
       host: "localhost:3001",
       ...(origin === null ? {} : { origin }),
       "content-type": "application/json",
-      ...(cookie ? { cookie: `ps_rt=${encodeURIComponent(cookie)}` } : {}),
+      ...(cookie ? { cookie: `ps_staff_rt=${encodeURIComponent(cookie)}` } : {}),
       ...headers,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -59,7 +68,7 @@ function post(path, { body, cookie, origin = ORIGIN, headers = {} } = {}) {
 }
 
 function refreshCookie(response) {
-  return response.cookies.get("ps_rt");
+  return response.cookies.get("ps_staff_rt");
 }
 
 test("login: đúng vai trò → đặt cookie httpOnly, trả accessToken + me, không trả refresh token", async () => {
@@ -130,14 +139,49 @@ test("login: thiếu trường, body hỏng → 400 VALIDATION_ERROR và không 
   assert.equal(calls.length, 0);
 });
 
-test("mọi route từ chối yêu cầu khác origin hoặc không có Origin", async () => {
+test("mọi route từ chối yêu cầu khác origin (gồm khác protocol) hoặc không có Origin", async () => {
   for (const handler of [handleLogin, handleRefresh, handleLogout]) {
-    for (const origin of ["http://evil.example", null]) {
+    for (const origin of ["http://evil.example", "https://localhost:3001", null]) {
       const response = await handler(post("x", { body: { userName: "a", password: "b" }, cookie: "t", origin }));
       assert.equal(response.status, 403);
     }
   }
   assert.equal(calls.length, 0);
+});
+
+test("x-forwarded-for nhiều chặng chỉ lấy IP ngoài cùng; x-forwarded-proto=https khớp origin https", async () => {
+  const request = new NextRequest("http://staff.example/api/session/login", {
+    method: "POST",
+    headers: {
+      host: "staff.example",
+      origin: "https://staff.example",
+      "x-forwarded-proto": "https",
+      "x-forwarded-for": "10.0.0.1, 203.0.113.7",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ userName: "0900000001", password: "đúng" }),
+  });
+  const response = await handleLogin(request);
+  assert.equal(response.status, 200);
+  assert.equal(refreshCookie(response).secure, true);
+  assert.equal(calls[0].forwarded, "203.0.113.7");
+});
+
+test("backend trả 200 rỗng hoặc sai cấu trúc → 502 thay vì lỗi 500; giữ cookie khi refresh", async () => {
+  loginBodyRaw = "";
+  const badLogin = await handleLogin(post("login", { body: { userName: "0900000001", password: "đúng" } }));
+  assert.equal(badLogin.status, 502);
+
+  loginBodyRaw = null;
+  meBodyRaw = "<html>bad</html>";
+  const badMe = await handleLogin(post("login", { body: { userName: "0900000001", password: "đúng" } }));
+  assert.equal(badMe.status, 502);
+  assert.equal(calls.at(-1).path, "/auth/logout");
+
+  refreshBodyRaw = "not-json";
+  const badRefresh = await handleRefresh(post("refresh", { cookie: "t" }));
+  assert.equal(badRefresh.status, 502);
+  assert.equal(refreshCookie(badRefresh), undefined);
 });
 
 test("refresh: không có cookie → 401, không gọi backend", async () => {
@@ -159,6 +203,18 @@ test("refresh: backend từ chối (401) → xóa cookie; lỗi tạm (429, 5xx)
   const rejected = await handleRefresh(post("refresh", { cookie: "t" }));
   assert.equal(rejected.status, 401);
   assert.equal(refreshCookie(rejected).maxAge, 0);
+  assert.equal(refreshCookie(rejected).sameSite, "lax");
+
+  const httpsRejected = await handleRefresh(
+    new NextRequest("https://staff.example/api/session/refresh", {
+      method: "POST",
+      headers: { host: "staff.example", origin: "https://staff.example", cookie: "ps_staff_rt=t" },
+    }),
+  );
+  assert.equal(httpsRejected.status, 401);
+  assert.equal(refreshCookie(httpsRejected).maxAge, 0);
+  assert.equal(refreshCookie(httpsRejected).sameSite, "lax");
+  assert.equal(refreshCookie(httpsRejected).secure, true);
 
   refreshStatus = 429;
   const limited = await handleRefresh(post("refresh", { cookie: "t" }));

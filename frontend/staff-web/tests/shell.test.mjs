@@ -3,7 +3,7 @@ import test from "node:test";
 
 const baseURL = (process.env.SMOKE_BASE_URL ?? "http://127.0.0.1:3001").replace(/\/+$/, "");
 // Cookie phiên giả: proxy chỉ kiểm tra có cookie hay không, nên đủ để vào khung sau đăng nhập mà không cần backend.
-const SESSION_COOKIE = { cookie: "ps_rt=smoke" };
+const SESSION_COOKIE = { cookie: "ps_staff_rt=smoke" };
 
 async function get(url, options = {}) {
   try {
@@ -44,7 +44,11 @@ test("màn đăng nhập không dùng khung nhân viên và không lộ menu", a
 test("đã có cookie phiên: rời màn đăng nhập; khung hiện chỗ chờ, chưa lộ menu", async () => {
   const login = await get(`${baseURL}/dang-nhap`, { headers: SESSION_COOKIE, redirect: "manual" });
   assert.equal(login.status, 307);
-  assert.equal(redirectTarget(login), "/lich-hen");
+  assert.equal(redirectTarget(login), "/");
+
+  const emptyCookie = await get(`${baseURL}/lich-hen`, { headers: { cookie: "ps_staff_rt=" }, redirect: "manual" });
+  assert.equal(emptyCookie.status, 307);
+  assert.equal(redirectTarget(emptyCookie), "/dang-nhap?next=%2Flich-hen");
 
   const response = await get(baseURL, { headers: SESSION_COOKIE });
   assert.equal(response.status, 200);

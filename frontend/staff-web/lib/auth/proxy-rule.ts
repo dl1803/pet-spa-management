@@ -11,7 +11,7 @@ export function decideProxy(input: { pathname: string; search: string; hasSessio
     return { action: "redirect", to: buildLoginPath({ next: input.pathname + input.search }) };
   }
   if (isLoginPage && input.hasSession) {
-    return { action: "redirect", to: ROUTES.appointments };
+    return { action: "redirect", to: ROUTES.home };
   }
   return { action: "next" };
 }

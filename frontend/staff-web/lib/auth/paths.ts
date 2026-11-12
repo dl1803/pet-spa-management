@@ -1,3 +1,4 @@
+import type { StaffRole } from "@/lib/api/types";
 import { ROUTES } from "@/lib/routes";
 import { LOGIN_REASON_EXPIRED } from "./constants";
 
@@ -7,12 +8,15 @@ export function getSafeNextPath(next: string | null): string | null {
   return next;
 }
 
-// Trang đích mặc định sau đăng nhập (User-Flows 4.1): SW-02.
-export function getLandingPath(next: string | null): string {
+// Trang đích mặc định sau đăng nhập theo vai trò: Lễ tân vào /lich-hen, Nhân viên spa vào /lich-su-cong-viec
+// (màn /lich-hen của Nhân viên spa chưa triển khai).
+export function getLandingPath(next: string | null, staffRole?: StaffRole | null): string {
   const safe = getSafeNextPath(next);
   // Màn đăng nhập không phải đích hợp lệ: tránh vòng lặp.
   if (safe === null || safe === ROUTES.login || safe.startsWith(`${ROUTES.login}?`) || safe.startsWith(`${ROUTES.login}/`)) {
-    return ROUTES.appointments;
+    if (staffRole === "SpaStaff") return ROUTES.workHistory;
+    if (staffRole === "Receptionist") return ROUTES.appointments;
+    return ROUTES.home;
   }
   return safe;
 }

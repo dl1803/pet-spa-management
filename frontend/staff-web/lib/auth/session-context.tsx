@@ -86,17 +86,32 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setStatus("restoring");
     setError(null);
     registerHandlers();
+    let refreshed = false;
     try {
       storeAccessToken(await refreshAccessToken());
+      refreshed = true;
       const current = await getMe();
-      if (!isStaffMe(current)) throw new ApiError({ kind: "http", status: 401, code: "UNAUTHENTICATED" });
+      if (!isStaffMe(current)) throw new ApiError({ kind: "http", status: 403, code: "FORBIDDEN" });
       setMe(current);
       setStatus("authenticated");
     } catch (failure) {
       const apiError = toApiError(failure);
-      if (apiError.status === 401) {
+      if (apiError.status === 401 || apiError.status === 403) {
+        setSessionHandlers(null);
+        storeAccessToken(null);
+        // Nếu refreshAccessToken() đã thành công thì cookie vẫn còn trên trình duyệt: phải gọi logout
+        // để xóa cookie httpOnly trước khi chuyển về /dang-nhap, tránh vòng lặp redirect với proxy.ts.
+        if (refreshed) {
+          try {
+            await requestLogout();
+          } catch (logoutFailure) {
+            setError(toApiError(logoutFailure));
+            setStatus("failed");
+            return;
+          }
+        }
         queryClient.clear();
-        leaveSession({ expired: true });
+        leaveSession({ expired: apiError.status === 401 });
         return;
       }
       setError(apiError);
@@ -109,10 +124,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     if (signingOut.current) return;
     signingOut.current = true;
+    setSessionHandlers(null);
+    storeAccessToken(null);
     try {
       await requestLogout();
-    } catch {
-      // Cookie vẫn bị xóa phía server khi có phản hồi; mất mạng thì phiên cục bộ vẫn kết thúc.
+    } catch (failure) {
+      // Không xóa được cookie httpOnly khi mất kết nối Next.js: dừng ở trạng thái lỗi thay vì
+      // chuyển về /dang-nhap để tránh bị proxy.ts đẩy ngược lại vào ứng dụng.
+      setMe(null);
+      setError(toApiError(failure));
+      setStatus("failed");
+      signingOut.current = false;
+      return;
     }
     queryClient.clear();
     leaveSession({ expired: false });

@@ -34,13 +34,24 @@ const BAD_GATEWAY: Envelope = {
   detail: "Có lỗi xảy ra, vui lòng thử lại sau.",
 };
 
-// Chỉ nhận yêu cầu cùng origin: trình duyệt luôn gửi Origin cho POST.
+function getRequestProtocol(request: NextRequest) {
+  const forwarded = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  if (forwarded === "https" || forwarded === "http") return `${forwarded}:`;
+  return request.nextUrl.protocol;
+}
+
+function isSecureRequest(request: NextRequest) {
+  return getRequestProtocol(request) === "https:";
+}
+
+// Chỉ nhận yêu cầu cùng origin (gồm cả protocol và host): trình duyệt luôn gửi Origin cho POST.
 export function isSameOrigin(request: NextRequest) {
   const origin = request.headers.get("origin");
   const host = request.headers.get("host");
   if (origin === null || host === null) return false;
   try {
-    return new URL(origin).host === host;
+    const parsed = new URL(origin);
+    return parsed.host === host && parsed.protocol === getRequestProtocol(request);
   } catch {
     return false;
   }
@@ -55,11 +66,32 @@ type BackendResult<T> =
   | { ok: true; data: T }
   | { ok: false; status: number; envelope: Envelope };
 
-// Backend giới hạn đăng nhập/làm mới theo IP (10 yêu cầu/phút): chuyển IP của người dùng để họ không dùng chung một giới hạn
-// với mọi người cùng đi qua server của Next.js.
+// Backend giới hạn đăng nhập/làm mới theo IP (10 yêu cầu/phút): lấy IP ngoài cùng từ reverse proxy
+// (khớp ForwardLimit = 1 ở backend), loại bỏ các IP giả mạo đứng trước nếu có.
 function clientIpHeaders(request: NextRequest): Record<string, string> {
-  const forwarded = request.headers.get("x-forwarded-for")?.trim();
-  return forwarded ? { "X-Forwarded-For": forwarded } : {};
+  const forwarded = request.headers.get("x-forwarded-for");
+  const candidate =
+    forwarded
+      ?.split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .at(-1) ?? request.headers.get("x-real-ip")?.trim();
+  if (!candidate || !/^[0-9a-fA-F:.]+$/.test(candidate)) return {};
+  return { "X-Forwarded-For": candidate };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isTokenPair(value: unknown): value is TokenPair {
+  return (
+    isPlainObject(value) &&
+    typeof value.accessToken === "string" &&
+    value.accessToken !== "" &&
+    typeof value.refreshToken === "string" &&
+    value.refreshToken !== ""
+  );
 }
 
 async function callBackend<T>(
@@ -107,19 +139,22 @@ async function callBackend<T>(
   return { ok: false, status: response.status, envelope };
 }
 
-export function setRefreshCookie(request: NextRequest, response: NextResponse, refreshToken: string) {
-  const secure = request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
-  response.cookies.set(REFRESH_COOKIE_NAME, refreshToken, {
+function refreshCookieOptions(request: NextRequest, maxAge: number) {
+  return {
     httpOnly: true,
-    secure,
-    sameSite: "lax",
+    secure: isSecureRequest(request),
+    sameSite: "lax" as const,
     path: "/",
-    maxAge: REFRESH_COOKIE_MAX_AGE_SECONDS,
-  });
+    maxAge,
+  };
 }
 
-export function clearRefreshCookie(response: NextResponse) {
-  response.cookies.set(REFRESH_COOKIE_NAME, "", { httpOnly: true, path: "/", maxAge: 0 });
+export function setRefreshCookie(request: NextRequest, response: NextResponse, refreshToken: string) {
+  response.cookies.set(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions(request, REFRESH_COOKIE_MAX_AGE_SECONDS));
+}
+
+export function clearRefreshCookie(request: NextRequest, response: NextResponse) {
+  response.cookies.set(REFRESH_COOKIE_NAME, "", refreshCookieOptions(request, 0));
 }
 
 export async function handleLogin(request: NextRequest) {
@@ -143,6 +178,7 @@ export async function handleLogin(request: NextRequest) {
 
   const login = await callBackend<TokenPair>(request, "/auth/login", { method: "POST", body: { userName, password } });
   if (!login.ok) return errorResponse(login.envelope);
+  if (!isTokenPair(login.data)) return errorResponse(BAD_GATEWAY);
   const { accessToken, refreshToken } = login.data;
 
   const meResult = await callBackend<Me>(request, "/me", { method: "GET", accessToken });
@@ -150,6 +186,10 @@ export async function handleLogin(request: NextRequest) {
     // Không để lại refresh token còn hiệu lực khi không xác định được vai trò.
     await callBackend(request, "/auth/logout", { method: "POST", body: { refreshToken }, accessToken });
     return errorResponse(meResult.envelope);
+  }
+  if (!isPlainObject(meResult.data)) {
+    await callBackend(request, "/auth/logout", { method: "POST", body: { refreshToken }, accessToken });
+    return errorResponse(BAD_GATEWAY);
   }
 
   if (!isStaffMe(meResult.data)) {
@@ -174,11 +214,12 @@ export async function handleRefresh(request: NextRequest) {
     // Chỉ xóa cookie khi backend từ chối token. Lỗi tạm (429, 5xx, mất mạng) giữ cookie để thử lại.
     if (result.status === 400 || result.status === 401) {
       const rejected = errorResponse(UNAUTHENTICATED);
-      clearRefreshCookie(rejected);
+      clearRefreshCookie(request, rejected);
       return rejected;
     }
     return errorResponse(result.envelope);
   }
+  if (!isTokenPair(result.data)) return errorResponse(BAD_GATEWAY);
 
   const response = NextResponse.json({ accessToken: result.data.accessToken }, { headers: NO_STORE });
   setRefreshCookie(request, response, result.data.refreshToken);
@@ -193,7 +234,7 @@ export async function handleLogout(request: NextRequest) {
     // POST /auth/logout cần access token còn hạn. Trình duyệt chỉ giữ refresh token nên làm mới trước rồi thu hồi cặp mới;
     // refresh token cũ đã bị thu hồi khi xoay vòng. Mọi lỗi đều bỏ qua: cookie luôn bị xóa.
     const renewed = await callBackend<TokenPair>(request, "/auth/refresh", { method: "POST", body: { refreshToken } });
-    if (renewed.ok) {
+    if (renewed.ok && isTokenPair(renewed.data)) {
       await callBackend(request, "/auth/logout", {
         method: "POST",
         body: { refreshToken: renewed.data.refreshToken },
@@ -203,6 +244,6 @@ export async function handleLogout(request: NextRequest) {
   }
 
   const response = new NextResponse(null, { status: 204, headers: NO_STORE });
-  clearRefreshCookie(response);
+  clearRefreshCookie(request, response);
   return response;
 }

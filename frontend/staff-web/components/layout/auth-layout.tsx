@@ -28,7 +28,7 @@ export function AuthLayout({ heading, description, species, children }: AuthLayo
             <small className={`block text-[11px] font-medium leading-[14px] ${onDarkMutedTextClass}`}>Web nhân viên</small>
           </span>
         </div>
-        <h2 className="relative mt-auto max-w-[460px] text-[34px] font-bold leading-[42px] tracking-[-0.02em]">{heading}</h2>
+        <p className="relative mt-auto max-w-[460px] text-[34px] font-bold leading-[42px] tracking-[-0.02em]">{heading}</p>
         <p className="relative mt-3.5 max-w-[420px] text-[15px] leading-6 text-[#C9E9EB]">{description}</p>
         <div className="relative mt-8 flex gap-3">
           {species.map((item) => (

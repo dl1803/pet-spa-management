@@ -9,7 +9,7 @@ export function SessionSiteHeader() {
   return (
     <SiteHeader
       role={staffRole}
-      pending={status !== "authenticated"}
+      pending={status === "idle" || status === "restoring"}
       onLogout={staffRole === null ? undefined : () => void signOut()}
     />
   );

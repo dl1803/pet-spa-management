@@ -1,6 +1,6 @@
 // Dùng chung cho route handler (server), proxy.ts và trình duyệt: không import gì của React.
 
-export const REFRESH_COOKIE_NAME = "ps_rt";
+export const REFRESH_COOKIE_NAME = "ps_staff_rt";
 // Thời hạn cookie bằng thời hạn refresh token của backend (Jwt__RefreshTokenDays = 7).
 export const REFRESH_COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 

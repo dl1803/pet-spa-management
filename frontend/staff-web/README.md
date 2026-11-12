@@ -50,18 +50,18 @@ Mọi mục chưa có trang đích bị vô hiệu hóa, có mô tả “Chức 
 
 Tài khoản đăng nhập bằng số điện thoại và mật khẩu qua route handler của chính web này (`/api/session/login`,
 `/api/session/refresh`, `/api/session/logout`); các route này gọi backend `/auth/*` ở phía server của Next.js.
-Refresh token chỉ nằm trong cookie `ps_rt` (httpOnly, SameSite=Lax, Secure khi chạy https, sống 7 ngày), trình duyệt không đọc được.
+Refresh token chỉ nằm trong cookie `ps_staff_rt` (httpOnly, SameSite=Lax, Secure khi chạy https, sống 7 ngày), trình duyệt không đọc được.
 Access token chỉ nằm trong bộ nhớ trình duyệt và mất khi tải lại trang; `SessionGate` lấy lại bằng `/api/session/refresh`
 rồi gọi `GET /me`. Không lưu token vào `localStorage` hay `sessionStorage`.
 
-- `proxy.ts` chỉ kiểm tra có cookie `ps_rt` hay không: chưa có thì chuyển về `/dang-nhap?next=…`; đã có thì rời `/dang-nhap`.
+- `proxy.ts` chỉ kiểm tra có cookie `ps_staff_rt` khác rỗng hay không: chưa có thì chuyển về `/dang-nhap?next=…`; đã có thì chuyển khỏi `/dang-nhap` về `/`.
   Quyền thật luôn do backend kiểm tra.
 - Chỉ tài khoản `role = Staff` có `staffRole` hợp lệ được vào. Tài khoản khác đăng nhập đúng vẫn bị từ chối (403) và không được lưu phiên.
-- `RoleGate allow={[…]}` bọc các màn chỉ dành cho một vai trò; sai vai trò thì hiện `ForbiddenState` trong khung. `/lich-hen`
-  dùng chung hai vai trò nên chưa bọc.
+- `RoleGate allow={[…]}` bọc các màn chỉ dành cho một vai trò; sai vai trò thì hiện `ForbiddenState` trong khung. Hiện `/lich-hen`
+  mới có giao diện cho Lễ tân nên bọc `RoleGate allow={["Receptionist"]}` (Nhân viên spa mặc định vào `/lich-su-cong-viec` sau đăng nhập).
 - Đăng xuất hoặc hết phiên tải lại trang `/dang-nhap` để xóa sạch token, bộ đệm Query và khách đang phục vụ.
 - Mỗi lần làm mới, backend thu hồi refresh token cũ; hai lời gọi làm mới cùng một token sẽ bị coi là lộ token và thu hồi cả phiên.
-  Vì vậy `refreshAccessToken` gộp các lời gọi đồng thời thành một.
+  Vì vậy `refreshAccessToken` dùng `singleFlight` trong tab và Web Lock liên tab (`navigator.locks`) để tránh gửi trùng refresh token cũ.
 - Backend giới hạn đăng nhập/làm mới theo IP; route handler chuyển `X-Forwarded-For` của người dùng để không dùng chung một giới hạn.
 
 Để gọi backend, sao chép `.env.example` thành `.env.local` và điền `NEXT_PUBLIC_API_BASE_URL`

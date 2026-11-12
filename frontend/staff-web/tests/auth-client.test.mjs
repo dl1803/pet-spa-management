@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import test, { before, after, beforeEach } from "node:test";
 import { apiClient, setAccessTokenProvider, setSessionHandlers } from "../lib/api/client.ts";
 import { ApiError } from "../lib/api/errors.ts";
-import { singleFlight } from "../lib/auth/session-client.ts";
+import { refreshAccessToken, singleFlight } from "../lib/auth/session-client.ts";
 
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 const hits = [];
@@ -98,4 +98,32 @@ test("singleFlight: lời gọi đồng thời dùng chung một lần chạy; x
   const failing = singleFlight(async () => { throw new Error("lỗi"); });
   await assert.rejects(failing(), /lỗi/);
   await assert.rejects(failing(), /lỗi/);
+});
+
+test("refreshAccessToken dùng navigator.locks khi có để tuần tự hóa đa tab", async () => {
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  let lockedName = null;
+  let lockCalls = 0;
+  Object.defineProperty(globalThis, "navigator", {
+    value: {
+      locks: {
+        request: async (name, callback) => {
+          lockedName = name;
+          lockCalls++;
+          return callback();
+        },
+      },
+    },
+    configurable: true,
+    writable: true,
+  });
+
+  try {
+    await assert.rejects(refreshAccessToken());
+    assert.equal(lockedName, "ps_staff_session_refresh");
+    assert.equal(lockCalls, 1);
+  } finally {
+    if (originalNavigator) Object.defineProperty(globalThis, "navigator", originalNavigator);
+    else delete globalThis.navigator;
+  }
 });

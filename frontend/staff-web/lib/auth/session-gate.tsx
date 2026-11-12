@@ -8,7 +8,7 @@ import { useSession } from "./session-context";
 
 // Lớp 2 của route guard (Frontend-Architecture 4.2): lấy access token và GET /me trước khi hiện màn.
 export function SessionGate({ children }: { children: ReactNode }) {
-  const { status, error, restore } = useSession();
+  const { status, error, restore, signOut } = useSession();
 
   useEffect(() => {
     if (status === "idle") void restore();
@@ -20,7 +20,12 @@ export function SessionGate({ children }: { children: ReactNode }) {
     return (
       <div className="flex flex-col items-start gap-3">
         <ErrorAlert error={error} className="w-full" />
-        <Button onClick={() => void restore()}>Thử lại</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => void restore()}>Thử lại</Button>
+          <Button variant="secondary" onClick={() => void signOut()}>
+            Đăng xuất
+          </Button>
+        </div>
       </div>
     );
   }

@@ -49,7 +49,7 @@ export function LoginScreen() {
   function onSubmit(values: LoginFormValues) {
     if (isPending) return;
     mutate(toLoginRequest(values), {
-      onSuccess: () => router.replace(getLandingPath(next)),
+      onSuccess: (loggedInMe) => router.replace(getLandingPath(next, loggedInMe.staffRole)),
     });
   }
 

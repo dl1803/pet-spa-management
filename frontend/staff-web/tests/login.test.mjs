@@ -47,6 +47,7 @@ test("AuthLayout: tiêu đề, mô tả, hai ảnh thú cưng và nội dung for
   );
   assert.match(html, /Web nhân viên/);
   assert.match(html, /Bắt đầu ca làm việc\./);
+  assert.doesNotMatch(html, /<h2\b/);
   assert.match(html, /NỘI DUNG/);
   assert.equal((html.match(/bg-sp-/g) ?? []).length, 2);
 });
