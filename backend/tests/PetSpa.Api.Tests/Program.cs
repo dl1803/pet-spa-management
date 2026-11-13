@@ -1155,6 +1155,108 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(spaStaff == ErrorCodes.Forbidden, "Spa staff must be rejected with Forbidden.");
         Check(unknownPet == ErrorCodes.NotFound, "An unknown pet must be rejected with NotFound.");
         Check(sameDay == ErrorCodes.ValidationError, "A check-out on the check-in date must be rejected with ValidationError.");
+    }),
+    ("VnpayPaymentGateway signs the sandbox payment URL with HMACSHA512 over the encoded sorted payload", () =>
+    {
+        var gateway = new VnpayPaymentGateway(ValidVnpayGatewayOptions());
+        var url = gateway.CreatePaymentUrl(VnpayTransaction(), "203.0.113.7");
+
+        const string expectedQuery =
+            "vnp_Amount=15000000&vnp_Command=pay&vnp_CreateDate=20261112170000&vnp_CurrCode=VND"
+            + "&vnp_ExpireDate=20261112171500&vnp_IpAddr=203.0.113.7&vnp_Locale=vn"
+            + "&vnp_OrderInfo=Thanh+toan+lich+hen+ABC123def456&vnp_OrderType=other"
+            + "&vnp_ReturnUrl=https%3A%2F%2Fexample.test%2Fpayments%2Fvnpay%2Freturn"
+            + "&vnp_TmnCode=TESTCODE&vnp_TxnRef=ABC123def456&vnp_Version=2.1.0";
+        const string expectedHash =
+            "688ac99797ed07cfe433c77ff5735a80420ed27bb634645ca2ca04188cf8ad84936ffcbb353edec51fa07a9e2ec466e96a698ebdb91f6c8642eb90727421f372";
+
+        Check(url == $"{VnpayPaymentGateway.SandboxPaymentUrl}?{expectedQuery}&vnp_SecureHash={expectedHash}",
+            "The URL must be the sandbox address, the encoded sorted query and the lowercase HMACSHA512 hash as the last parameter.");
+        Check(url.IndexOf("vnp_SecureHash=", StringComparison.Ordinal) == url.LastIndexOf("vnp_SecureHash=", StringComparison.Ordinal),
+            "vnp_SecureHash must appear exactly once.");
+        return Task.CompletedTask;
+    }),
+    ("VnpayPaymentGateway identifies as VNPAY, depends on the secret and reuses the builder validation", () =>
+    {
+        var gateway = new VnpayPaymentGateway(ValidVnpayGatewayOptions());
+        Check(gateway.Gateway == PaymentGateway.VNPAY, "The adapter must report the VNPAY gateway.");
+
+        var other = new VnpayPaymentGateway(new VnpayOptions
+        {
+            TmnCode = "TESTCODE",
+            HashSecret = "ANOTHERSECRETKEY0123456789ABCDE",
+            ReturnUrl = "https://example.test/payments/vnpay/return",
+        });
+        var first = gateway.CreatePaymentUrl(VnpayTransaction(), "203.0.113.7");
+        Check(first == gateway.CreatePaymentUrl(VnpayTransaction(), "203.0.113.7"), "The same input must produce the same URL.");
+        Check(first != other.CreatePaymentUrl(VnpayTransaction(), "203.0.113.7"), "A different secret must produce a different URL.");
+
+        AssertThrows<ArgumentException>(
+            () => gateway.CreatePaymentUrl(VnpayTransaction(gateway: PaymentGateway.MoMo), "203.0.113.7"),
+            "A MoMo transaction must be rejected.");
+        AssertThrows<ArgumentException>(
+            () => gateway.CreatePaymentUrl(VnpayTransaction(), "not-an-ip"),
+            "An invalid client IP must be rejected.");
+        return Task.CompletedTask;
+    }),
+    ("VnpayPaymentGateway rejects missing HashSecret and invalid builder configuration", () =>
+    {
+        foreach (var secret in new[] { "", "   " })
+        {
+            AssertThrows<InvalidOperationException>(
+                () => new VnpayPaymentGateway(new VnpayOptions
+                {
+                    TmnCode = "TESTCODE",
+                    HashSecret = secret,
+                    ReturnUrl = "https://example.test/payments/vnpay/return",
+                }),
+                $"HashSecret '{secret}' must be rejected.");
+        }
+
+        AssertThrows<InvalidOperationException>(
+            () => new VnpayPaymentGateway(new VnpayOptions
+            {
+                TmnCode = "SHORT",
+                HashSecret = "SANDBOXSECRETKEY0123456789ABCDEF",
+                ReturnUrl = "https://example.test/payments/vnpay/return",
+            }),
+            "An invalid TmnCode must still be rejected.");
+        return Task.CompletedTask;
+    }),
+    ("AddInfrastructure registers the VNPAY gateway lazily from Payment__Vnpay__* configuration", () =>
+    {
+        var baseSettings = new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:Default"] = "Host=localhost;Database=petspa;Username=test;Password=test",
+            ["Jwt:SigningKey"] = "this-is-a-valid-32-byte-secret-key-12345",
+            ["Jwt:AccessTokenMinutes"] = "15",
+            ["Jwt:RefreshTokenDays"] = "7",
+        };
+
+        var withoutPayment = new ServiceCollection();
+        PetSpa.Infrastructure.DependencyInjection.AddInfrastructure(
+            withoutPayment, new ConfigurationBuilder().AddInMemoryCollection(baseSettings).Build());
+        using var missingProvider = withoutPayment.BuildServiceProvider();
+        using var missingScope = missingProvider.CreateScope();
+        AssertThrows<InvalidOperationException>(
+            () => missingScope.ServiceProvider.GetRequiredService<IPaymentGateway>(),
+            "Resolving the gateway without Payment__Vnpay__* must fail, while registration must not.");
+
+        var configured = new Dictionary<string, string?>(baseSettings)
+        {
+            ["Payment:Vnpay:TmnCode"] = "TESTCODE",
+            ["Payment:Vnpay:HashSecret"] = "SANDBOXSECRETKEY0123456789ABCDEF",
+            ["Payment:Vnpay:ReturnUrl"] = "https://example.test/payments/vnpay/return",
+        };
+        var withPayment = new ServiceCollection();
+        PetSpa.Infrastructure.DependencyInjection.AddInfrastructure(
+            withPayment, new ConfigurationBuilder().AddInMemoryCollection(configured).Build());
+        using var provider = withPayment.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var gateway = scope.ServiceProvider.GetRequiredService<IPaymentGateway>();
+        Check(gateway is VnpayPaymentGateway && gateway.Gateway == PaymentGateway.VNPAY,
+            "The registered gateway must be the VNPAY adapter.");
+        return Task.CompletedTask;
     })
 };
 
@@ -1260,6 +1362,13 @@ static void AssertThrows<TException>(Action action, string message) where TExcep
 static VnpayOptions ValidVnpayOptions() => new()
 {
     TmnCode = "TESTCODE",
+    ReturnUrl = "https://example.test/payments/vnpay/return",
+};
+
+static VnpayOptions ValidVnpayGatewayOptions() => new()
+{
+    TmnCode = "TESTCODE",
+    HashSecret = "SANDBOXSECRETKEY0123456789ABCDEF",
     ReturnUrl = "https://example.test/payments/vnpay/return",
 };
 
