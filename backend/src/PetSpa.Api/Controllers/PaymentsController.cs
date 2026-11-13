@@ -31,6 +31,7 @@ public sealed class PaymentsController(PaymentService paymentService) : Controll
     {
         var address = HttpContext.Connection.RemoteIpAddress ?? IPAddress.Loopback;
         if (address.IsIPv4MappedToIPv6) address = address.MapToIPv4();
+        if (IPAddress.IsLoopback(address)) return IPAddress.Loopback.ToString();
         return address.ToString();
     }
 }

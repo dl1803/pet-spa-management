@@ -1354,6 +1354,7 @@ var tests = new (string Name, Func<Task> Run)[]
         var paid = OnlinePayment(PaymentKind.Spa, 150000m);
         paid.Status = PaymentStatus.Paid;
         await AssertNotDueAsync(paid, AppointmentStatus.Completed);
+        await AssertNotDueAsync(OnlinePayment(PaymentKind.Spa, 0m), AppointmentStatus.Completed);
     }),
     ("PaymentService.StartOnlineAsync stores no transaction when the gateway fails", async () =>
     {
@@ -1454,6 +1455,9 @@ var tests = new (string Name, Func<Task> Run)[]
 
         await CallAsync(System.Net.IPAddress.Parse("::ffff:203.0.113.8"));
         Check(gateway.LastClientIp == "203.0.113.8", "An IPv4-mapped IPv6 address must be passed as IPv4.");
+
+        await CallAsync(System.Net.IPAddress.IPv6Loopback);
+        Check(gateway.LastClientIp == "127.0.0.1", "An IPv6 loopback address (::1) must be normalized to 127.0.0.1.");
     })
 };
 

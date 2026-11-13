@@ -242,4 +242,16 @@ public class PaymentTests
 
         Assert.Equal(PaymentStatus.Paid, payment.Status);
     }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1000)]
+    public void EnsureCanStartOnline_NonPositiveAmount_ThrowsPaymentNotDue(decimal amount)
+    {
+        var payment = Unpaid(amount: amount);
+
+        AssertCode(ErrorCodes.PaymentNotDue, () => payment.EnsureCanStartOnline(AppointmentStatus.Completed));
+
+        AssertStillUnpaid(payment);
+    }
 }

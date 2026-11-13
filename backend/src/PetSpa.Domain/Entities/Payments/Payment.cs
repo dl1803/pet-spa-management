@@ -55,7 +55,7 @@ public class Payment
 
     public void EnsureCanStartOnline(AppointmentStatus appointmentStatus)
     {
-        if (Status != PaymentStatus.Unpaid || !IsDueFor(appointmentStatus, PaymentMethod.Online))
+        if (Status != PaymentStatus.Unpaid || Amount <= 0 || !IsDueFor(appointmentStatus, PaymentMethod.Online))
         {
             throw new BusinessException(ErrorCodes.PaymentNotDue);
         }
