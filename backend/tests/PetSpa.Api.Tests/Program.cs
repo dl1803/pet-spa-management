@@ -1376,6 +1376,84 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(threw, "The gateway failure must propagate unchanged.");
         Check(repo.Added.Count == 0, "No transaction may be stored when the URL could not be created.");
         Check(payment.Status == PaymentStatus.Unpaid, "The payment must stay unpaid.");
+    }),
+    ("OnlinePaymentRequestValidator requires a defined gateway", () =>
+    {
+        var validator = new OnlinePaymentRequestValidator();
+
+        Check(validator.Validate(new OnlinePaymentRequest(PaymentGateway.VNPAY)).IsValid, "VNPAY must pass validation.");
+        Check(validator.Validate(new OnlinePaymentRequest(PaymentGateway.MoMo)).IsValid,
+            "MoMo is a defined gateway; whether it is supported is decided by the service.");
+
+        var missing = validator.Validate(new OnlinePaymentRequest(null));
+        Check(!missing.IsValid && missing.Errors.Any(e => e.PropertyName == "Gateway"), "A missing gateway must fail validation.");
+
+        var undefined = validator.Validate(new OnlinePaymentRequest((PaymentGateway)99));
+        Check(!undefined.IsValid && undefined.Errors.Any(e => e.PropertyName == "Gateway"), "An undefined gateway must fail validation.");
+        return Task.CompletedTask;
+    }),
+    ("Online payment DTOs follow the JSON contract", () =>
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+
+        var request = JsonSerializer.Deserialize<OnlinePaymentRequest>("{\"gateway\":\"VNPAY\"}", options);
+        Check(request is { Gateway: PaymentGateway.VNPAY }, "gateway must bind from its enum name.");
+
+        var json = JsonSerializer.Serialize(new OnlinePaymentCreated("https://pay.test/p?a=b", "abc123"), options);
+        Check(json == "{\"paymentUrl\":\"https://pay.test/p?a=b\",\"txnRef\":\"abc123\"}",
+            "The response must contain exactly paymentUrl and txnRef in camelCase.");
+        return Task.CompletedTask;
+    }),
+    ("PaymentsController.PayOnline rejects null request with ValidationError", async () =>
+    {
+        var controller = new PaymentsController(new PaymentService(new TestPaymentRepo(null), new TestPaymentGateway()));
+
+        var threw = false;
+        try
+        {
+            await controller.PayOnline(Guid.NewGuid(), null, CancellationToken.None);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.ValidationError)
+        {
+            threw = true;
+        }
+
+        Check(threw, "PayOnline must throw ValidationError when the request body is null.");
+    }),
+    ("PaymentsController.PayOnline returns paymentUrl and txnRef and passes the client IP to the gateway", async () =>
+    {
+        var ownerUserId = Guid.NewGuid();
+        var payment = OnlinePayment(PaymentKind.Spa, 150000m);
+        var repo = new TestPaymentRepo(new PaymentWithOwner(payment, AppointmentStatus.Completed, ownerUserId));
+        var gateway = new TestPaymentGateway();
+
+        async Task<IActionResult> CallAsync(System.Net.IPAddress remoteIp)
+        {
+            var httpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(
+                [
+                    new Claim(TokenClaims.UserId, ownerUserId.ToString()),
+                    new Claim(TokenClaims.Role, "Customer"),
+                ], "test")),
+            };
+            httpContext.Connection.RemoteIpAddress = remoteIp;
+            var controller = new PaymentsController(new PaymentService(repo, gateway))
+            {
+                ControllerContext = new ControllerContext { HttpContext = httpContext },
+            };
+            return await controller.PayOnline(payment.PaymentId, new OnlinePaymentRequest(PaymentGateway.VNPAY), CancellationToken.None);
+        }
+
+        var ok = await CallAsync(System.Net.IPAddress.Parse("203.0.113.7")) as OkObjectResult;
+        Check(ok?.Value is OnlinePaymentCreated, "PayOnline must return OnlinePaymentCreated with 200.");
+        var body = (OnlinePaymentCreated)ok!.Value!;
+        Check(body.PaymentUrl == gateway.Url && body.TxnRef == repo.Added[0].TxnRef, "The body must carry the gateway URL and the stored TxnRef.");
+        Check(gateway.LastClientIp == "203.0.113.7", "The remote IP must be passed to the gateway.");
+
+        await CallAsync(System.Net.IPAddress.Parse("::ffff:203.0.113.8"));
+        Check(gateway.LastClientIp == "203.0.113.8", "An IPv4-mapped IPv6 address must be passed as IPv4.");
     })
 };
 
