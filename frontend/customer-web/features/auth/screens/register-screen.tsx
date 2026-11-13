@@ -1,7 +1,6 @@
 "use client";
 
 
-import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { ErrorAlert } from "@/components/feedback/error-alert";
@@ -20,7 +19,7 @@ import {
   validateConfirmPassword,
   type RegisterFormValues,
 } from "@/features/auth/forms";
-import { mockRegister } from "@/features/auth/mock-auth";
+import { useRegister } from "@/lib/queries/auth";
 import { ROUTES } from "@/lib/routes";
 import { validateFullName, validateOptionalEmail, validatePasswordRequired, validatePhone } from "@/lib/validation";
 
@@ -40,7 +39,7 @@ export function RegisterScreen() {
     shouldFocusError: true,
     defaultValues: REGISTER_DEFAULT_VALUES,
   });
-  const { mutate, isPending, error } = useMutation({ mutationFn: mockRegister });
+  const { mutate, isPending, error } = useRegister();
 
   const showAlert = error !== null && !isDuplicateContactError(error);
 

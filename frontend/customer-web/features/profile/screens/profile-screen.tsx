@@ -1,14 +1,11 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { ErrorAlert } from "@/components/feedback/error-alert";
 import { useToast } from "@/components/feedback/toast";
 import { Icon } from "@/components/icons";
 import { PageHeader } from "@/components/layout/page-header";
-import { Button, ButtonLink } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -24,17 +21,16 @@ import {
   toUpdateMeRequest,
   type ProfileFormValues,
 } from "@/features/profile/forms";
-import { mockGetMe, mockUpdateMe, PROFILE_QUERY_KEY } from "@/features/profile/mock-profile";
+import { useLogout } from "@/lib/queries/auth";
+import { useMe, useUpdateMe } from "@/lib/queries/me";
 import type { Me } from "@/lib/api/types";
 import { MOCK_PETS } from "@/lib/mock-data";
-import { ROUTES, withQuery } from "@/lib/routes";
 import { validateFullName, validateOptionalEmail, validatePhone } from "@/lib/validation";
 
 const TITLE = "Hồ sơ cá nhân";
 const DESCRIPTION = "Thông tin liên hệ cửa hàng dùng khi cần báo cho bạn.";
 const LAYOUT_CLASS = "grid grid-cols-[minmax(0,1fr)_360px] items-start gap-6 max-[1180px]:grid-cols-1";
 const PHONE_HINT_ID = "profile-phone-hint";
-const LOGIN_REDIRECT_PATH = withQuery(ROUTES.login, { next: ROUTES.profile });
 
 function ProfileSkeleton() {
   return (
@@ -66,9 +62,8 @@ function ProfileSkeleton() {
 }
 
 function ProfileContent({ me }: { me: Me }) {
-  const router = useRouter();
-  const queryClient = useQueryClient();
   const { showSuccess } = useToast();
+  const { mutate: logout, isPending: isLoggingOut } = useLogout();
   const {
     register,
     handleSubmit,
@@ -86,33 +81,27 @@ function ProfileContent({ me }: { me: Me }) {
     isPending,
     error,
     reset: resetMutation,
-  } = useMutation({
-    mutationFn: mockUpdateMe,
-    onSuccess: async (_result, request) => {
-      resetForm({
-        fullName: request.fullName ?? "",
-        phone: request.phone ?? "",
-        email: request.email ?? "",
-      });
-      showSuccess(PROFILE_SAVED_MESSAGE);
-      await queryClient.invalidateQueries({ queryKey: PROFILE_QUERY_KEY });
-    },
-    onError: (failure) => {
-      if (isUnauthenticatedError(failure)) {
-        router.replace(LOGIN_REDIRECT_PATH);
-        return;
-      }
-      if (isDuplicateContactError(failure)) {
-        setError("phone", { type: "server", message: DUPLICATE_CONTACT_MESSAGE }, { shouldFocus: true });
-      }
-    },
-  });
+  } = useUpdateMe();
 
   const showAlert = error !== null && !isDuplicateContactError(error) && !isUnauthenticatedError(error);
 
   function onSubmit(values: ProfileFormValues) {
     if (isPending) return;
-    mutate(toUpdateMeRequest(values));
+    mutate(toUpdateMeRequest(values), {
+      onSuccess: (_result, request) => {
+        resetForm({
+          fullName: request.fullName ?? "",
+          phone: request.phone ?? "",
+          email: request.email ?? "",
+        });
+        showSuccess(PROFILE_SAVED_MESSAGE);
+      },
+      onError: (failure) => {
+        if (isDuplicateContactError(failure)) {
+          setError("phone", { type: "server", message: DUPLICATE_CONTACT_MESSAGE }, { shouldFocus: true });
+        }
+      },
+    });
   }
 
   function onCancel() {
@@ -179,24 +168,19 @@ function ProfileContent({ me }: { me: Me }) {
 
       <aside className="flex flex-col gap-3">
         <ProfileSummary fullName={me.fullName ?? ""} petCount={MOCK_PETS.length} />
-        <ButtonLink href={ROUTES.login} variant="secondary" block>
+        <Button variant="secondary" block onClick={() => logout()} disabled={isLoggingOut}>
           <Icon name="logout" />
           Đăng xuất
-        </ButtonLink>
+        </Button>
       </aside>
     </div>
   );
 }
 
 export function ProfileScreen() {
-  const router = useRouter();
-  const { data, error, isFetching, refetch } = useQuery({ queryKey: PROFILE_QUERY_KEY, queryFn: mockGetMe });
+  const { data, error, isFetching, refetch } = useMe();
   const isUnauthenticated = error !== null && isUnauthenticatedError(error);
   const showLoadError = error !== null && !isUnauthenticated;
-
-  useEffect(() => {
-    if (isUnauthenticated) router.replace(LOGIN_REDIRECT_PATH);
-  }, [isUnauthenticated, router]);
 
   return (
     <>

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "@/components/icons";
+import { useLogout } from "@/lib/queries/auth";
 import { ROUTES } from "@/lib/routes";
 import { Dropdown, dropdownItemClass } from "./dropdown";
 import { NotificationBell } from "./notification-bell";
@@ -21,6 +22,7 @@ function NavLabel({ children }: { children: string }) {
 }
 
 export function HeaderNav({ pathname }: { pathname: string | null }) {
+  const { mutate: logout, isPending: isLoggingOut } = useLogout();
   const bookingActive = isUnder(pathname, "/dat-lich");
   const notificationsActive = isUnder(pathname, ROUTES.notifications);
 
@@ -103,10 +105,10 @@ export function HeaderNav({ pathname }: { pathname: string | null }) {
             Lịch sử dịch vụ
           </Link>
           <div className="mx-1 my-1.5 h-px bg-line" />
-          <Link href={ROUTES.login} className={dropdownItemClass}>
+          <button type="button" onClick={() => logout()} disabled={isLoggingOut} className={dropdownItemClass}>
             <Icon name="logout" />
             Đăng xuất
-          </Link>
+          </button>
         </Dropdown>
       </div>
     </>
