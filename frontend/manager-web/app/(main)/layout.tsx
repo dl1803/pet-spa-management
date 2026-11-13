@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
+import { SessionGate } from "@/lib/auth/session-gate";
 
 export default function MainLayout({ children }: { children: ReactNode }) {
   return (
@@ -17,7 +18,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
           tabIndex={-1}
           className="mx-auto w-full max-w-[1280px] px-8 pb-[72px] pt-7 max-[980px]:px-4 max-[980px]:pb-14 max-[980px]:pt-5"
         >
-          {children}
+          <SessionGate>{children}</SessionGate>
         </main>
       </div>
     </>

@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { Icon, PawLogo } from "@/components/icons";
+import { PawLogo } from "@/components/icons";
 import { ROUTES } from "@/lib/routes";
+import { SidebarAccount } from "./sidebar-account";
 import { ActiveSidebarNav, SidebarNav } from "./sidebar-nav";
 
 export function Sidebar() {
@@ -22,26 +23,7 @@ export function Sidebar() {
       <Suspense fallback={<SidebarNav pathname={null} pendingCount={null} />}>
         <ActiveSidebarNav pendingCount={null} />
       </Suspense>
-      <div className="flex items-center gap-2.5 border-t border-white/10 p-3 max-[980px]:hidden">
-        <div className="flex min-w-0 flex-1 items-center gap-2.5 p-1.5">
-          <span className="grid size-8 shrink-0 place-items-center rounded-full bg-white text-lagoon-800">
-            <Icon name="user" />
-          </span>
-          <div className="leading-[18px]">
-            <span className="block font-bold">Tài khoản quản lý</span>
-            <span id="session-unavailable" className="block text-xs text-[#89BDC2]">Chưa đăng nhập</span>
-          </div>
-        </div>
-        <button
-          type="button"
-          disabled
-          aria-label="Đăng xuất"
-          aria-describedby="session-unavailable"
-          className="grid size-9 shrink-0 cursor-not-allowed place-items-center rounded-[10px] text-[#89BDC2]"
-        >
-          <Icon name="logout" />
-        </button>
-      </div>
+      <SidebarAccount />
     </aside>
   );
 }
