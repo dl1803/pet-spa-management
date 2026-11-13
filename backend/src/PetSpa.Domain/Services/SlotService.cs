@@ -14,6 +14,14 @@ public sealed record SlotStaffCandidate(Guid StaffId, string FullName);
 
 public sealed record SlotStaffBusy(Guid StaffId, DateTimeOffset Start, DateTimeOffset BusyUntil);
 
+public sealed record SlotStaffSuggestion(Guid StaffId, string FullName, int RecentAssignmentCount);
+
+public sealed record SlotStaffSuggestions(
+    IReadOnlyList<SlotStaffSuggestion> Suggested,
+    IReadOnlyList<SlotStaffSuggestion> Alternatives);
+
+public sealed record SlotHeldStay(DateOnly CheckInDate, DateOnly CheckOutDate);
+
 public static class SlotService
 {
     private static readonly TimeOnly AfternoonStart = new(12, 0);
@@ -84,6 +92,51 @@ public static class SlotService
             .Where(c => shifts.Any(s => s.StaffId == c.StaffId && s.Start <= holdStart && s.End >= holdEnd))
             .Where(c => !busy.Any(b => b.StaffId == c.StaffId && b.Start < holdEnd && b.BusyUntil > holdStart))
             .ToList();
+    }
+
+    public static SlotStaffSuggestions SuggestStaff(
+        IReadOnlyList<SlotStaffCandidate> available,
+        IReadOnlyDictionary<Guid, int> recentAssignmentCounts,
+        int staffRequired)
+    {
+        ArgumentNullException.ThrowIfNull(available);
+        ArgumentNullException.ThrowIfNull(recentAssignmentCounts);
+
+        if (staffRequired < 1)
+            throw new ArgumentOutOfRangeException(nameof(staffRequired), "staffRequired phải lớn hơn 0.");
+
+        var ranked = available
+            .Select(c => new SlotStaffSuggestion(
+                c.StaffId, c.FullName, recentAssignmentCounts.GetValueOrDefault(c.StaffId)))
+            .OrderBy(s => s.RecentAssignmentCount)
+            .ThenBy(s => s.FullName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(s => s.StaffId)
+            .ToList();
+
+        return new SlotStaffSuggestions(
+            ranked.Take(staffRequired).ToList(),
+            ranked.Skip(staffRequired).ToList());
+    }
+
+    public static int AvailableCages(
+        int activeCages,
+        IReadOnlyList<SlotHeldStay> heldStays,
+        DateOnly checkInDate,
+        DateOnly checkOutDate)
+    {
+        ArgumentNullException.ThrowIfNull(heldStays);
+
+        if (checkOutDate <= checkInDate)
+            throw new ArgumentException("Ngày trả phòng phải sau ngày nhận phòng ít nhất 1 đêm.");
+
+        var available = activeCages;
+        for (var night = checkInDate; night < checkOutDate; night = night.AddDays(1))
+        {
+            var occupied = heldStays.Count(s => s.CheckInDate <= night && night < s.CheckOutDate);
+            available = Math.Min(available, activeCages - occupied);
+        }
+
+        return Math.Max(available, 0);
     }
 
     private static int PeakLoad(IReadOnlyList<SlotHeldBooking> held, DateTimeOffset from, DateTimeOffset to)
