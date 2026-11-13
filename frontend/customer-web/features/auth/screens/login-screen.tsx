@@ -1,10 +1,9 @@
 "use client";
 
 
-import { useMutation } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
 import { useForm } from "react-hook-form";
+import { Alert } from "@/components/feedback/alert";
 import { ErrorAlert } from "@/components/feedback/error-alert";
 import { AuthLayout } from "@/components/layout/auth-layout";
 import { Button } from "@/components/ui/button";
@@ -13,17 +12,18 @@ import { Input } from "@/components/ui/input";
 import { AuthAlert } from "@/features/auth/components/auth-alert";
 import { AuthSwitchLink } from "@/features/auth/components/auth-switch-link";
 import {
-  getSafeNextPath,
   isLoginRejectedError,
+  isWrongWebError,
   LOGIN_DEFAULT_VALUES,
   LOGIN_FAILED_MESSAGE,
   LOGIN_WRONG_WEB_MESSAGE,
+  SESSION_EXPIRED_MESSAGE,
   toLoginRequest,
   validateLoginPhone,
   type LoginFormValues,
 } from "@/features/auth/forms";
-import { mockLogin } from "@/features/auth/mock-auth";
-import { ROUTES } from "@/lib/routes";
+import { useLogin } from "@/lib/queries/auth";
+import { getSafeNextPath, ROUTES, SESSION_EXPIRED_PARAM, SESSION_EXPIRED_VALUE } from "@/lib/routes";
 import { STORE_HOTLINE } from "@/lib/store-info";
 import { validatePasswordRequired } from "@/lib/validation";
 
@@ -31,7 +31,7 @@ export function LoginScreen() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = getSafeNextPath(searchParams.get("next"));
-  const [isWrongWeb, setIsWrongWeb] = useState(false);
+  const isSessionExpired = searchParams.get(SESSION_EXPIRED_PARAM) === SESSION_EXPIRED_VALUE;
   const {
     register,
     handleSubmit,
@@ -42,18 +42,13 @@ export function LoginScreen() {
     shouldFocusError: true,
     defaultValues: LOGIN_DEFAULT_VALUES,
   });
-  const { mutate, isPending, error } = useMutation({ mutationFn: mockLogin });
+  const { mutate, isPending, error } = useLogin();
 
   function onSubmit(values: LoginFormValues) {
     if (isPending) return;
-    setIsWrongWeb(false);
 
     mutate(toLoginRequest(values), {
-      onSuccess: ({ role }) => {
-        if (role !== "Customer") {
-          setIsWrongWeb(true);
-          return;
-        }
+      onSuccess: () => {
         router.replace(nextPath ?? ROUTES.home);
       },
     });
@@ -68,9 +63,11 @@ export function LoginScreen() {
       <h1 className="text-[26px] leading-[34px]">Đăng nhập</h1>
       <p className="mt-1 text-muted">Dùng số điện thoại bạn đã đăng ký.</p>
 
-      {isWrongWeb && <AuthAlert className="mt-4">{LOGIN_WRONG_WEB_MESSAGE}</AuthAlert>}
+      {isSessionExpired && <Alert tone="warn" className="mt-4">{SESSION_EXPIRED_MESSAGE}</Alert>}
       {error !== null &&
-        (isLoginRejectedError(error) ? (
+        (isWrongWebError(error) ? (
+          <AuthAlert className="mt-4">{LOGIN_WRONG_WEB_MESSAGE}</AuthAlert>
+        ) : isLoginRejectedError(error) ? (
           <AuthAlert className="mt-4">{LOGIN_FAILED_MESSAGE}</AuthAlert>
         ) : (
           <ErrorAlert error={error} className="mt-4" />

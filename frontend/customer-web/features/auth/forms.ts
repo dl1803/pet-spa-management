@@ -68,8 +68,11 @@ export function isLoginRejectedError(error: unknown) {
   return toApiError(error).status === 401;
 }
 
-export function getSafeNextPath(next: string | null): string | null {
-  if (next === null || !next.startsWith("/") || next.startsWith("//") || next.includes("\\")) return null;
-  return next;
+export const SESSION_EXPIRED_MESSAGE = "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.";
+
+// Route handler đăng nhập trả 403 khi tài khoản không phải khách hàng.
+export function isWrongWebError(error: unknown) {
+  return toApiError(error).status === 403;
 }
+
 
