@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using PetSpa.Application.Services;
+using PetSpa.Application.Services.Assignment;
 using PetSpa.Application.Services.Auth;
 using PetSpa.Application.Services.Booking;
 using PetSpa.Application.Services.Notifications;
@@ -21,6 +22,8 @@ public static class DependencyInjection
         services.AddScoped<AuthService>();
         services.AddScoped<NotificationService>();
         services.AddScoped<AppointmentQueryService>();
+        services.AddScoped<AssignmentService>();
+        services.AddScoped<HotelBookingService>();
         return services;
     }
 }

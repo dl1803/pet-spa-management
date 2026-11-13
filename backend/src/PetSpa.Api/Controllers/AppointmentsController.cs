@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using PetSpa.Api.Dtos;
 using PetSpa.Api.Security;
 using PetSpa.Application.Common;
+using PetSpa.Application.Services.Assignment;
 using PetSpa.Application.Services.Booking;
 using PetSpa.Domain.Exceptions;
 
@@ -13,7 +14,8 @@ namespace PetSpa.Api.Controllers;
 [Route("api/v1/appointments")]
 public sealed class AppointmentsController(
     BookingService bookingService,
-    AppointmentQueryService appointmentQueryService = null!) : ControllerBase
+    AppointmentQueryService appointmentQueryService = null!,
+    AssignmentService assignmentService = null!) : ControllerBase
 {
     [HttpPost("spa")]
     [Authorize(Policy = AuthorizationPolicies.CustomerOrReceptionist)]
@@ -47,6 +49,16 @@ public sealed class AppointmentsController(
 
         var items = result.Items.Select(i => AppointmentResponse.From(i.Appointment, i.PetName)).ToList();
         return Ok(new PagedResult<AppointmentResponse>(items, result.Page, result.PageSize, result.Total));
+    }
+
+    [HttpGet("{id}/suggestions")]
+    [Authorize(Policy = AuthorizationPolicies.Manager)]
+    [EndpointSummary("Quản lý xem đề xuất nhân viên spa cho lịch Chờ xác nhận")]
+    [EndpointDescription("Chỉ quản lý. Nhân viên spa đang hoạt động, có ca làm phủ trọn khoảng giữ chỗ (gồm thời gian dọn dẹp), chưa có lịch trùng; xếp theo số lịch được phân công trong Suggest.LookbackDays ngày gần nhất tăng dần (không tính lịch đã hủy), bằng nhau xếp theo tên. suggested có staffRequired người đầu danh sách (ít hơn nếu không đủ nhân viên), alternatives là các nhân viên còn lại đạt điều kiện. Chỉ đề xuất, không ghi phân công. Không tìm thấy lịch spa trả 404 NOT_FOUND; lịch không ở Chờ xác nhận trả 409 INVALID_TRANSITION.")]
+    public async Task<IActionResult> GetSuggestions(Guid id, CancellationToken ct)
+    {
+        var result = await assignmentService.GetSpaSuggestionsAsync(User.ToCurrentUser(), id, ct);
+        return Ok(SpaSuggestionsResponse.From(result));
     }
 
     [HttpGet("{id}")]
