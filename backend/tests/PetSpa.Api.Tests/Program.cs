@@ -16,6 +16,7 @@ using PetSpa.Application.Security;
 using PetSpa.Application.Services.Assignment;
 using PetSpa.Application.Services;
 using PetSpa.Application.Services.Booking;
+using PetSpa.Application.Services.Payments;
 using PetSpa.Domain.Enums;
 using PetSpa.Infrastructure.Identity;
 using PetSpa.Infrastructure.Payments.Vnpay;
@@ -1155,6 +1156,308 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(spaStaff == ErrorCodes.Forbidden, "Spa staff must be rejected with Forbidden.");
         Check(unknownPet == ErrorCodes.NotFound, "An unknown pet must be rejected with NotFound.");
         Check(sameDay == ErrorCodes.ValidationError, "A check-out on the check-in date must be rejected with ValidationError.");
+    }),
+    ("VnpayPaymentGateway signs the sandbox payment URL with HMACSHA512 over the encoded sorted payload", () =>
+    {
+        var gateway = new VnpayPaymentGateway(ValidVnpayGatewayOptions());
+        var url = gateway.CreatePaymentUrl(VnpayTransaction(), "203.0.113.7");
+
+        const string expectedQuery =
+            "vnp_Amount=15000000&vnp_Command=pay&vnp_CreateDate=20261112170000&vnp_CurrCode=VND"
+            + "&vnp_ExpireDate=20261112171500&vnp_IpAddr=203.0.113.7&vnp_Locale=vn"
+            + "&vnp_OrderInfo=Thanh+toan+lich+hen+ABC123def456&vnp_OrderType=other"
+            + "&vnp_ReturnUrl=https%3A%2F%2Fexample.test%2Fpayments%2Fvnpay%2Freturn"
+            + "&vnp_TmnCode=TESTCODE&vnp_TxnRef=ABC123def456&vnp_Version=2.1.0";
+        const string expectedHash =
+            "688ac99797ed07cfe433c77ff5735a80420ed27bb634645ca2ca04188cf8ad84936ffcbb353edec51fa07a9e2ec466e96a698ebdb91f6c8642eb90727421f372";
+
+        Check(url == $"{VnpayPaymentGateway.SandboxPaymentUrl}?{expectedQuery}&vnp_SecureHash={expectedHash}",
+            "The URL must be the sandbox address, the encoded sorted query and the lowercase HMACSHA512 hash as the last parameter.");
+        Check(url.IndexOf("vnp_SecureHash=", StringComparison.Ordinal) == url.LastIndexOf("vnp_SecureHash=", StringComparison.Ordinal),
+            "vnp_SecureHash must appear exactly once.");
+        return Task.CompletedTask;
+    }),
+    ("VnpayPaymentGateway identifies as VNPAY, depends on the secret and reuses the builder validation", () =>
+    {
+        var gateway = new VnpayPaymentGateway(ValidVnpayGatewayOptions());
+        Check(gateway.Gateway == PaymentGateway.VNPAY, "The adapter must report the VNPAY gateway.");
+
+        var other = new VnpayPaymentGateway(new VnpayOptions
+        {
+            TmnCode = "TESTCODE",
+            HashSecret = "ANOTHERSECRETKEY0123456789ABCDE",
+            ReturnUrl = "https://example.test/payments/vnpay/return",
+        });
+        var first = gateway.CreatePaymentUrl(VnpayTransaction(), "203.0.113.7");
+        Check(first == gateway.CreatePaymentUrl(VnpayTransaction(), "203.0.113.7"), "The same input must produce the same URL.");
+        Check(first != other.CreatePaymentUrl(VnpayTransaction(), "203.0.113.7"), "A different secret must produce a different URL.");
+
+        AssertThrows<ArgumentException>(
+            () => gateway.CreatePaymentUrl(VnpayTransaction(gateway: PaymentGateway.MoMo), "203.0.113.7"),
+            "A MoMo transaction must be rejected.");
+        AssertThrows<ArgumentException>(
+            () => gateway.CreatePaymentUrl(VnpayTransaction(), "not-an-ip"),
+            "An invalid client IP must be rejected.");
+        return Task.CompletedTask;
+    }),
+    ("VnpayPaymentGateway rejects missing HashSecret and invalid builder configuration", () =>
+    {
+        foreach (var secret in new[] { "", "   " })
+        {
+            AssertThrows<InvalidOperationException>(
+                () => new VnpayPaymentGateway(new VnpayOptions
+                {
+                    TmnCode = "TESTCODE",
+                    HashSecret = secret,
+                    ReturnUrl = "https://example.test/payments/vnpay/return",
+                }),
+                $"HashSecret '{secret}' must be rejected.");
+        }
+
+        AssertThrows<InvalidOperationException>(
+            () => new VnpayPaymentGateway(new VnpayOptions
+            {
+                TmnCode = "SHORT",
+                HashSecret = "SANDBOXSECRETKEY0123456789ABCDEF",
+                ReturnUrl = "https://example.test/payments/vnpay/return",
+            }),
+            "An invalid TmnCode must still be rejected.");
+        return Task.CompletedTask;
+    }),
+    ("AddInfrastructure registers the VNPAY gateway lazily from Payment__Vnpay__* configuration", () =>
+    {
+        var baseSettings = new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:Default"] = "Host=localhost;Database=petspa;Username=test;Password=test",
+            ["Jwt:SigningKey"] = "this-is-a-valid-32-byte-secret-key-12345",
+            ["Jwt:AccessTokenMinutes"] = "15",
+            ["Jwt:RefreshTokenDays"] = "7",
+        };
+
+        var withoutPayment = new ServiceCollection();
+        PetSpa.Infrastructure.DependencyInjection.AddInfrastructure(
+            withoutPayment, new ConfigurationBuilder().AddInMemoryCollection(baseSettings).Build());
+        using var missingProvider = withoutPayment.BuildServiceProvider();
+        using var missingScope = missingProvider.CreateScope();
+        AssertThrows<InvalidOperationException>(
+            () => missingScope.ServiceProvider.GetRequiredService<IPaymentGateway>(),
+            "Resolving the gateway without Payment__Vnpay__* must fail, while registration must not.");
+
+        var configured = new Dictionary<string, string?>(baseSettings)
+        {
+            ["Payment:Vnpay:TmnCode"] = "TESTCODE",
+            ["Payment:Vnpay:HashSecret"] = "SANDBOXSECRETKEY0123456789ABCDEF",
+            ["Payment:Vnpay:ReturnUrl"] = "https://example.test/payments/vnpay/return",
+        };
+        var withPayment = new ServiceCollection();
+        PetSpa.Infrastructure.DependencyInjection.AddInfrastructure(
+            withPayment, new ConfigurationBuilder().AddInMemoryCollection(configured).Build());
+        using var provider = withPayment.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var gateway = scope.ServiceProvider.GetRequiredService<IPaymentGateway>();
+        Check(gateway is VnpayPaymentGateway && gateway.Gateway == PaymentGateway.VNPAY,
+            "The registered gateway must be the VNPAY adapter.");
+        return Task.CompletedTask;
+    }),
+    ("PaymentService.StartOnlineAsync creates a transaction from the system amount and returns the gateway URL", async () =>
+    {
+        var ownerUserId = Guid.NewGuid();
+        var payment = OnlinePayment(PaymentKind.Spa, 150000m);
+        var repo = new TestPaymentRepo(new PaymentWithOwner(payment, AppointmentStatus.Completed, ownerUserId));
+        var gateway = new TestPaymentGateway();
+        var service = new PaymentService(repo, gateway);
+
+        var result = await service.StartOnlineAsync(
+            new CurrentUser(ownerUserId, UserRole.Customer), payment.PaymentId, PaymentGateway.VNPAY, "203.0.113.7");
+
+        Check(repo.Added.Count == 1, "Exactly one transaction must be stored.");
+        var stored = repo.Added[0];
+        Check(stored.PaymentId == payment.PaymentId && stored.Gateway == PaymentGateway.VNPAY,
+            "The transaction must belong to the payment and the VNPAY gateway.");
+        Check(stored.RequestedAmount == 150000m, "RequestedAmount must be the system amount of the payment.");
+        Check(stored.TxnRef.Length == 32 && stored.TxnRef.All(char.IsAsciiHexDigitLower) && stored.TxnRef == stored.TxnId.ToString("N"),
+            "TxnRef must be the 32-character lowercase hex form of TxnId.");
+        Check(stored.Result is null && stored.ConfirmedAmount is null && stored.SignatureValid is null && stored.CallbackAt is null,
+            "A new transaction must not carry any callback data.");
+        Check(ReferenceEquals(gateway.LastTransaction, stored) && gateway.LastClientIp == "203.0.113.7",
+            "The gateway must receive the stored transaction and the client IP.");
+        Check(result.TxnRef == stored.TxnRef && result.PaymentUrl == gateway.Url,
+            "The result must carry the stored TxnRef and the gateway URL.");
+        Check(payment.Status == PaymentStatus.Unpaid && payment.Method is null && payment.PaidAt is null,
+            "Starting an online payment must not change the payment.");
+    }),
+    ("PaymentService.StartOnlineAsync rejects non-customers, unsupported gateways, unknown and foreign payments", async () =>
+    {
+        var ownerUserId = Guid.NewGuid();
+        var payment = OnlinePayment(PaymentKind.Spa, 150000m);
+        var owned = new PaymentWithOwner(payment, AppointmentStatus.Completed, ownerUserId);
+        var customer = new CurrentUser(ownerUserId, UserRole.Customer);
+
+        async Task AssertPaymentRejectedAsync(PaymentWithOwner? found, CurrentUser user, Guid paymentId, PaymentGateway requested, string code)
+        {
+            var repo = new TestPaymentRepo(found);
+            var gateway = new TestPaymentGateway();
+            var service = new PaymentService(repo, gateway);
+            var threw = false;
+            try
+            {
+                await service.StartOnlineAsync(user, paymentId, requested, "203.0.113.7");
+            }
+            catch (BusinessException ex) when (ex.Code == code)
+            {
+                threw = true;
+            }
+
+            Check(threw, $"Expected {code}.");
+            Check(repo.Added.Count == 0 && gateway.Calls == 0, "A rejected request must not store a transaction or call the gateway.");
+        }
+
+        await AssertPaymentRejectedAsync(owned, new CurrentUser(ownerUserId, UserRole.Manager), payment.PaymentId, PaymentGateway.VNPAY, ErrorCodes.Forbidden);
+        await AssertPaymentRejectedAsync(owned, new CurrentUser(ownerUserId, UserRole.Staff), payment.PaymentId, PaymentGateway.VNPAY, ErrorCodes.Forbidden);
+        await AssertPaymentRejectedAsync(owned, customer, payment.PaymentId, PaymentGateway.MoMo, ErrorCodes.ValidationError);
+        await AssertPaymentRejectedAsync(null, customer, Guid.NewGuid(), PaymentGateway.VNPAY, ErrorCodes.NotFound);
+        await AssertPaymentRejectedAsync(owned, new CurrentUser(Guid.NewGuid(), UserRole.Customer), payment.PaymentId, PaymentGateway.VNPAY, ErrorCodes.Forbidden);
+        await AssertPaymentRejectedAsync(
+            new PaymentWithOwner(payment, AppointmentStatus.Completed, null), customer, payment.PaymentId, PaymentGateway.VNPAY, ErrorCodes.Forbidden);
+    }),
+    ("PaymentService.StartOnlineAsync rejects payments that cannot be paid online", async () =>
+    {
+        var ownerUserId = Guid.NewGuid();
+        var customer = new CurrentUser(ownerUserId, UserRole.Customer);
+
+        async Task AssertNotDueAsync(Payment payment, AppointmentStatus appointmentStatus)
+        {
+            var repo = new TestPaymentRepo(new PaymentWithOwner(payment, appointmentStatus, ownerUserId));
+            var gateway = new TestPaymentGateway();
+            var service = new PaymentService(repo, gateway);
+            var threw = false;
+            try
+            {
+                await service.StartOnlineAsync(customer, payment.PaymentId, PaymentGateway.VNPAY, "203.0.113.7");
+            }
+            catch (BusinessException ex) when (ex.Code == ErrorCodes.PaymentNotDue)
+            {
+                threw = true;
+            }
+
+            Check(threw, $"{payment.Kind}/{payment.Status} with a {appointmentStatus} appointment must be rejected with PAYMENT_NOT_DUE.");
+            Check(repo.Added.Count == 0 && gateway.Calls == 0, "A rejected request must not store a transaction or call the gateway.");
+        }
+
+        await AssertNotDueAsync(OnlinePayment(PaymentKind.Stay, 300000m), AppointmentStatus.Confirmed);
+        await AssertNotDueAsync(OnlinePayment(PaymentKind.LateFee, 50000m), AppointmentStatus.InStay);
+        foreach (var status in Enum.GetValues<AppointmentStatus>().Where(s => s != AppointmentStatus.Completed))
+        {
+            await AssertNotDueAsync(OnlinePayment(PaymentKind.Spa, 150000m), status);
+        }
+
+        var paid = OnlinePayment(PaymentKind.Spa, 150000m);
+        paid.Status = PaymentStatus.Paid;
+        await AssertNotDueAsync(paid, AppointmentStatus.Completed);
+        await AssertNotDueAsync(OnlinePayment(PaymentKind.Spa, 0m), AppointmentStatus.Completed);
+    }),
+    ("PaymentService.StartOnlineAsync stores no transaction when the gateway fails", async () =>
+    {
+        var ownerUserId = Guid.NewGuid();
+        var payment = OnlinePayment(PaymentKind.Spa, 150000m);
+        var repo = new TestPaymentRepo(new PaymentWithOwner(payment, AppointmentStatus.Completed, ownerUserId));
+        var service = new PaymentService(repo, new TestPaymentGateway { Failure = new InvalidOperationException("gateway") });
+
+        var threw = false;
+        try
+        {
+            await service.StartOnlineAsync(
+                new CurrentUser(ownerUserId, UserRole.Customer), payment.PaymentId, PaymentGateway.VNPAY, "203.0.113.7");
+        }
+        catch (InvalidOperationException)
+        {
+            threw = true;
+        }
+
+        Check(threw, "The gateway failure must propagate unchanged.");
+        Check(repo.Added.Count == 0, "No transaction may be stored when the URL could not be created.");
+        Check(payment.Status == PaymentStatus.Unpaid, "The payment must stay unpaid.");
+    }),
+    ("OnlinePaymentRequestValidator requires a defined gateway", () =>
+    {
+        var validator = new OnlinePaymentRequestValidator();
+
+        Check(validator.Validate(new OnlinePaymentRequest(PaymentGateway.VNPAY)).IsValid, "VNPAY must pass validation.");
+        Check(validator.Validate(new OnlinePaymentRequest(PaymentGateway.MoMo)).IsValid,
+            "MoMo is a defined gateway; whether it is supported is decided by the service.");
+
+        var missing = validator.Validate(new OnlinePaymentRequest(null));
+        Check(!missing.IsValid && missing.Errors.Any(e => e.PropertyName == "Gateway"), "A missing gateway must fail validation.");
+
+        var undefined = validator.Validate(new OnlinePaymentRequest((PaymentGateway)99));
+        Check(!undefined.IsValid && undefined.Errors.Any(e => e.PropertyName == "Gateway"), "An undefined gateway must fail validation.");
+        return Task.CompletedTask;
+    }),
+    ("Online payment DTOs follow the JSON contract", () =>
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+
+        var request = JsonSerializer.Deserialize<OnlinePaymentRequest>("{\"gateway\":\"VNPAY\"}", options);
+        Check(request is { Gateway: PaymentGateway.VNPAY }, "gateway must bind from its enum name.");
+
+        var json = JsonSerializer.Serialize(new OnlinePaymentCreated("https://pay.test/p?a=b", "abc123"), options);
+        Check(json == "{\"paymentUrl\":\"https://pay.test/p?a=b\",\"txnRef\":\"abc123\"}",
+            "The response must contain exactly paymentUrl and txnRef in camelCase.");
+        return Task.CompletedTask;
+    }),
+    ("PaymentsController.PayOnline rejects null request with ValidationError", async () =>
+    {
+        var controller = new PaymentsController(new PaymentService(new TestPaymentRepo(null), new TestPaymentGateway()));
+
+        var threw = false;
+        try
+        {
+            await controller.PayOnline(Guid.NewGuid(), null, CancellationToken.None);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.ValidationError)
+        {
+            threw = true;
+        }
+
+        Check(threw, "PayOnline must throw ValidationError when the request body is null.");
+    }),
+    ("PaymentsController.PayOnline returns paymentUrl and txnRef and passes the client IP to the gateway", async () =>
+    {
+        var ownerUserId = Guid.NewGuid();
+        var payment = OnlinePayment(PaymentKind.Spa, 150000m);
+        var repo = new TestPaymentRepo(new PaymentWithOwner(payment, AppointmentStatus.Completed, ownerUserId));
+        var gateway = new TestPaymentGateway();
+
+        async Task<IActionResult> CallAsync(System.Net.IPAddress remoteIp)
+        {
+            var httpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(
+                [
+                    new Claim(TokenClaims.UserId, ownerUserId.ToString()),
+                    new Claim(TokenClaims.Role, "Customer"),
+                ], "test")),
+            };
+            httpContext.Connection.RemoteIpAddress = remoteIp;
+            var controller = new PaymentsController(new PaymentService(repo, gateway))
+            {
+                ControllerContext = new ControllerContext { HttpContext = httpContext },
+            };
+            return await controller.PayOnline(payment.PaymentId, new OnlinePaymentRequest(PaymentGateway.VNPAY), CancellationToken.None);
+        }
+
+        var ok = await CallAsync(System.Net.IPAddress.Parse("203.0.113.7")) as OkObjectResult;
+        Check(ok?.Value is OnlinePaymentCreated, "PayOnline must return OnlinePaymentCreated with 200.");
+        var body = (OnlinePaymentCreated)ok!.Value!;
+        Check(body.PaymentUrl == gateway.Url && body.TxnRef == repo.Added[0].TxnRef, "The body must carry the gateway URL and the stored TxnRef.");
+        Check(gateway.LastClientIp == "203.0.113.7", "The remote IP must be passed to the gateway.");
+
+        await CallAsync(System.Net.IPAddress.Parse("::ffff:203.0.113.8"));
+        Check(gateway.LastClientIp == "203.0.113.8", "An IPv4-mapped IPv6 address must be passed as IPv4.");
+
+        await CallAsync(System.Net.IPAddress.IPv6Loopback);
+        Check(gateway.LastClientIp == "127.0.0.1", "An IPv6 loopback address (::1) must be normalized to 127.0.0.1.");
     })
 };
 
@@ -1263,6 +1566,13 @@ static VnpayOptions ValidVnpayOptions() => new()
     ReturnUrl = "https://example.test/payments/vnpay/return",
 };
 
+static VnpayOptions ValidVnpayGatewayOptions() => new()
+{
+    TmnCode = "TESTCODE",
+    HashSecret = "SANDBOXSECRETKEY0123456789ABCDEF",
+    ReturnUrl = "https://example.test/payments/vnpay/return",
+};
+
 static PaymentTransaction VnpayTransaction(
     decimal amount = 150000m,
     string txnRef = "ABC123def456",
@@ -1275,6 +1585,14 @@ static PaymentTransaction VnpayTransaction(
         RequestedAmount = amount,
         CreatedAt = new DateTimeOffset(2026, 11, 12, 10, 0, 0, TimeSpan.Zero),
     };
+
+static Payment OnlinePayment(PaymentKind kind, decimal amount) => new()
+{
+    PaymentId = Guid.NewGuid(),
+    AppointmentId = Guid.NewGuid(),
+    Kind = kind,
+    Amount = amount,
+};
 
 static string CreateTestJwt(string signingKey, Guid userId, string role, TimeSpan lifetime)
 {
@@ -1473,6 +1791,36 @@ sealed class TestHotelBookingRepo(int activeCages, IReadOnlyList<HeldHotelStay> 
         Species species, SizeGroup sizeGroup, DateTimeOffset rangeStart, DateTimeOffset rangeEnd,
         CancellationToken ct = default) =>
         Task.FromResult(held);
+}
+
+sealed class TestPaymentRepo(PaymentWithOwner? found) : IPaymentRepository
+{
+    public List<PaymentTransaction> Added { get; } = [];
+    public Task<PaymentWithOwner?> FindWithOwnerAsync(Guid paymentId, CancellationToken ct = default) =>
+        Task.FromResult(found is not null && found.Payment.PaymentId == paymentId ? found : null);
+    public Task AddTransactionAsync(PaymentTransaction transaction, CancellationToken ct = default)
+    {
+        Added.Add(transaction);
+        return Task.CompletedTask;
+    }
+}
+
+sealed class TestPaymentGateway : IPaymentGateway
+{
+    public string Url { get; } = "https://gateway.test/pay?token=abc";
+    public int Calls { get; private set; }
+    public PaymentTransaction? LastTransaction { get; private set; }
+    public string? LastClientIp { get; private set; }
+    public Exception? Failure { get; init; }
+    public PaymentGateway Gateway => PaymentGateway.VNPAY;
+    public string CreatePaymentUrl(PaymentTransaction transaction, string clientIp)
+    {
+        Calls++;
+        if (Failure is not null) throw Failure;
+        LastTransaction = transaction;
+        LastClientIp = clientIp;
+        return Url;
+    }
 }
 
 

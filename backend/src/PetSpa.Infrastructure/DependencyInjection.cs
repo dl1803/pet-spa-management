@@ -9,6 +9,7 @@ using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
 using PetSpa.Infrastructure.Identity;
+using PetSpa.Infrastructure.Payments.Vnpay;
 using PetSpa.Infrastructure.Persistence;
 using PetSpa.Infrastructure.Persistence.Repositories;
 
@@ -102,6 +103,9 @@ public static class DependencyInjection
         services.AddScoped<IAccountRepository, AccountRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IAppointmentQueryRepository, AppointmentQueryRepository>();
+        services.AddScoped<IPaymentRepository, PaymentRepository>();
+        services.AddScoped<IPaymentGateway>(_ => new VnpayPaymentGateway(
+            config.GetSection("Payment:Vnpay").Get<VnpayOptions>() ?? new VnpayOptions()));
 
         return services;
     }

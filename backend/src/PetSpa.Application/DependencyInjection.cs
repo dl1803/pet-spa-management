@@ -4,6 +4,7 @@ using PetSpa.Application.Services.Assignment;
 using PetSpa.Application.Services.Auth;
 using PetSpa.Application.Services.Booking;
 using PetSpa.Application.Services.Notifications;
+using PetSpa.Application.Services.Payments;
 using PetSpa.Application.Services.Pets;
 using PetSpa.Application.Services.StaffManagement;
 
@@ -22,6 +23,7 @@ public static class DependencyInjection
         services.AddScoped<AuthService>();
         services.AddScoped<NotificationService>();
         services.AddScoped<AppointmentQueryService>();
+        services.AddScoped<PaymentService>();
         services.AddScoped<AssignmentService>();
         services.AddScoped<HotelBookingService>();
         return services;
