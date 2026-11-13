@@ -40,6 +40,12 @@ function getRequestProtocol(request: NextRequest) {
   return request.nextUrl.protocol;
 }
 
+function getRequestHost(request: NextRequest) {
+  const forwarded = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  if (forwarded) return forwarded;
+  return request.headers.get("host") ?? request.nextUrl.host;
+}
+
 function isSecureRequest(request: NextRequest) {
   return getRequestProtocol(request) === "https:";
 }
@@ -47,8 +53,8 @@ function isSecureRequest(request: NextRequest) {
 // Chỉ nhận yêu cầu cùng origin (gồm cả protocol và host): trình duyệt luôn gửi Origin cho POST.
 export function isSameOrigin(request: NextRequest) {
   const origin = request.headers.get("origin");
-  const host = request.headers.get("host");
-  if (origin === null || host === null) return false;
+  const host = getRequestHost(request);
+  if (origin === null || !host) return false;
   try {
     const parsed = new URL(origin);
     return parsed.host === host && parsed.protocol === getRequestProtocol(request);
@@ -211,8 +217,8 @@ export async function handleRefresh(request: NextRequest) {
 
   const result = await callBackend<TokenPair>(request, "/auth/refresh", { method: "POST", body: { refreshToken } });
   if (!result.ok) {
-    // Chỉ xóa cookie khi backend từ chối token. Lỗi tạm (429, 5xx, mất mạng) giữ cookie để thử lại.
-    if (result.status === 400 || result.status === 401) {
+    // Chỉ xóa cookie khi backend từ chối token (400, 401, 403). Lỗi tạm (429, 5xx, mất mạng) giữ cookie để thử lại.
+    if (result.status === 400 || result.status === 401 || result.status === 403) {
       const rejected = errorResponse(UNAUTHENTICATED);
       clearRefreshCookie(request, rejected);
       return rejected;
@@ -231,15 +237,27 @@ export async function handleLogout(request: NextRequest) {
 
   const refreshToken = request.cookies.get(REFRESH_COOKIE_NAME)?.value;
   if (refreshToken) {
-    // POST /auth/logout cần access token còn hạn. Trình duyệt chỉ giữ refresh token nên làm mới trước rồi thu hồi cặp mới;
-    // refresh token cũ đã bị thu hồi khi xoay vòng. Mọi lỗi đều bỏ qua: cookie luôn bị xóa.
-    const renewed = await callBackend<TokenPair>(request, "/auth/refresh", { method: "POST", body: { refreshToken } });
-    if (renewed.ok && isTokenPair(renewed.data)) {
+    const authHeader = request.headers.get("authorization");
+    const clientAccessToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
+
+    if (clientAccessToken) {
+      // Đã có access token từ client: gọi thẳng /auth/logout, tiết kiệm quota rate limit và tránh refresh trung gian.
       await callBackend(request, "/auth/logout", {
         method: "POST",
-        body: { refreshToken: renewed.data.refreshToken },
-        accessToken: renewed.data.accessToken,
+        body: { refreshToken },
+        accessToken: clientAccessToken,
       });
+    } else {
+      // POST /auth/logout cần access token còn hạn. Trình duyệt chỉ giữ refresh token nên làm mới trước rồi thu hồi cặp mới;
+      // refresh token cũ đã bị thu hồi khi xoay vòng. Mọi lỗi đều bỏ qua: cookie luôn bị xóa.
+      const renewed = await callBackend<TokenPair>(request, "/auth/refresh", { method: "POST", body: { refreshToken } });
+      if (renewed.ok && isTokenPair(renewed.data)) {
+        await callBackend(request, "/auth/logout", {
+          method: "POST",
+          body: { refreshToken: renewed.data.refreshToken },
+          accessToken: renewed.data.accessToken,
+        });
+      }
     }
   }
 

@@ -11,7 +11,11 @@ export function decideProxy(input: { pathname: string; search: string; hasSessio
     return { action: "redirect", to: buildLoginPath({ next: input.pathname + input.search }) };
   }
   if (isLoginPage && input.hasSession) {
-    return { action: "redirect", to: ROUTES.dashboard };
+    // Có tham số reason trên /dang-nhap (ví dụ ?reason=expired): không tự động chuyển về dashboard để chống vòng lặp redirect.
+    const searchParams = new URLSearchParams(input.search);
+    if (!searchParams.has("reason")) {
+      return { action: "redirect", to: ROUTES.dashboard };
+    }
   }
   return { action: "next" };
 }

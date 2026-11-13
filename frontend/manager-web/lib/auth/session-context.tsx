@@ -78,10 +78,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setStatus("restoring");
     setError(null);
     registerHandlers();
-    let refreshed = false;
     try {
       storeAccessToken(await refreshAccessToken());
-      refreshed = true;
       const current = await getMe();
       if (!isManagerMe(current)) throw new ApiError({ kind: "http", status: 403, code: "FORBIDDEN" });
       setMe(current);
@@ -91,16 +89,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (apiError.status === 401 || apiError.status === 403) {
         setSessionHandlers(null);
         storeAccessToken(null);
-        // Nếu refreshAccessToken() đã thành công thì cookie vẫn còn trên trình duyệt: phải gọi logout
-        // để xóa cookie httpOnly trước khi chuyển về /dang-nhap, tránh vòng lặp redirect với proxy.ts.
-        if (refreshed) {
-          try {
-            await requestLogout();
-          } catch (logoutFailure) {
-            setError(toApiError(logoutFailure));
-            setStatus("failed");
-            return;
-          }
+        // Luôn gọi requestLogout để đảm bảo cookie httpOnly bị xóa trên trình duyệt khi phiên bị từ chối,
+        // ngăn chặn nguy cơ vòng lặp redirect với proxy.ts.
+        try {
+          await requestLogout();
+        } catch {
+          // Bỏ qua lỗi khi cố gắng xóa cookie để tiếp tục rời phiên
         }
         queryClient.clear();
         leaveSession({ expired: apiError.status === 401 });
@@ -117,9 +111,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (signingOut.current) return;
     signingOut.current = true;
     setSessionHandlers(null);
+    const tokenToRevoke = accessToken;
     storeAccessToken(null);
     try {
-      await requestLogout();
+      await requestLogout(tokenToRevoke);
     } catch (failure) {
       // Không xóa được cookie httpOnly khi mất kết nối Next.js: dừng ở trạng thái lỗi thay vì
       // chuyển về /dang-nhap để tránh bị proxy.ts đẩy ngược lại vào ứng dụng.

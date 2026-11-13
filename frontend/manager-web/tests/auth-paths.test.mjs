@@ -39,3 +39,12 @@ test("decideProxy: chưa có cookie về đăng nhập; có cookie rời màn đ
   assert.deepEqual(decideProxy({ pathname: "/dang-nhap", search: "", hasSession: false }), { action: "next" });
   assert.deepEqual(decideProxy({ pathname: "/nhan-vien", search: "", hasSession: true }), { action: "next" });
 });
+
+test("decideProxy: có cookie nhưng /dang-nhap có ?reason= thì cho phép ở lại /dang-nhap để chống loop", () => {
+  assert.deepEqual(decideProxy({ pathname: "/dang-nhap", search: "?reason=expired", hasSession: true }), {
+    action: "next",
+  });
+  assert.deepEqual(decideProxy({ pathname: "/dang-nhap", search: "?next=%2Fnhan-vien&reason=expired", hasSession: true }), {
+    action: "next",
+  });
+});

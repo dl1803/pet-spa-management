@@ -167,6 +167,22 @@ test("x-forwarded-for nhiều chặng chỉ lấy IP ngoài cùng; x-forwarded-p
   assert.equal(calls[0].forwarded, "203.0.113.7");
 });
 
+test("x-forwarded-host khớp origin từ reverse proxy", async () => {
+  const request = new NextRequest("http://127.0.0.1:3000/api/session/login", {
+    method: "POST",
+    headers: {
+      host: "127.0.0.1:3000",
+      origin: "https://spa.example.com",
+      "x-forwarded-host": "spa.example.com",
+      "x-forwarded-proto": "https",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ userName: "0900000001", password: "đúng" }),
+  });
+  const response = await handleLogin(request);
+  assert.equal(response.status, 200);
+});
+
 test("backend trả 200 rỗng hoặc sai cấu trúc → 502 thay vì lỗi 500; giữ cookie khi refresh", async () => {
   loginBodyRaw = "";
   const badLogin = await handleLogin(post("login", { body: { userName: "0900000001", password: "đúng" } }));
@@ -204,6 +220,11 @@ test("refresh: backend từ chối (401) → xóa cookie; lỗi tạm (429, 5xx)
   assert.equal(rejected.status, 401);
   assert.equal(refreshCookie(rejected).maxAge, 0);
   assert.equal(refreshCookie(rejected).sameSite, "lax");
+
+  refreshStatus = 403;
+  const forbidden = await handleRefresh(post("refresh", { cookie: "t" }));
+  assert.equal(forbidden.status, 401);
+  assert.equal(refreshCookie(forbidden).maxAge, 0);
 
   const httpsRejected = await handleRefresh(
     new NextRequest("https://manager.example/api/session/refresh", {
@@ -245,6 +266,15 @@ test("logout: làm mới rồi thu hồi cặp token mới bằng access token m
   assert.deepEqual(calls.map((call) => call.path), ["/auth/refresh", "/auth/logout"]);
   assert.equal(calls[1].authorization, "Bearer access-2");
   assert.deepEqual(calls[1].body, { refreshToken: "refresh-2" });
+});
+
+test("logout: có access token từ client thì gọi thẳng backend /auth/logout không cần refresh", async () => {
+  const response = await handleLogout(post("logout", { cookie: "refresh+/=1", headers: { authorization: "Bearer client-token" } }));
+  assert.equal(response.status, 204);
+  assert.equal(refreshCookie(response).maxAge, 0);
+  assert.deepEqual(calls.map((call) => call.path), ["/auth/logout"]);
+  assert.equal(calls[0].authorization, "Bearer client-token");
+  assert.deepEqual(calls[0].body, { refreshToken: "refresh+/=1" });
 });
 
 test("logout: không có cookie hoặc backend từ chối vẫn 204 và xóa cookie", async () => {
