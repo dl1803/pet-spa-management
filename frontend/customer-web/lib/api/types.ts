@@ -254,6 +254,15 @@ export type RegisterResponse = {
   userId: string;
 };
 
+export type TokenPair = {
+  accessToken: string;
+  refreshToken: string;
+};
+
+export type RefreshRequest = {
+  refreshToken: string;
+};
+
 export type LoginRequest = {
   userName: string;
   password: string;
