@@ -24,6 +24,7 @@ public sealed class HotelBookingRepository(AppDbContext db) : IHotelBookingRepos
     {
         var start = rangeStart.ToUniversalTime();
         var end = rangeEnd.ToUniversalTime();
+        var now = DateTimeOffset.UtcNow;
 
         var query =
             from stay in db.Set<HotelAppointment>().AsNoTracking()
@@ -32,9 +33,15 @@ public sealed class HotelBookingRepository(AppDbContext db) : IHotelBookingRepos
                 && stay.SizeGroup == sizeGroup
                 && HeldStatuses.Contains(stay.Status)
                 && stay.PlannedCheckIn < end
-                && stay.PlannedCheckOut > start
+                && (stay.Status == AppointmentStatus.InStay
+                    ? (stay.PlannedCheckOut > start || now > start)
+                    : stay.PlannedCheckOut > start)
             orderby stay.PlannedCheckIn, stay.AppointmentId
-            select new HeldHotelStay(stay.PlannedCheckIn, stay.PlannedCheckOut);
+            select new HeldHotelStay(
+                stay.PlannedCheckIn,
+                stay.Status == AppointmentStatus.InStay && stay.PlannedCheckOut < now
+                    ? now
+                    : stay.PlannedCheckOut);
 
         return await query.ToListAsync(ct);
     }

@@ -38,14 +38,16 @@ public sealed class AssignmentRepository(AppDbContext db) : IAssignmentRepositor
 
     public async Task<int> GetSuggestLookbackDaysAsync(CancellationToken ct = default)
     {
+        const int defaultLookbackDays = 30;
+
         var value = await db.Set<SystemConfig>().AsNoTracking()
             .Where(c => c.ConfigKey == "Suggest.LookbackDays")
             .Select(c => c.ConfigValue)
             .FirstOrDefaultAsync(ct);
 
-        if (value is null) throw new InvalidOperationException("Thiếu cấu hình Suggest.LookbackDays.");
-
-        return int.Parse(value, CultureInfo.InvariantCulture);
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var days) && days > 0
+            ? days
+            : defaultLookbackDays;
     }
 
     public async Task<IReadOnlyDictionary<Guid, int>> CountRecentAssignmentsAsync(

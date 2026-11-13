@@ -276,6 +276,18 @@ public class SlotServiceTests
     }
 
     [Fact]
+    public void SuggestStaff_WhenRecentAssignmentsAreEqual_OrdersByNameUsingVietnameseCollation()
+    {
+        var anh = Candidate("Ánh");
+        var binh = Candidate("Bình");
+        var counts = new Dictionary<Guid, int> { [anh.StaffId] = 2, [binh.StaffId] = 2 };
+
+        var result = SlotService.SuggestStaff([binh, anh], counts, 2);
+
+        Assert.Equal(new[] { "Ánh", "Bình" }, SuggestedNamesOf(result.Suggested));
+    }
+
+    [Fact]
     public void SuggestStaff_StaffWithoutRecordedAssignments_CountsAsZero()
     {
         var busy = Candidate("An");

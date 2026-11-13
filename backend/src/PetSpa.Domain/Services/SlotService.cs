@@ -1,3 +1,4 @@
+using System.Globalization;
 using PetSpa.Domain.Enums;
 
 namespace PetSpa.Domain.Services;
@@ -24,6 +25,9 @@ public sealed record SlotHeldStay(DateOnly CheckInDate, DateOnly CheckOutDate);
 
 public static class SlotService
 {
+    private static readonly StringComparer VietnameseComparer =
+        StringComparer.Create(new CultureInfo("vi-VN"), ignoreCase: true);
+
     private static readonly TimeOnly AfternoonStart = new(12, 0);
     private static readonly TimeOnly EveningStart = new(15, 0);
 
@@ -109,7 +113,7 @@ public static class SlotService
             .Select(c => new SlotStaffSuggestion(
                 c.StaffId, c.FullName, recentAssignmentCounts.GetValueOrDefault(c.StaffId)))
             .OrderBy(s => s.RecentAssignmentCount)
-            .ThenBy(s => s.FullName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(s => s.FullName, VietnameseComparer)
             .ThenBy(s => s.StaffId)
             .ToList();
 
