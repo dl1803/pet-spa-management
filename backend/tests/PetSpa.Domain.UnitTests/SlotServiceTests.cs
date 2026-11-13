@@ -238,5 +238,152 @@ public class SlotServiceTests
         Assert.Throws<ArgumentNullException>(() =>
             SlotService.AvailableStaff(null!, [], [], HoldStart, HoldEnd));
     }
+
+    private static string[] SuggestedNamesOf(IReadOnlyList<SlotStaffSuggestion> list) =>
+        list.Select(x => x.FullName).ToArray();
+
+    [Fact]
+    public void SuggestStaff_TakesStaffRequiredPeopleWithFewestRecentAssignments_RestAreAlternatives()
+    {
+        var an = Candidate("An");
+        var binh = Candidate("Binh");
+        var chi = Candidate("Chi");
+        var counts = new Dictionary<Guid, int>
+        {
+            [an.StaffId] = 5,
+            [binh.StaffId] = 2,
+            [chi.StaffId] = 3,
+        };
+
+        var result = SlotService.SuggestStaff([an, binh, chi], counts, 2);
+
+        Assert.Equal(new[] { "Binh", "Chi" }, SuggestedNamesOf(result.Suggested));
+        Assert.Equal(new[] { "An" }, SuggestedNamesOf(result.Alternatives));
+        Assert.Equal(2, result.Suggested[0].RecentAssignmentCount);
+    }
+
+    [Fact]
+    public void SuggestStaff_WhenRecentAssignmentsAreEqual_OrdersByName()
+    {
+        var chi = Candidate("Chi");
+        var binh = Candidate("Binh");
+        var counts = new Dictionary<Guid, int> { [chi.StaffId] = 2, [binh.StaffId] = 2 };
+
+        var result = SlotService.SuggestStaff([chi, binh], counts, 1);
+
+        Assert.Equal(new[] { "Binh" }, SuggestedNamesOf(result.Suggested));
+        Assert.Equal(new[] { "Chi" }, SuggestedNamesOf(result.Alternatives));
+    }
+
+    [Fact]
+    public void SuggestStaff_WhenRecentAssignmentsAreEqual_OrdersByNameUsingVietnameseCollation()
+    {
+        var anh = Candidate("Ánh");
+        var binh = Candidate("Bình");
+        var counts = new Dictionary<Guid, int> { [anh.StaffId] = 2, [binh.StaffId] = 2 };
+
+        var result = SlotService.SuggestStaff([binh, anh], counts, 2);
+
+        Assert.Equal(new[] { "Ánh", "Bình" }, SuggestedNamesOf(result.Suggested));
+    }
+
+    [Fact]
+    public void SuggestStaff_StaffWithoutRecordedAssignments_CountsAsZero()
+    {
+        var busy = Candidate("An");
+        var fresh = Candidate("Binh");
+        var counts = new Dictionary<Guid, int> { [busy.StaffId] = 1 };
+
+        var result = SlotService.SuggestStaff([busy, fresh], counts, 1);
+
+        Assert.Equal(new[] { "Binh" }, SuggestedNamesOf(result.Suggested));
+        Assert.Equal(0, result.Suggested[0].RecentAssignmentCount);
+    }
+
+    [Fact]
+    public void SuggestStaff_WhenFewerPeopleThanRequired_SuggestsOnlyThoseAvailable()
+    {
+        var an = Candidate("An");
+
+        var result = SlotService.SuggestStaff([an], new Dictionary<Guid, int>(), 2);
+
+        Assert.Equal(new[] { "An" }, SuggestedNamesOf(result.Suggested));
+        Assert.Empty(result.Alternatives);
+    }
+
+    [Fact]
+    public void SuggestStaff_WhenStaffRequiredIsNotPositive_ThrowsArgumentOutOfRangeException()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            SlotService.SuggestStaff([], new Dictionary<Guid, int>(), 0));
+    }
+
+    private static DateOnly DayOf(int day) => new(2026, 11, day);
+
+    private static SlotHeldStay StayOf(int checkInDay, int checkOutDay) =>
+        new(DayOf(checkInDay), DayOf(checkOutDay));
+
+    [Fact]
+    public void AvailableCages_WhenNoStayIsHeld_ReturnsAllActiveCages()
+    {
+        Assert.Equal(3, SlotService.AvailableCages(3, [], DayOf(10), DayOf(12)));
+    }
+
+    [Fact]
+    public void AvailableCages_WhenOneStayOverlapsOneNight_ReturnsOneLess()
+    {
+        Assert.Equal(2, SlotService.AvailableCages(3, [StayOf(11, 13)], DayOf(10), DayOf(12)));
+    }
+
+    [Fact]
+    public void AvailableCages_ReturnsValueOfTheBusiestNight()
+    {
+        var result = SlotService.AvailableCages(2, [StayOf(11, 12), StayOf(11, 13)], DayOf(10), DayOf(13));
+
+        Assert.Equal(0, result);
+    }
+
+    [Fact]
+    public void AvailableCages_StaysOnDifferentNights_AreNotSummed()
+    {
+        var result = SlotService.AvailableCages(3, [StayOf(10, 11), StayOf(13, 14)], DayOf(10), DayOf(14));
+
+        Assert.Equal(2, result);
+    }
+
+    [Fact]
+    public void AvailableCages_WhenOtherStayChecksOutOnMyCheckInDate_DoesNotCountIt()
+    {
+        Assert.Equal(3, SlotService.AvailableCages(3, [StayOf(8, 10)], DayOf(10), DayOf(12)));
+    }
+
+    [Fact]
+    public void AvailableCages_WhenOtherStayChecksInOnMyCheckOutDate_DoesNotCountIt()
+    {
+        Assert.Equal(3, SlotService.AvailableCages(3, [StayOf(12, 14)], DayOf(10), DayOf(12)));
+    }
+
+    [Fact]
+    public void AvailableCages_WhenNoActiveCage_ReturnsZero()
+    {
+        Assert.Equal(0, SlotService.AvailableCages(0, [], DayOf(10), DayOf(12)));
+    }
+
+    [Fact]
+    public void AvailableCages_WhenStaysExceedCages_ReturnsZeroNotNegative()
+    {
+        var result = SlotService.AvailableCages(1, [StayOf(10, 12), StayOf(10, 12)], DayOf(10), DayOf(12));
+
+        Assert.Equal(0, result);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void AvailableCages_WhenCheckOutNotAfterCheckIn_ThrowsArgumentException(int daysAfterCheckIn)
+    {
+        Assert.Throws<ArgumentException>(() =>
+            SlotService.AvailableCages(1, [], DayOf(10), DayOf(10).AddDays(daysAfterCheckIn)));
+    }
 }
 

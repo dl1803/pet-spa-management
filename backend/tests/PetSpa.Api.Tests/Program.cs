@@ -13,6 +13,7 @@ using PetSpa.Api.Validators;
 using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
+using PetSpa.Application.Services.Assignment;
 using PetSpa.Application.Services;
 using PetSpa.Application.Services.Booking;
 using PetSpa.Domain.Enums;
@@ -988,6 +989,172 @@ var tests = new (string Name, Func<Task> Run)[]
         }
 
         return Task.CompletedTask;
+    }),
+    ("AssignmentService.GetSpaSuggestionsAsync excludes out-of-shift and conflicting staff and ranks by recent assignments", async () =>
+    {
+        var slotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var busyUntil = slotStart.AddMinutes(135);
+        var appointment = new SpaAppointment
+        {
+            AppointmentId = Guid.NewGuid(),
+            Status = AppointmentStatus.Pending,
+            SlotStart = slotStart,
+            SlotEnd = slotStart.AddMinutes(120),
+            BusyUntil = busyUntil,
+            StaffRequired = 1,
+        };
+        var an = new SpaStaffCandidate(Guid.NewGuid(), "An");
+        var binh = new SpaStaffCandidate(Guid.NewGuid(), "Binh");
+        var chi = new SpaStaffCandidate(Guid.NewGuid(), "Chi");
+        var dung = new SpaStaffCandidate(Guid.NewGuid(), "Dung");
+
+        var shifts = new[] { an, binh, chi }
+            .Select(s => new StaffShiftWindow(s.StaffId, slotStart.AddHours(-1), busyUntil.AddHours(1)))
+            .ToList();
+        var busy = new[]
+        {
+            new StaffBusyWindow(chi.StaffId, slotStart.AddMinutes(30), busyUntil.AddMinutes(30)),
+        };
+        var recentCounts = new Dictionary<Guid, int>
+        {
+            [an.StaffId] = 3,
+            [binh.StaffId] = 1,
+        };
+
+        var service = new AssignmentService(
+            new TestAssignmentRepo(appointment, [an, binh, chi, dung], busy, recentCounts),
+            new TestScheduleRepo(15, false, shifts, []));
+
+        var result = await service.GetSpaSuggestionsAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Manager), appointment.AppointmentId);
+
+        Check(result.StaffRequired == 1, "StaffRequired must come from the appointment.");
+        Check(result.Suggested.Select(s => s.FullName).SequenceEqual(new[] { "Binh" }),
+            "Suggested must be the eligible staff with the fewest recent assignments.");
+        Check(result.Suggested[0].RecentAssignmentCount == 1, "Suggested must carry the recent assignment count.");
+        Check(result.Alternatives.Select(s => s.FullName).SequenceEqual(new[] { "An" }),
+            "Alternatives must hold the remaining eligible staff; Chi (conflict) and Dung (no shift) must be excluded.");
+    }),
+    ("AssignmentService.GetSpaSuggestionsAsync rejects non-manager, unknown appointment and non-pending appointment", async () =>
+    {
+        var slotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var appointment = new SpaAppointment
+        {
+            AppointmentId = Guid.NewGuid(),
+            Status = AppointmentStatus.Confirmed,
+            SlotStart = slotStart,
+            SlotEnd = slotStart.AddMinutes(120),
+            BusyUntil = slotStart.AddMinutes(135),
+            StaffRequired = 1,
+        };
+        var service = new AssignmentService(
+            new TestAssignmentRepo(appointment, [], [], new Dictionary<Guid, int>()),
+            new TestScheduleRepo(15, false, [], []));
+        var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+
+        async Task<string?> CodeOfAsync(Func<Task> action)
+        {
+            try
+            {
+                await action();
+                return null;
+            }
+            catch (BusinessException ex)
+            {
+                return ex.Code;
+            }
+        }
+
+        var forCustomer = await CodeOfAsync(() => service.GetSpaSuggestionsAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Customer), appointment.AppointmentId));
+        var forUnknown = await CodeOfAsync(() => service.GetSpaSuggestionsAsync(manager, Guid.NewGuid()));
+        var forConfirmed = await CodeOfAsync(() => service.GetSpaSuggestionsAsync(manager, appointment.AppointmentId));
+
+        Check(forCustomer == ErrorCodes.Forbidden, "A non-manager must be rejected with Forbidden.");
+        Check(forUnknown == ErrorCodes.NotFound, "An unknown appointment must be rejected with NotFound.");
+        Check(forConfirmed == ErrorCodes.InvalidTransition, "A non-pending appointment must be rejected with InvalidTransition.");
+    }),
+    ("HotelBookingService.HasCapacityAsync counts held stays per night in shop time zone for the pet's species and size group", async () =>
+    {
+        var ownerUserId = Guid.NewGuid();
+        var pet = new Pet { PetId = Guid.NewGuid(), CustomerId = Guid.NewGuid(), Species = Species.Cat, SizeGroup = SizeGroup.Small, IsActive = true };
+        var held = new[]
+        {
+            new HeldHotelStay(new DateTimeOffset(2026, 11, 11, 7, 0, 0, TimeSpan.Zero), new DateTimeOffset(2026, 11, 13, 5, 0, 0, TimeSpan.Zero)),
+            new HeldHotelStay(new DateTimeOffset(2026, 11, 11, 7, 0, 0, TimeSpan.Zero), new DateTimeOffset(2026, 11, 12, 5, 0, 0, TimeSpan.Zero)),
+        };
+        var repo = new TestHotelBookingRepo(2, held);
+        var service = new HotelBookingService(
+            new TestPetRepo(pet, ownerUserId),
+            new TestStaffRoleReader(null),
+            repo,
+            new ShopTimeZone(TimeZoneInfo.Utc));
+        var user = new CurrentUser(ownerUserId, UserRole.Customer);
+
+        var fullOnNov11 = await service.HasCapacityAsync(
+            user, pet.PetId,
+            new DateTimeOffset(2026, 11, 10, 14, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero));
+        var freeFromNov12 = await service.HasCapacityAsync(
+            user, pet.PetId,
+            new DateTimeOffset(2026, 11, 12, 14, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 11, 14, 12, 0, 0, TimeSpan.Zero));
+
+        Check(!fullOnNov11, "Both cages are held on the night of 11/11, so there must be no capacity.");
+        Check(freeFromNov12, "Only one stay holds the night of 12/11, so one cage must remain.");
+        Check(repo.LastSpecies == Species.Cat && repo.LastSizeGroup == SizeGroup.Small,
+            "The cage and stay queries must use the pet's species and size group.");
+    }),
+    ("HotelBookingService.HasCapacityAsync enforces pet visibility and a check-out date after the check-in date", async () =>
+    {
+        var ownerUserId = Guid.NewGuid();
+        var pet = new Pet { PetId = Guid.NewGuid(), CustomerId = Guid.NewGuid(), Species = Species.Dog, SizeGroup = SizeGroup.Large, IsActive = true };
+        var checkIn = new DateTimeOffset(2026, 11, 10, 14, 0, 0, TimeSpan.Zero);
+        var checkOut = new DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero);
+
+        HotelBookingService ServiceFor(StaffRole? staffRole) => new(
+            new TestPetRepo(pet, ownerUserId),
+            new TestStaffRoleReader(staffRole),
+            new TestHotelBookingRepo(1, []),
+            new ShopTimeZone(TimeZoneInfo.Utc));
+
+        async Task<string?> CodeOfAsync(Func<Task> action)
+        {
+            try
+            {
+                await action();
+                return null;
+            }
+            catch (BusinessException ex)
+            {
+                return ex.Code;
+            }
+        }
+
+        var owner = new CurrentUser(ownerUserId, UserRole.Customer);
+        var receptionist = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+        var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+
+        Check(await ServiceFor(null).HasCapacityAsync(owner, pet.PetId, checkIn, checkOut),
+            "The owner must be able to check capacity for the own pet.");
+        Check(await ServiceFor(StaffRole.Receptionist).HasCapacityAsync(receptionist, pet.PetId, checkIn, checkOut),
+            "A receptionist must be able to check capacity for any pet.");
+        Check(await ServiceFor(null).HasCapacityAsync(manager, pet.PetId, checkIn, checkOut),
+            "A manager must be able to check capacity for any pet.");
+
+        var otherCustomer = await CodeOfAsync(() => ServiceFor(null).HasCapacityAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Customer), pet.PetId, checkIn, checkOut));
+        var spaStaff = await CodeOfAsync(() => ServiceFor(StaffRole.SpaStaff).HasCapacityAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Staff), pet.PetId, checkIn, checkOut));
+        var unknownPet = await CodeOfAsync(() => ServiceFor(null).HasCapacityAsync(
+            owner, Guid.NewGuid(), checkIn, checkOut));
+        var sameDay = await CodeOfAsync(() => ServiceFor(null).HasCapacityAsync(
+            owner, pet.PetId, checkIn, checkIn.AddHours(6)));
+
+        Check(otherCustomer == ErrorCodes.Forbidden, "A customer must not see another customer's pet.");
+        Check(spaStaff == ErrorCodes.Forbidden, "Spa staff must be rejected with Forbidden.");
+        Check(unknownPet == ErrorCodes.NotFound, "An unknown pet must be rejected with NotFound.");
+        Check(sameDay == ErrorCodes.ValidationError, "A check-out on the check-in date must be rejected with ValidationError.");
     })
 };
 
@@ -1266,5 +1433,48 @@ sealed class TestAppointmentQueryRepo : IAppointmentQueryRepository
     public Task<AppointmentDetailData?> FindDetailAsync(Guid appointmentId, CancellationToken ct = default) =>
         Task.FromResult<AppointmentDetailData?>(null);
 }
+
+sealed class TestAssignmentRepo(
+    SpaAppointment? appointment,
+    IReadOnlyList<SpaStaffCandidate> staff,
+    IReadOnlyList<StaffBusyWindow> busy,
+    IReadOnlyDictionary<Guid, int> recentCounts) : IAssignmentRepository
+{
+    public Task<IReadOnlyList<SpaStaffCandidate>> ListActiveSpaStaffAsync(CancellationToken ct = default) =>
+        Task.FromResult(staff);
+
+    public Task<IReadOnlyList<StaffBusyWindow>> ListHoldingStaffWindowsAsync(
+        DateTimeOffset rangeStart, DateTimeOffset rangeEnd, CancellationToken ct = default) =>
+        Task.FromResult(busy);
+
+    public Task<SpaAppointment?> FindSpaAppointmentAsync(Guid appointmentId, CancellationToken ct = default) =>
+        Task.FromResult(appointment is not null && appointment.AppointmentId == appointmentId ? appointment : null);
+
+    public Task<int> GetSuggestLookbackDaysAsync(CancellationToken ct = default) => Task.FromResult(30);
+
+    public Task<IReadOnlyDictionary<Guid, int>> CountRecentAssignmentsAsync(
+        DateTimeOffset since, CancellationToken ct = default) =>
+        Task.FromResult(recentCounts);
+}
+
+sealed class TestHotelBookingRepo(int activeCages, IReadOnlyList<HeldHotelStay> held) : IHotelBookingRepository
+{
+    public Species? LastSpecies { get; private set; }
+    public SizeGroup? LastSizeGroup { get; private set; }
+
+    public Task<int> CountActiveCagesAsync(Species species, SizeGroup sizeGroup, CancellationToken ct = default)
+    {
+        LastSpecies = species;
+        LastSizeGroup = sizeGroup;
+        return Task.FromResult(activeCages);
+    }
+
+    public Task<IReadOnlyList<HeldHotelStay>> ListHeldHotelStaysAsync(
+        Species species, SizeGroup sizeGroup, DateTimeOffset rangeStart, DateTimeOffset rangeEnd,
+        CancellationToken ct = default) =>
+        Task.FromResult(held);
+}
+
+
 
 
