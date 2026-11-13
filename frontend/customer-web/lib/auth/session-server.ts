@@ -3,7 +3,7 @@ import { ERROR_MESSAGES, isErrorEnvelope, type ErrorEnvelope } from "@/lib/api/e
 import type { Me, TokenPair } from "@/lib/api/types";
 import { ROLES, SESSION_COOKIE_MAX_AGE_SECONDS, SESSION_COOKIE_NAME, WRONG_WEB_TITLE } from "./config";
 
-// Các error envelope do route handler tự tạo, cùng dạng với envelope của backend (Frontend-Conventions mục 5).
+// Các error envelope do route handler tự tạo, cùng dạng với envelope của backend.
 export const ENVELOPES = {
   forbidden: {
     status: 403,
@@ -116,7 +116,7 @@ export function isMe(data: unknown): data is Me {
   );
 }
 
-// Secure trừ khi chạy http://localhost (theo Frontend-Architecture 6.2).
+// Secure trừ khi chạy http://localhost.
 function cookieOptions(request: NextRequest, maxAge: number) {
   return {
     httpOnly: true,

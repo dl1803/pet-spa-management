@@ -19,6 +19,10 @@ export const ROUTES = {
 export const WINDOW_CLOSED_PARAM = "window";
 export const WINDOW_CLOSED_VALUE = "closed";
 
+// Tham số báo phiên đã hết hạn: màn đăng nhập hiện thông báo khi có tham số này.
+export const SESSION_EXPIRED_PARAM = "session";
+export const SESSION_EXPIRED_VALUE = "expired";
+
 export function withQuery(path: string, query: Record<string, string | number | null | undefined>) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
