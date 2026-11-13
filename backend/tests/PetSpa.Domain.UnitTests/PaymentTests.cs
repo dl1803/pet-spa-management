@@ -193,4 +193,53 @@ public class PaymentTests
 
         AssertStillUnpaid(payment);
     }
+
+    [Fact]
+    public void EnsureCanStartOnline_SpaCompletedUnpaid_DoesNotThrowAndKeepsUnpaid()
+    {
+        var payment = Unpaid();
+
+        payment.EnsureCanStartOnline(AppointmentStatus.Completed);
+
+        AssertStillUnpaid(payment);
+    }
+
+    [Theory]
+    [InlineData(PaymentKind.Stay, AppointmentStatus.Confirmed)]
+    [InlineData(PaymentKind.LateFee, AppointmentStatus.InStay)]
+    public void EnsureCanStartOnline_StayOrLateFee_ThrowsPaymentNotDue(PaymentKind kind, AppointmentStatus status)
+    {
+        var payment = Unpaid(kind);
+
+        AssertCode(ErrorCodes.PaymentNotDue, () => payment.EnsureCanStartOnline(status));
+
+        AssertStillUnpaid(payment);
+    }
+
+    public static IEnumerable<object[]> NonCompletedStatuses() =>
+        Enum.GetValues<AppointmentStatus>()
+            .Where(status => status != AppointmentStatus.Completed)
+            .Select(status => new object[] { status });
+
+    [Theory]
+    [MemberData(nameof(NonCompletedStatuses))]
+    public void EnsureCanStartOnline_SpaBeforeCompleted_ThrowsPaymentNotDue(AppointmentStatus status)
+    {
+        var payment = Unpaid();
+
+        AssertCode(ErrorCodes.PaymentNotDue, () => payment.EnsureCanStartOnline(status));
+
+        AssertStillUnpaid(payment);
+    }
+
+    [Fact]
+    public void EnsureCanStartOnline_AlreadyPaid_ThrowsPaymentNotDue()
+    {
+        var payment = Unpaid();
+        payment.MarkPaid(AppointmentStatus.Completed, 200_000m, PaymentMethod.Cash, Receptionist);
+
+        AssertCode(ErrorCodes.PaymentNotDue, () => payment.EnsureCanStartOnline(AppointmentStatus.Completed));
+
+        Assert.Equal(PaymentStatus.Paid, payment.Status);
+    }
 }

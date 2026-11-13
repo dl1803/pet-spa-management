@@ -16,6 +16,7 @@ using PetSpa.Application.Security;
 using PetSpa.Application.Services.Assignment;
 using PetSpa.Application.Services;
 using PetSpa.Application.Services.Booking;
+using PetSpa.Application.Services.Payments;
 using PetSpa.Domain.Enums;
 using PetSpa.Infrastructure.Identity;
 using PetSpa.Infrastructure.Payments.Vnpay;
@@ -1257,6 +1258,124 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(gateway is VnpayPaymentGateway && gateway.Gateway == PaymentGateway.VNPAY,
             "The registered gateway must be the VNPAY adapter.");
         return Task.CompletedTask;
+    }),
+    ("PaymentService.StartOnlineAsync creates a transaction from the system amount and returns the gateway URL", async () =>
+    {
+        var ownerUserId = Guid.NewGuid();
+        var payment = OnlinePayment(PaymentKind.Spa, 150000m);
+        var repo = new TestPaymentRepo(new PaymentWithOwner(payment, AppointmentStatus.Completed, ownerUserId));
+        var gateway = new TestPaymentGateway();
+        var service = new PaymentService(repo, gateway);
+
+        var result = await service.StartOnlineAsync(
+            new CurrentUser(ownerUserId, UserRole.Customer), payment.PaymentId, PaymentGateway.VNPAY, "203.0.113.7");
+
+        Check(repo.Added.Count == 1, "Exactly one transaction must be stored.");
+        var stored = repo.Added[0];
+        Check(stored.PaymentId == payment.PaymentId && stored.Gateway == PaymentGateway.VNPAY,
+            "The transaction must belong to the payment and the VNPAY gateway.");
+        Check(stored.RequestedAmount == 150000m, "RequestedAmount must be the system amount of the payment.");
+        Check(stored.TxnRef.Length == 32 && stored.TxnRef.All(char.IsAsciiHexDigitLower) && stored.TxnRef == stored.TxnId.ToString("N"),
+            "TxnRef must be the 32-character lowercase hex form of TxnId.");
+        Check(stored.Result is null && stored.ConfirmedAmount is null && stored.SignatureValid is null && stored.CallbackAt is null,
+            "A new transaction must not carry any callback data.");
+        Check(ReferenceEquals(gateway.LastTransaction, stored) && gateway.LastClientIp == "203.0.113.7",
+            "The gateway must receive the stored transaction and the client IP.");
+        Check(result.TxnRef == stored.TxnRef && result.PaymentUrl == gateway.Url,
+            "The result must carry the stored TxnRef and the gateway URL.");
+        Check(payment.Status == PaymentStatus.Unpaid && payment.Method is null && payment.PaidAt is null,
+            "Starting an online payment must not change the payment.");
+    }),
+    ("PaymentService.StartOnlineAsync rejects non-customers, unsupported gateways, unknown and foreign payments", async () =>
+    {
+        var ownerUserId = Guid.NewGuid();
+        var payment = OnlinePayment(PaymentKind.Spa, 150000m);
+        var owned = new PaymentWithOwner(payment, AppointmentStatus.Completed, ownerUserId);
+        var customer = new CurrentUser(ownerUserId, UserRole.Customer);
+
+        async Task AssertPaymentRejectedAsync(PaymentWithOwner? found, CurrentUser user, Guid paymentId, PaymentGateway requested, string code)
+        {
+            var repo = new TestPaymentRepo(found);
+            var gateway = new TestPaymentGateway();
+            var service = new PaymentService(repo, gateway);
+            var threw = false;
+            try
+            {
+                await service.StartOnlineAsync(user, paymentId, requested, "203.0.113.7");
+            }
+            catch (BusinessException ex) when (ex.Code == code)
+            {
+                threw = true;
+            }
+
+            Check(threw, $"Expected {code}.");
+            Check(repo.Added.Count == 0 && gateway.Calls == 0, "A rejected request must not store a transaction or call the gateway.");
+        }
+
+        await AssertPaymentRejectedAsync(owned, new CurrentUser(ownerUserId, UserRole.Manager), payment.PaymentId, PaymentGateway.VNPAY, ErrorCodes.Forbidden);
+        await AssertPaymentRejectedAsync(owned, new CurrentUser(ownerUserId, UserRole.Staff), payment.PaymentId, PaymentGateway.VNPAY, ErrorCodes.Forbidden);
+        await AssertPaymentRejectedAsync(owned, customer, payment.PaymentId, PaymentGateway.MoMo, ErrorCodes.ValidationError);
+        await AssertPaymentRejectedAsync(null, customer, Guid.NewGuid(), PaymentGateway.VNPAY, ErrorCodes.NotFound);
+        await AssertPaymentRejectedAsync(owned, new CurrentUser(Guid.NewGuid(), UserRole.Customer), payment.PaymentId, PaymentGateway.VNPAY, ErrorCodes.Forbidden);
+        await AssertPaymentRejectedAsync(
+            new PaymentWithOwner(payment, AppointmentStatus.Completed, null), customer, payment.PaymentId, PaymentGateway.VNPAY, ErrorCodes.Forbidden);
+    }),
+    ("PaymentService.StartOnlineAsync rejects payments that cannot be paid online", async () =>
+    {
+        var ownerUserId = Guid.NewGuid();
+        var customer = new CurrentUser(ownerUserId, UserRole.Customer);
+
+        async Task AssertNotDueAsync(Payment payment, AppointmentStatus appointmentStatus)
+        {
+            var repo = new TestPaymentRepo(new PaymentWithOwner(payment, appointmentStatus, ownerUserId));
+            var gateway = new TestPaymentGateway();
+            var service = new PaymentService(repo, gateway);
+            var threw = false;
+            try
+            {
+                await service.StartOnlineAsync(customer, payment.PaymentId, PaymentGateway.VNPAY, "203.0.113.7");
+            }
+            catch (BusinessException ex) when (ex.Code == ErrorCodes.PaymentNotDue)
+            {
+                threw = true;
+            }
+
+            Check(threw, $"{payment.Kind}/{payment.Status} with a {appointmentStatus} appointment must be rejected with PAYMENT_NOT_DUE.");
+            Check(repo.Added.Count == 0 && gateway.Calls == 0, "A rejected request must not store a transaction or call the gateway.");
+        }
+
+        await AssertNotDueAsync(OnlinePayment(PaymentKind.Stay, 300000m), AppointmentStatus.Confirmed);
+        await AssertNotDueAsync(OnlinePayment(PaymentKind.LateFee, 50000m), AppointmentStatus.InStay);
+        foreach (var status in Enum.GetValues<AppointmentStatus>().Where(s => s != AppointmentStatus.Completed))
+        {
+            await AssertNotDueAsync(OnlinePayment(PaymentKind.Spa, 150000m), status);
+        }
+
+        var paid = OnlinePayment(PaymentKind.Spa, 150000m);
+        paid.Status = PaymentStatus.Paid;
+        await AssertNotDueAsync(paid, AppointmentStatus.Completed);
+    }),
+    ("PaymentService.StartOnlineAsync stores no transaction when the gateway fails", async () =>
+    {
+        var ownerUserId = Guid.NewGuid();
+        var payment = OnlinePayment(PaymentKind.Spa, 150000m);
+        var repo = new TestPaymentRepo(new PaymentWithOwner(payment, AppointmentStatus.Completed, ownerUserId));
+        var service = new PaymentService(repo, new TestPaymentGateway { Failure = new InvalidOperationException("gateway") });
+
+        var threw = false;
+        try
+        {
+            await service.StartOnlineAsync(
+                new CurrentUser(ownerUserId, UserRole.Customer), payment.PaymentId, PaymentGateway.VNPAY, "203.0.113.7");
+        }
+        catch (InvalidOperationException)
+        {
+            threw = true;
+        }
+
+        Check(threw, "The gateway failure must propagate unchanged.");
+        Check(repo.Added.Count == 0, "No transaction may be stored when the URL could not be created.");
+        Check(payment.Status == PaymentStatus.Unpaid, "The payment must stay unpaid.");
     })
 };
 
@@ -1384,6 +1503,14 @@ static PaymentTransaction VnpayTransaction(
         RequestedAmount = amount,
         CreatedAt = new DateTimeOffset(2026, 11, 12, 10, 0, 0, TimeSpan.Zero),
     };
+
+static Payment OnlinePayment(PaymentKind kind, decimal amount) => new()
+{
+    PaymentId = Guid.NewGuid(),
+    AppointmentId = Guid.NewGuid(),
+    Kind = kind,
+    Amount = amount,
+};
 
 static string CreateTestJwt(string signingKey, Guid userId, string role, TimeSpan lifetime)
 {
@@ -1582,6 +1709,36 @@ sealed class TestHotelBookingRepo(int activeCages, IReadOnlyList<HeldHotelStay> 
         Species species, SizeGroup sizeGroup, DateTimeOffset rangeStart, DateTimeOffset rangeEnd,
         CancellationToken ct = default) =>
         Task.FromResult(held);
+}
+
+sealed class TestPaymentRepo(PaymentWithOwner? found) : IPaymentRepository
+{
+    public List<PaymentTransaction> Added { get; } = [];
+    public Task<PaymentWithOwner?> FindWithOwnerAsync(Guid paymentId, CancellationToken ct = default) =>
+        Task.FromResult(found is not null && found.Payment.PaymentId == paymentId ? found : null);
+    public Task AddTransactionAsync(PaymentTransaction transaction, CancellationToken ct = default)
+    {
+        Added.Add(transaction);
+        return Task.CompletedTask;
+    }
+}
+
+sealed class TestPaymentGateway : IPaymentGateway
+{
+    public string Url { get; } = "https://gateway.test/pay?token=abc";
+    public int Calls { get; private set; }
+    public PaymentTransaction? LastTransaction { get; private set; }
+    public string? LastClientIp { get; private set; }
+    public Exception? Failure { get; init; }
+    public PaymentGateway Gateway => PaymentGateway.VNPAY;
+    public string CreatePaymentUrl(PaymentTransaction transaction, string clientIp)
+    {
+        Calls++;
+        if (Failure is not null) throw Failure;
+        LastTransaction = transaction;
+        LastClientIp = clientIp;
+        return Url;
+    }
 }
 
 

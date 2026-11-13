@@ -53,6 +53,14 @@ public class Payment
         ConfirmedByUserId = confirmedByUserId;
     }
 
+    public void EnsureCanStartOnline(AppointmentStatus appointmentStatus)
+    {
+        if (Status != PaymentStatus.Unpaid || !IsDueFor(appointmentStatus, PaymentMethod.Online))
+        {
+            throw new BusinessException(ErrorCodes.PaymentNotDue);
+        }
+    }
+
     private bool IsDueFor(AppointmentStatus appointmentStatus, PaymentMethod method) => Kind switch
     {
         PaymentKind.Spa => appointmentStatus == AppointmentStatus.Completed,

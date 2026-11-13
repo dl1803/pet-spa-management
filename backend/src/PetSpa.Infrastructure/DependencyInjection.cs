@@ -103,6 +103,7 @@ public static class DependencyInjection
         services.AddScoped<IAccountRepository, AccountRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IAppointmentQueryRepository, AppointmentQueryRepository>();
+        services.AddScoped<IPaymentRepository, PaymentRepository>();
         services.AddScoped<IPaymentGateway>(_ => new VnpayPaymentGateway(
             config.GetSection("Payment:Vnpay").Get<VnpayOptions>() ?? new VnpayOptions()));
 
