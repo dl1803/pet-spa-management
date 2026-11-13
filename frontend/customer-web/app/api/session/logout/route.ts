@@ -6,6 +6,7 @@ import {
   ENVELOPES,
   envelopeResponse,
   isSameOrigin,
+  isTokenPair,
   noContentResponse,
 } from "@/lib/auth/session-server";
 
@@ -13,13 +14,14 @@ export async function POST(request: NextRequest) {
   if (!isSameOrigin(request)) return envelopeResponse(ENVELOPES.forbidden);
 
   const refreshToken = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-  // Backend yêu cầu Bearer access token cho /auth/logout: chuyển tiếp token mà trình duyệt gửi kèm.
-  const authorization = request.headers.get("authorization");
-  const accessToken = authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : null;
-
   if (refreshToken) {
-    // Best effort: kể cả backend lỗi, cookie vẫn bị xóa.
-    await callBackend(request, "/auth/logout", { body: { refreshToken }, accessToken });
+    const renewed = await callBackend(request, "/auth/refresh", { body: { refreshToken } });
+    if (renewed.status === 200 && isTokenPair(renewed.body)) {
+      await callBackend(request, "/auth/logout", {
+        body: { refreshToken: renewed.body.refreshToken },
+        accessToken: renewed.body.accessToken,
+      });
+    }
   }
 
   const response = noContentResponse();

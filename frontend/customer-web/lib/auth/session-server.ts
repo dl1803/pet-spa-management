@@ -42,10 +42,26 @@ export function noContentResponse() {
   return new NextResponse(null, { status: 204, headers: NO_STORE });
 }
 
-// Chỉ nhận yêu cầu cùng origin (trình duyệt luôn gửi Origin với POST). Chặn gọi chéo trang.
+function getRequestProtocol(request: NextRequest) {
+  const forwarded = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  if (forwarded === "https" || forwarded === "http") return `${forwarded}:`;
+  return request.nextUrl.protocol;
+}
+
+function isSecureRequest(request: NextRequest) {
+  return getRequestProtocol(request) === "https:";
+}
+
 export function isSameOrigin(request: NextRequest) {
   const origin = request.headers.get("origin");
-  return origin !== null && origin === request.nextUrl.origin;
+  const host = request.headers.get("host");
+  if (origin === null || host === null) return false;
+  try {
+    const parsed = new URL(origin);
+    return parsed.host === host && parsed.protocol === getRequestProtocol(request);
+  } catch {
+    return false;
+  }
 }
 
 export type BackendResult = { status: number; body: unknown };
@@ -116,11 +132,10 @@ export function isMe(data: unknown): data is Me {
   );
 }
 
-// Secure trừ khi chạy http://localhost.
 function cookieOptions(request: NextRequest, maxAge: number) {
   return {
     httpOnly: true,
-    secure: request.nextUrl.hostname !== "localhost",
+    secure: isSecureRequest(request),
     sameSite: "lax" as const,
     path: "/",
     maxAge,

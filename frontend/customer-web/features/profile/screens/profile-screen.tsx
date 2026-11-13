@@ -178,27 +178,13 @@ function ProfileContent({ me }: { me: Me }) {
 }
 
 export function ProfileScreen() {
-  const { data, error, isFetching, refetch } = useMe();
-  const isUnauthenticated = error !== null && isUnauthenticatedError(error);
-  const showLoadError = error !== null && !isUnauthenticated;
+  const { data } = useMe();
+  if (!data) return <ProfileSkeleton />;
 
   return (
     <>
       <PageHeader title={TITLE} description={DESCRIPTION} />
-      {showLoadError ? (
-        <div>
-          <ErrorAlert error={error} />
-          <div className="mt-4">
-            <Button variant="secondary" onClick={() => void refetch()} disabled={isFetching}>
-              Thử lại
-            </Button>
-          </div>
-        </div>
-      ) : data === undefined || isUnauthenticated ? (
-        <ProfileSkeleton />
-      ) : (
-        <ProfileContent me={data} />
-      )}
+      <ProfileContent me={data} />
     </>
   );
 }

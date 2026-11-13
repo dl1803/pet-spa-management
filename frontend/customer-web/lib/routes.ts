@@ -36,5 +36,7 @@ export function withQuery(path: string, query: Record<string, string | number | 
 
 export function getSafeNextPath(next: string | null): string | null {
   if (next === null || !next.startsWith("/") || next.startsWith("//") || next.includes("\\")) return null;
+  if (next === ROUTES.login || next.startsWith(`${ROUTES.login}?`)) return null;
+  if (next === ROUTES.register || next.startsWith(`${ROUTES.register}?`)) return null;
   return next;
 }

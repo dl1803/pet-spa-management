@@ -7,7 +7,7 @@ const PUBLIC_PATHS: string[] = [ROUTES.login, ROUTES.register];
 // Chỉ kiểm tra có cookie phiên hay không; tính hợp lệ do SessionGate kiểm tra bằng GET /me.
 export function proxy(request: NextRequest) {
   const { pathname, search, searchParams } = request.nextUrl;
-  const hasSession = request.cookies.has(SESSION_COOKIE_NAME);
+  const hasSession = Boolean(request.cookies.get(SESSION_COOKIE_NAME)?.value);
   const isPublic = PUBLIC_PATHS.includes(pathname);
 
   if (!isPublic && !hasSession) {

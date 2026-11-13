@@ -26,18 +26,24 @@ export function hasAccessToken() {
   return accessToken !== null;
 }
 
-// Nhiều lời gọi cùng gặp 401 chỉ gây đúng một lần làm mới (refresh token xoay vòng, dùng lại sẽ bị thu hồi).
+async function withRefreshLock<T>(task: () => Promise<T>): Promise<T> {
+  if (typeof navigator !== "undefined" && typeof navigator.locks?.request === "function") {
+    return navigator.locks.request("ps_customer_session_refresh", task);
+  }
+  return task();
+}
+
 let refreshing: Promise<string> | null = null;
 
 export function refreshAccessToken(): Promise<string> {
-  refreshing ??= refreshSession()
-    .then(({ accessToken: token }) => {
+  refreshing ??= withRefreshLock(() =>
+    refreshSession().then(({ accessToken: token }) => {
       setAccessToken(token);
       return token;
-    })
-    .finally(() => {
-      refreshing = null;
-    });
+    }),
+  ).finally(() => {
+    refreshing = null;
+  });
   return refreshing;
 }
 
