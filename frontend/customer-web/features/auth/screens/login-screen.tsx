@@ -12,7 +12,6 @@ import { Input } from "@/components/ui/input";
 import { AuthAlert } from "@/features/auth/components/auth-alert";
 import { AuthSwitchLink } from "@/features/auth/components/auth-switch-link";
 import {
-  getSafeNextPath,
   isLoginRejectedError,
   isWrongWebError,
   LOGIN_DEFAULT_VALUES,
@@ -24,7 +23,7 @@ import {
   type LoginFormValues,
 } from "@/features/auth/forms";
 import { useLogin } from "@/lib/queries/auth";
-import { ROUTES, SESSION_EXPIRED_PARAM, SESSION_EXPIRED_VALUE } from "@/lib/routes";
+import { getSafeNextPath, ROUTES, SESSION_EXPIRED_PARAM, SESSION_EXPIRED_VALUE } from "@/lib/routes";
 import { STORE_HOTLINE } from "@/lib/store-info";
 import { validatePasswordRequired } from "@/lib/validation";
 

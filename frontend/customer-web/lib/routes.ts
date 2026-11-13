@@ -33,3 +33,8 @@ export function withQuery(path: string, query: Record<string, string | number | 
   const search = params.toString();
   return search ? `${path}?${search}` : path;
 }
+
+export function getSafeNextPath(next: string | null): string | null {
+  if (next === null || !next.startsWith("/") || next.startsWith("//") || next.includes("\\")) return null;
+  return next;
+}
