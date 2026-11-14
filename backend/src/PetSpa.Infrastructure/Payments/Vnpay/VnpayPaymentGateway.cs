@@ -11,6 +11,10 @@ public sealed class VnpayPaymentGateway : IPaymentGateway
 {
     public const string SandboxPaymentUrl = "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html";
 
+    private const string ParameterPrefix = "vnp_";
+    private const string SecureHashParameter = "vnp_SecureHash";
+    private const string SecureHashTypeParameter = "vnp_SecureHashType";
+
     private readonly VnpayPaymentRequestBuilder builder;
     private readonly byte[] secretKey;
 
@@ -32,16 +36,46 @@ public sealed class VnpayPaymentGateway : IPaymentGateway
 
     public string CreatePaymentUrl(PaymentTransaction transaction, string clientIp)
     {
-        var payload = builder.Build(transaction, clientIp);
+        var query = BuildQuery(builder.Build(transaction, clientIp));
 
-        var query = string.Join(
-            '&',
-            payload.Select(p => $"{WebUtility.UrlEncode(p.Key)}={WebUtility.UrlEncode(p.Value)}"));
-
-        var secureHash = Convert.ToHexString(
-            HMACSHA512.HashData(secretKey, Encoding.UTF8.GetBytes(query))).ToLowerInvariant();
-
-        return $"{SandboxPaymentUrl}?{query}&vnp_SecureHash={secureHash}";
+        return $"{SandboxPaymentUrl}?{query}&{SecureHashParameter}={ComputeSecureHash(query)}";
     }
-}
 
+    public bool VerifyCallbackSignature(IReadOnlyDictionary<string, string> parameters)
+    {
+        ArgumentNullException.ThrowIfNull(parameters);
+
+        if (!parameters.TryGetValue(SecureHashParameter, out var receivedHash) || string.IsNullOrEmpty(receivedHash))
+        {
+            return false;
+        }
+
+        var signed = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (key, value) in parameters)
+        {
+            if (key.StartsWith(ParameterPrefix, StringComparison.Ordinal)
+                && key != SecureHashParameter
+                && key != SecureHashTypeParameter
+                && !string.IsNullOrEmpty(value))
+            {
+                signed[key] = value;
+            }
+        }
+
+        if (signed.Count == 0)
+        {
+            return false;
+        }
+
+        var expected = Encoding.ASCII.GetBytes(ComputeSecureHash(BuildQuery(signed)));
+        var received = Encoding.ASCII.GetBytes(receivedHash.ToLowerInvariant());
+
+        return CryptographicOperations.FixedTimeEquals(expected, received);
+    }
+
+    private static string BuildQuery(IEnumerable<KeyValuePair<string, string>> payload) =>
+        string.Join('&', payload.Select(p => $"{WebUtility.UrlEncode(p.Key)}={WebUtility.UrlEncode(p.Value)}"));
+
+    private string ComputeSecureHash(string data) =>
+        Convert.ToHexString(HMACSHA512.HashData(secretKey, Encoding.UTF8.GetBytes(data))).ToLowerInvariant();
+}

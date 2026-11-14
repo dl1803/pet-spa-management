@@ -41,4 +41,9 @@ public sealed class PaymentService(IPaymentRepository payments, IPaymentGateway 
 
         return new OnlinePaymentStart(paymentUrl, transaction.TxnRef);
     }
+
+    public bool VerifyIpnSignature(IReadOnlyDictionary<string, string> parameters)
+    {
+        return gateway.VerifyCallbackSignature(parameters);
+    }
 }
