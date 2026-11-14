@@ -20,6 +20,7 @@ import {
 } from "../features/reception-customers/screens/pet-profile-screen.tsx";
 import {
   describePet,
+  describeTruncatedCustomers,
   getInitials,
   isDuplicateContactError,
   isNotFoundError,
@@ -125,6 +126,15 @@ test("hàm phụ: chữ cái đầu, mô tả thú cưng, nhận diện lỗi", 
   assert.equal(isDuplicateContactError(new ApiError({ kind: "http", status: 409, code: "SLOT_FULL" })), false);
   assert.equal(isNotFoundError(new ApiError({ kind: "http", status: 404, code: "NOT_FOUND" })), true);
   assert.equal(isNotFoundError(new Error("x")), false);
+});
+
+test("thông báo cắt kết quả tìm khách: chỉ hiện khi còn khách chưa hiển thị", () => {
+  assert.equal(describeTruncatedCustomers(1, 1), null);
+  assert.equal(describeTruncatedCustomers(20, 20), null);
+  assert.equal(
+    describeTruncatedCustomers(37, 20),
+    "Có 37 khách khớp, đang hiển thị 20 khách đầu tiên theo họ tên. Nhập thêm chữ số để thu hẹp kết quả.",
+  );
 });
 
 test("form thú cưng: số thập phân dấu phẩy, chiều cao chỉ bắt buộc với chó", () => {

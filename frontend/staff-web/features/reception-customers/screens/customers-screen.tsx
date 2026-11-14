@@ -1,6 +1,6 @@
 "use client";
 
-// SW-04 Khách hàng – UI-Screens.md. Từ khóa tìm nằm trên URL (?search=) để tải lại trang vẫn giữ kết quả.
+// Màn Khách hàng: từ khóa tìm nằm trên URL (?search=) để tải lại trang vẫn giữ kết quả.
 
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { CustomerSearchForm } from "@/features/reception-customers/components/customer-search-form";
 import { CustomerSearchResults } from "@/features/reception-customers/components/customer-search-results";
 import { validateSearchTerm, type SearchFormValues } from "@/features/reception-customers/forms";
-import { CUSTOMERS_QUERY_KEY } from "@/features/reception-customers/mock-api";
+import { customerKeys } from "@/lib/queries/customers";
 import { ROUTES, withQuery } from "@/lib/routes";
 import { normalizePhone } from "@/lib/validation";
 
@@ -46,7 +46,7 @@ export function CustomersScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const search = (useSearchParams().get("search") ?? "").trim();
-  const searchQueryKey = [...CUSTOMERS_QUERY_KEY, "search", search];
+  const searchQueryKey = customerKeys.search(search);
   const isSearching = useIsFetching({ queryKey: searchQueryKey }) > 0;
 
   function handleSearch(term: string) {

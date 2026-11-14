@@ -4,7 +4,7 @@ import { formatWeight } from "@/lib/format";
 import { SIZE_GROUP_LABELS, SPECIES_LABELS } from "@/lib/labels";
 import { normalizePhone, PHONE_REQUIRED_MESSAGE } from "@/lib/validation";
 
-// ---- Tìm khách và ghi nhận khách vãng lai (SW-04) ----
+// ---- Tìm khách và ghi nhận khách vãng lai ----
 
 export type SearchFormValues = { search: string };
 
@@ -23,6 +23,12 @@ export function validateSearchTerm(value: string): true | string {
   return normalizePhone(value) !== "" || PHONE_REQUIRED_MESSAGE;
 }
 
+// Mỗi lần tìm chỉ hiển thị trang đầu; báo khi còn khách khớp chưa hiển thị để lễ tân thu hẹp thay vì bỏ sót.
+export function describeTruncatedCustomers(total: number, shown: number): string | null {
+  if (total <= shown) return null;
+  return `Có ${total} khách khớp, đang hiển thị ${shown} khách đầu tiên theo họ tên. Nhập thêm chữ số để thu hẹp kết quả.`;
+}
+
 // Request chỉ có fullName, phone (không email – openapi WalkInRequest). Số điện thoại gửi dạng liền.
 export function toWalkInRequest(values: WalkInFormValues): WalkInRequest {
   return { fullName: values.fullName.trim(), phone: normalizePhone(values.phone) };
@@ -37,7 +43,7 @@ export function isNotFoundError(error: unknown) {
   return toApiError(error).status === 404;
 }
 
-// Dùng chung hàm getInitials với reception-booking (Frontend-Architecture §3.3).
+// Dùng chung hàm getInitials với reception-booking.
 export { getInitials } from "@/features/reception-booking/forms";
 
 // Ví dụ: “Chó Poodle, 9,0 kg, nhóm Nhỏ”.
@@ -45,7 +51,7 @@ export function describePet(pet: Pet) {
   return `${SPECIES_LABELS[pet.species]} ${pet.breed}, ${formatWeight(pet.weightKg)}, nhóm ${SIZE_GROUP_LABELS[pet.sizeGroup]}`;
 }
 
-// ---- Hồ sơ thú cưng (SW-05, cùng luật với CW-05) ----
+// ---- Hồ sơ thú cưng ----
 
 export type PetFormValues = {
   species: Species;
