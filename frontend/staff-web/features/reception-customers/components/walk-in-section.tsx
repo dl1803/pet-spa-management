@@ -100,7 +100,7 @@ export function WalkInSection({ initialPhone }: { initialPhone: string }) {
   const createWalkIn = useCreateWalkInCustomer();
   const duplicateSearch = useCustomerSearch(duplicatePhone);
   const duplicateCustomer = isDuplicate
-    ? duplicateSearch.data?.items.find((customer) => customer.phone === duplicatePhone)
+    ? duplicateSearch.data?.items.find((customer) => normalizePhone(customer.phone) === duplicatePhone)
     : undefined;
 
   function clearSubmitError() {

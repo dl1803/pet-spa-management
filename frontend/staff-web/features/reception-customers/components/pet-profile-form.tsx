@@ -95,7 +95,11 @@ export function PetProfileForm({ customer, pet, cancelHref = ROUTES.customers }:
     createPet.mutate(request, {
       onSuccess: (created) => {
         showSuccess(PET_SAVED_MESSAGE);
-        router.push(withQuery(ROUTES.booking, { customerId: customer.customerId, petId: created.petId }));
+        if (created.petId) {
+          router.push(withQuery(ROUTES.booking, { customerId: customer.customerId, petId: created.petId }));
+        } else {
+          router.push(withQuery(ROUTES.customers, { search: customer.phone }));
+        }
       },
     });
   }

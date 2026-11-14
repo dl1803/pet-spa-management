@@ -11,9 +11,18 @@ export const petKeys = {
   detail: (petId: string | null) => ["pets", "detail", petId] as const,
 };
 
-// Đợi làm mới cả các query đang ẩn (danh sách ở /khach-hang và chi tiết) trước khi chuyển trang.
-export function invalidatePets(queryClient: QueryClient) {
-  return queryClient.invalidateQueries({ queryKey: petKeys.all, refetchType: "all" });
+// Làm mới cache thú cưng: nếu có customerId/petId thì làm mới đúng query mục tiêu; không truyền thì làm mới toàn bộ.
+export function invalidatePets(queryClient: QueryClient, customerId?: string, petId?: string) {
+  const promises: Promise<void>[] = [];
+  if (customerId) {
+    promises.push(queryClient.invalidateQueries({ queryKey: petKeys.list(customerId) }));
+  } else {
+    promises.push(queryClient.invalidateQueries({ queryKey: petKeys.all }));
+  }
+  if (petId) {
+    promises.push(queryClient.invalidateQueries({ queryKey: petKeys.detail(petId) }));
+  }
+  return Promise.all(promises);
 }
 
 export function usePets(customerId: string) {
@@ -36,7 +45,7 @@ export function useCreatePet() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: createPet,
-    onSuccess: () => invalidatePets(queryClient),
+    onSuccess: (_data, variables) => invalidatePets(queryClient, variables.customerId),
   });
 }
 
@@ -44,10 +53,13 @@ export function useUpdatePet() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: updatePet,
-    onSuccess: () => invalidatePets(queryClient),
-    onError: (error) => {
+    onSuccess: (_data, variables) =>
+      invalidatePets(queryClient, variables.request.customerId, variables.petId),
+    onError: (error, variables) => {
       // 404: hồ sơ đã bị gỡ ở nơi khác; làm mới để danh sách không còn hồ sơ đó.
-      if (toApiError(error).status === 404) void invalidatePets(queryClient);
+      if (toApiError(error).status === 404) {
+        void invalidatePets(queryClient, variables.request.customerId, variables.petId);
+      }
     },
   });
 }
