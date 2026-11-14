@@ -62,6 +62,11 @@ public sealed class VnpayPaymentGateway : IPaymentGateway
             }
         }
 
+        if (signed.Count == 0)
+        {
+            return false;
+        }
+
         var expected = Encoding.ASCII.GetBytes(ComputeSecureHash(BuildQuery(signed)));
         var received = Encoding.ASCII.GetBytes(receivedHash.ToLowerInvariant());
 

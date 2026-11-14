@@ -16,4 +16,5 @@ public sealed record VnpayIpnResponse(
     [property: JsonPropertyName("Message")] string Message)
 {
     public static VnpayIpnResponse Unprocessed { get; } = new("99", "Unknown error");
+    public static VnpayIpnResponse InvalidChecksum { get; } = new("97", "Invalid Checksum");
 }

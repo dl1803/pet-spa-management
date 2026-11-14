@@ -1294,6 +1294,7 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(!otherSecret.VerifyCallbackSignature(VnpayCallback()), "A callback signed with another secret must be rejected.");
 
         Check(!gateway.VerifyCallbackSignature(new Dictionary<string, string>()), "An empty callback must be rejected.");
+        Check(!gateway.VerifyCallbackSignature(new Dictionary<string, string> { ["vnp_SecureHash"] = validHash }), "A callback with only vnp_SecureHash must be rejected.");
         AssertThrows<ArgumentNullException>(() => gateway.VerifyCallbackSignature(null!), "Null parameters must be rejected.");
         return Task.CompletedTask;
     }),
@@ -1797,21 +1798,13 @@ var tests = new (string Name, Func<Task> Run)[]
         var parameters = new Dictionary<string, string> { ["vnp_TxnRef"] = "ABC123def456" };
 
         var accepting = new TestPaymentGateway { CallbackSignatureValid = true };
-        new PaymentService(repo, accepting).VerifyIpnSignature(parameters);
+        var valid = new PaymentService(repo, accepting).VerifyIpnSignature(parameters);
+        Check(valid, "A valid signature must return true.");
         Check(accepting.VerifyCalls == 1 && ReferenceEquals(accepting.LastCallback, parameters),
             "The parameters must reach the gateway unchanged.");
 
-        var threw = false;
-        try
-        {
-            new PaymentService(repo, new TestPaymentGateway()).VerifyIpnSignature(parameters);
-        }
-        catch (BusinessException ex) when (ex.Code == ErrorCodes.Unauthenticated)
-        {
-            threw = true;
-        }
-
-        Check(threw, "An invalid signature must be rejected with UNAUTHENTICATED.");
+        var invalid = new PaymentService(repo, new TestPaymentGateway()).VerifyIpnSignature(parameters);
+        Check(!invalid, "An invalid signature must return false.");
         Check(repo.Added.Count == 0 && payment.Status == PaymentStatus.Unpaid && payment.Method is null && payment.PaidAt is null,
             "A webhook must not store a transaction or change the payment.");
         return Task.CompletedTask;
@@ -1848,28 +1841,26 @@ var tests = new (string Name, Func<Task> Run)[]
             "The webhook must not store a transaction or change the payment.");
         return Task.CompletedTask;
     }),
-    ("PaymentsController.VnpayIpn answers an invalid signature with 401 UNAUTHENTICATED and leaves the payment unpaid", async () =>
+    ("PaymentsController.VnpayIpn answers an invalid signature with 200 InvalidChecksum and leaves the payment unpaid", () =>
     {
         var payment = OnlinePayment(PaymentKind.Spa, 150000m);
         var repo = new TestPaymentRepo(new PaymentWithOwner(payment, AppointmentStatus.Completed, Guid.NewGuid()));
         var controller = IpnController(new TestPaymentGateway(), repo, "?vnp_TxnRef=ABC123def456&vnp_SecureHash=invalid");
 
-        var (status, body, contentType) = await RunMiddlewareAsync(_ =>
-        {
-            controller.VnpayIpn();
-            return Task.CompletedTask;
-        });
-
-        Check(status == 401 && contentType.StartsWith("application/problem+json"), "An invalid signature must be answered with 401 problem+json.");
-        using var doc = JsonDocument.Parse(body);
-        Check(doc.RootElement.GetProperty("code").GetString() == ErrorCodes.Unauthenticated, "The error code must be UNAUTHENTICATED.");
+        var result = controller.VnpayIpn() as OkObjectResult;
+        Check(result is not null && result.StatusCode == 200, "An invalid signature must return HTTP 200 OK according to VNPAY IPN specification.");
+        var body = result!.Value as VnpayIpnResponse;
+        Check(body is { RspCode: "97", Message: "Invalid Checksum" }, "The response must contain RspCode 97 and Invalid Checksum message.");
         Check(repo.Added.Count == 0 && payment.Status == PaymentStatus.Unpaid && payment.Method is null && payment.PaidAt is null,
             "A rejected webhook must not store a transaction or change the payment.");
+        return Task.CompletedTask;
     }),
     ("VnpayIpnResponse follows the VNPAY JSON contract", () =>
     {
-        var json = JsonSerializer.Serialize(VnpayIpnResponse.Unprocessed, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        Check(json == "{\"RspCode\":\"99\",\"Message\":\"Unknown error\"}", "The response must use the PascalCase RspCode and Message fields.");
+        var jsonUnprocessed = JsonSerializer.Serialize(VnpayIpnResponse.Unprocessed, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Check(jsonUnprocessed == "{\"RspCode\":\"99\",\"Message\":\"Unknown error\"}", "The response must use the PascalCase RspCode and Message fields.");
+        var jsonInvalid = JsonSerializer.Serialize(VnpayIpnResponse.InvalidChecksum, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Check(jsonInvalid == "{\"RspCode\":\"97\",\"Message\":\"Invalid Checksum\"}", "The invalid checksum response must use RspCode 97.");
         return Task.CompletedTask;
     })
 };
