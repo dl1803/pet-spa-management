@@ -51,6 +51,12 @@ export function describePet(pet: Pet) {
   return `${SPECIES_LABELS[pet.species]} ${pet.breed}, ${formatWeight(pet.weightKg)}, nhóm ${SIZE_GROUP_LABELS[pet.sizeGroup]}`;
 }
 
+// Hồ sơ chỉ sửa được khi còn hoạt động và thuộc đúng khách đang phục vụ.
+// GET /pets/{id} vẫn trả hồ sơ đã gỡ cho Lễ tân nhưng PUT /pets/{id} trả 404.
+export function isPetEditableFor(pet: Pet, customerId: string) {
+  return pet.isActive && pet.customerId === customerId;
+}
+
 // ---- Hồ sơ thú cưng ----
 
 export type PetFormValues = {

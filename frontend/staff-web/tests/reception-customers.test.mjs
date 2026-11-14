@@ -24,6 +24,7 @@ import {
   getInitials,
   isDuplicateContactError,
   isNotFoundError,
+  isPetEditableFor,
   parseDecimal,
   PET_FORM_DEFAULT_VALUES,
   toPetFormValues,
@@ -135,6 +136,13 @@ test("thông báo cắt kết quả tìm khách: chỉ hiện khi còn khách ch
     describeTruncatedCustomers(37, 20),
     "Có 37 khách khớp, đang hiển thị 20 khách đầu tiên theo họ tên. Nhập thêm chữ số để thu hẹp kết quả.",
   );
+});
+
+test("hồ sơ chỉ sửa được khi còn hoạt động và thuộc đúng khách đang phục vụ", () => {
+  const pet = createMockPets()[0];
+  assert.equal(isPetEditableFor(pet, pet.customerId), true);
+  assert.equal(isPetEditableFor(pet, "khach-khac"), false);
+  assert.equal(isPetEditableFor({ ...pet, isActive: false }, pet.customerId), false);
 });
 
 test("form thú cưng: số thập phân dấu phẩy, chiều cao chỉ bắt buộc với chó", () => {
