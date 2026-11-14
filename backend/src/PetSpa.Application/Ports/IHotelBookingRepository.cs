@@ -1,3 +1,4 @@
+using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
 
 namespace PetSpa.Application.Ports;
@@ -11,5 +12,7 @@ public interface IHotelBookingRepository
     Task<IReadOnlyList<HeldHotelStay>> ListHeldHotelStaysAsync(
         Species species, SizeGroup sizeGroup, DateTimeOffset rangeStart, DateTimeOffset rangeEnd,
         CancellationToken ct = default);
+
+    Task AddHotelAppointmentAsync(HotelAppointment appointment, CancellationToken ct = default);
 }
 

@@ -15,7 +15,8 @@ namespace PetSpa.Api.Controllers;
 public sealed class AppointmentsController(
     BookingService bookingService,
     AppointmentQueryService appointmentQueryService = null!,
-    AssignmentService assignmentService = null!) : ControllerBase
+    AssignmentService assignmentService = null!,
+    HotelBookingService hotelBookingService = null!) : ControllerBase
 {
     [HttpPost("spa")]
     [Authorize(Policy = AuthorizationPolicies.CustomerOrReceptionist)]
@@ -36,6 +37,26 @@ public sealed class AppointmentsController(
             ct);
 
         return StatusCode(StatusCodes.Status201Created, SpaBookingResponse.From(result));
+    }
+
+    [HttpPost("hotel")]
+    [Authorize(Policy = AuthorizationPolicies.CustomerOrReceptionist)]
+    [EndpointSummary("Tạo lịch hẹn lưu trú Chờ xác nhận")]
+    [EndpointDescription("Khách hàng tự đặt cho thú cưng của mình; lễ tân đặt thay và bắt buộc kèm customerId khớp chủ thú cưng. Không nhận chuồng, tiền, nhóm kích cỡ, trạng thái. Trả nights và estimatedAmount do hệ thống tính. Hết chuồng phù hợp trong khoảng đặt nhận 409 NO_CAPACITY. Ngày trả không sau ngày nhận hoặc customerId không khớp nhận 400 VALIDATION_ERROR. Lịch lưu trú không kèm dịch vụ spa.")]
+    public async Task<IActionResult> CreateHotel([FromBody] HotelBookingRequest? request, CancellationToken ct)
+    {
+        if (request is null)
+            throw new BusinessException(ErrorCodes.ValidationError, "Dữ liệu yêu cầu không được để trống.");
+
+        var result = await hotelBookingService.CreateHotelAppointmentAsync(
+            User.ToCurrentUser(),
+            request.CustomerId,
+            request.PetId!.Value,
+            request.PlannedCheckIn!.Value,
+            request.PlannedCheckOut!.Value,
+            ct);
+
+        return StatusCode(StatusCodes.Status201Created, HotelBookingResponse.From(result));
     }
 
     [HttpGet]

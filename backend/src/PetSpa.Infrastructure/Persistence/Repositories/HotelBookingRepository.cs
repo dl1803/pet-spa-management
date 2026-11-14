@@ -45,5 +45,11 @@ public sealed class HotelBookingRepository(AppDbContext db) : IHotelBookingRepos
 
         return await query.ToListAsync(ct);
     }
+
+    public async Task AddHotelAppointmentAsync(HotelAppointment appointment, CancellationToken ct = default)
+    {
+        db.Set<HotelAppointment>().Add(appointment);
+        await db.SaveChangesAsync(ct);
+    }
 }
 
