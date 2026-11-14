@@ -41,4 +41,10 @@ public sealed class PaymentService(IPaymentRepository payments, IPaymentGateway 
 
         return new OnlinePaymentStart(paymentUrl, transaction.TxnRef);
     }
+
+    public void VerifyIpnSignature(IReadOnlyDictionary<string, string> parameters)
+    {
+        if (!gateway.VerifyCallbackSignature(parameters))
+            throw new BusinessException(ErrorCodes.Unauthenticated, "Chữ ký webhook không hợp lệ.");
+    }
 }

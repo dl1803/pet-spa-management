@@ -1789,6 +1789,88 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(rateLimitAttr is not null && rateLimitAttr.PolicyName == RateLimitPolicies.Booking,
             "CreateHotel must have [EnableRateLimiting(RateLimitPolicies.Booking)].");
         return Task.CompletedTask;
+    }),
+    ("PaymentService.VerifyIpnSignature passes the parameters to the gateway and rejects an invalid signature", () =>
+    {
+        var payment = OnlinePayment(PaymentKind.Spa, 150000m);
+        var repo = new TestPaymentRepo(new PaymentWithOwner(payment, AppointmentStatus.Completed, Guid.NewGuid()));
+        var parameters = new Dictionary<string, string> { ["vnp_TxnRef"] = "ABC123def456" };
+
+        var accepting = new TestPaymentGateway { CallbackSignatureValid = true };
+        new PaymentService(repo, accepting).VerifyIpnSignature(parameters);
+        Check(accepting.VerifyCalls == 1 && ReferenceEquals(accepting.LastCallback, parameters),
+            "The parameters must reach the gateway unchanged.");
+
+        var threw = false;
+        try
+        {
+            new PaymentService(repo, new TestPaymentGateway()).VerifyIpnSignature(parameters);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.Unauthenticated)
+        {
+            threw = true;
+        }
+
+        Check(threw, "An invalid signature must be rejected with UNAUTHENTICATED.");
+        Check(repo.Added.Count == 0 && payment.Status == PaymentStatus.Unpaid && payment.Method is null && payment.PaidAt is null,
+            "A webhook must not store a transaction or change the payment.");
+        return Task.CompletedTask;
+    }),
+    ("PaymentsController.VnpayIpn is an anonymous GET endpoint at ipn/vnpay", () =>
+    {
+        var action = typeof(PaymentsController).GetMethod(nameof(PaymentsController.VnpayIpn))!;
+
+        var get = action.GetCustomAttributes(typeof(HttpGetAttribute), false).Cast<HttpGetAttribute>().Single();
+        Check(get.Template == "ipn/vnpay", "The webhook route must be ipn/vnpay under api/v1/payments.");
+        Check(action.GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AllowAnonymousAttribute), false).Length == 1,
+            "The webhook must be anonymous.");
+        Check(action.GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AuthorizeAttribute), false).Length == 0
+                && typeof(PaymentsController).GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AuthorizeAttribute), true).Length == 0,
+            "No authorization requirement may apply to the webhook.");
+        return Task.CompletedTask;
+    }),
+    ("PaymentsController.VnpayIpn passes the query to the gateway and answers a valid signature without processing", () =>
+    {
+        var payment = OnlinePayment(PaymentKind.Spa, 150000m);
+        var repo = new TestPaymentRepo(new PaymentWithOwner(payment, AppointmentStatus.Completed, Guid.NewGuid()));
+        var gateway = new TestPaymentGateway { CallbackSignatureValid = true };
+        var controller = IpnController(gateway, repo, "?vnp_TxnRef=ABC123def456&vnp_OrderInfo=Thanh+toan+lich+hen&dup=1&dup=2");
+
+        var body = (controller.VnpayIpn() as OkObjectResult)?.Value as VnpayIpnResponse;
+
+        Check(body is { RspCode: "99", Message: "Unknown error" }, "A valid signature must be answered with the unprocessed response.");
+        Check(gateway.LastCallback is { Count: 3 }
+                && gateway.LastCallback["vnp_TxnRef"] == "ABC123def456"
+                && gateway.LastCallback["vnp_OrderInfo"] == "Thanh toan lich hen"
+                && gateway.LastCallback["dup"] == "1,2",
+            "The decoded query must reach the gateway, repeated keys joined by a comma.");
+        Check(repo.Added.Count == 0 && payment.Status == PaymentStatus.Unpaid && payment.Method is null && payment.PaidAt is null,
+            "The webhook must not store a transaction or change the payment.");
+        return Task.CompletedTask;
+    }),
+    ("PaymentsController.VnpayIpn answers an invalid signature with 401 UNAUTHENTICATED and leaves the payment unpaid", async () =>
+    {
+        var payment = OnlinePayment(PaymentKind.Spa, 150000m);
+        var repo = new TestPaymentRepo(new PaymentWithOwner(payment, AppointmentStatus.Completed, Guid.NewGuid()));
+        var controller = IpnController(new TestPaymentGateway(), repo, "?vnp_TxnRef=ABC123def456&vnp_SecureHash=invalid");
+
+        var (status, body, contentType) = await RunMiddlewareAsync(_ =>
+        {
+            controller.VnpayIpn();
+            return Task.CompletedTask;
+        });
+
+        Check(status == 401 && contentType.StartsWith("application/problem+json"), "An invalid signature must be answered with 401 problem+json.");
+        using var doc = JsonDocument.Parse(body);
+        Check(doc.RootElement.GetProperty("code").GetString() == ErrorCodes.Unauthenticated, "The error code must be UNAUTHENTICATED.");
+        Check(repo.Added.Count == 0 && payment.Status == PaymentStatus.Unpaid && payment.Method is null && payment.PaidAt is null,
+            "A rejected webhook must not store a transaction or change the payment.");
+    }),
+    ("VnpayIpnResponse follows the VNPAY JSON contract", () =>
+    {
+        var json = JsonSerializer.Serialize(VnpayIpnResponse.Unprocessed, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Check(json == "{\"RspCode\":\"99\",\"Message\":\"Unknown error\"}", "The response must use the PascalCase RspCode and Message fields.");
+        return Task.CompletedTask;
     })
 };
 
@@ -1941,6 +2023,15 @@ static Dictionary<string, string> VnpayCallback(
         ["vnp_TransactionStatus"] = "00",
         ["vnp_TxnRef"] = "ABC123def456",
         ["vnp_SecureHash"] = secureHash,
+    };
+
+static PaymentsController IpnController(TestPaymentGateway gateway, TestPaymentRepo repo, string queryString) =>
+    new(new PaymentService(repo, gateway))
+    {
+        ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext { Request = { QueryString = new QueryString(queryString) } },
+        },
     };
 
 static string CreateTestJwt(string signingKey, Guid userId, string role, TimeSpan lifetime)

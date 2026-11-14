@@ -27,6 +27,20 @@ public sealed class PaymentsController(PaymentService paymentService) : Controll
         return Ok(OnlinePaymentCreated.From(result));
     }
 
+    [HttpGet("ipn/vnpay")]
+    [AllowAnonymous]
+    [EndpointSummary("Webhook VNPAY (IPN)")]
+    [EndpointDescription("Không dùng JWT, xác thực bằng chữ ký của VNPAY trên các tham số query. Chữ ký sai hoặc thiếu nhận 401 UNAUTHENTICATED, ghi log bảo mật và không cập nhật trạng thái thanh toán.")]
+    public IActionResult VnpayIpn()
+    {
+        var parameters = Request.Query.ToDictionary(
+            query => query.Key, query => query.Value.ToString(), StringComparer.Ordinal);
+
+        paymentService.VerifyIpnSignature(parameters);
+
+        return Ok(VnpayIpnResponse.Unprocessed);
+    }
+
     private string GetClientIp()
     {
         var address = HttpContext.Connection.RemoteIpAddress ?? IPAddress.Loopback;
