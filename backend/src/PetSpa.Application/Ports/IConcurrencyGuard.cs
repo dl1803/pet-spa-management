@@ -27,4 +27,6 @@ public interface IConcurrencyGuard
 
     // Xác nhận phân công nhân viên / gán chuồng (BR-04, BR-21): khóa dòng lịch hẹn (SELECT ... FOR UPDATE).
     Task LockAppointmentAsync(Guid appointmentId, CancellationToken ct = default);
+
+    Task LockPaymentAsync(Guid paymentId, CancellationToken ct = default);
 }

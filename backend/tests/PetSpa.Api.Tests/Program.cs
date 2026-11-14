@@ -1298,6 +1298,60 @@ var tests = new (string Name, Func<Task> Run)[]
         AssertThrows<ArgumentNullException>(() => gateway.VerifyCallbackSignature(null!), "Null parameters must be rejected.");
         return Task.CompletedTask;
     }),
+    ("VnpayPaymentGateway.ReadCallback maps a successful callback", () =>
+    {
+        var gateway = new VnpayPaymentGateway(ValidVnpayGatewayOptions());
+
+        var callback = gateway.ReadCallback(VnpayCallback());
+
+        Check(callback is { TxnRef: "ABC123def456", ConfirmedAmount: 150000m, Succeeded: true },
+            "TxnRef, the amount divided by 100 and a successful result must be read from the callback.");
+        return Task.CompletedTask;
+    }),
+    ("VnpayPaymentGateway.ReadCallback treats any code other than 00 as a failed result", () =>
+    {
+        var gateway = new VnpayPaymentGateway(ValidVnpayGatewayOptions());
+
+        foreach (var (key, value) in new[] { ("vnp_ResponseCode", "24"), ("vnp_TransactionStatus", "02") })
+        {
+            var parameters = VnpayCallback();
+            parameters[key] = value;
+            var callback = gateway.ReadCallback(parameters);
+            Check(callback is { Succeeded: false, TxnRef: "ABC123def456", ConfirmedAmount: 150000m },
+                $"{key}={value} must be read as a failed result.");
+        }
+
+        var odd = VnpayCallback();
+        odd["vnp_Amount"] = "15000050";
+        Check(gateway.ReadCallback(odd)?.ConfirmedAmount == 150000.50m,
+            "An amount that is not a whole number of VND must not be rounded.");
+        return Task.CompletedTask;
+    }),
+    ("VnpayPaymentGateway.ReadCallback returns null when a required parameter is missing or malformed", () =>
+    {
+        var gateway = new VnpayPaymentGateway(ValidVnpayGatewayOptions());
+
+        foreach (var key in new[] { "vnp_TxnRef", "vnp_Amount", "vnp_ResponseCode", "vnp_TransactionStatus" })
+        {
+            var parameters = VnpayCallback();
+            parameters.Remove(key);
+            Check(gateway.ReadCallback(parameters) is null, $"A callback without {key} must be unreadable.");
+        }
+
+        foreach (var invalid in new[] { "", "abc", "-100", "1.5", "15000000 ", "1e5" })
+        {
+            var parameters = VnpayCallback();
+            parameters["vnp_Amount"] = invalid;
+            Check(gateway.ReadCallback(parameters) is null, $"The amount '{invalid}' must be unreadable.");
+        }
+
+        var emptyRef = VnpayCallback();
+        emptyRef["vnp_TxnRef"] = "";
+        Check(gateway.ReadCallback(emptyRef) is null, "An empty TxnRef must be unreadable.");
+
+        AssertThrows<ArgumentNullException>(() => gateway.ReadCallback(null!), "Null parameters must be rejected.");
+        return Task.CompletedTask;
+    }),
     ("VnpayPaymentGateway verifies the signature of the payment URL it created after the query is parsed", () =>
     {
         var gateway = new VnpayPaymentGateway(ValidVnpayGatewayOptions());
@@ -2122,10 +2176,20 @@ sealed class TestScheduleRepo(
 
 sealed class TestConcurrencyGuard : IConcurrencyGuard
 {
+    public List<string> Events { get; init; } = [];
     public bool LockedDay { get; private set; }
     public (Species Species, SizeGroup SizeGroup)? LockedHotelGroup { get; private set; }
-    public Task<T> RunAsync<T>(Func<Task<T>> work, CancellationToken ct = default) => work();
-    public Task RunAsync(Func<Task> work, CancellationToken ct = default) => work();
+    public Guid? LockedPaymentId { get; private set; }
+    public Task<T> RunAsync<T>(Func<Task<T>> work, CancellationToken ct = default)
+    {
+        Events.Add("run");
+        return work();
+    }
+    public Task RunAsync(Func<Task> work, CancellationToken ct = default)
+    {
+        Events.Add("run");
+        return work();
+    }
     public Task LockSpaDayAsync(DateOnly day, CancellationToken ct = default)
     {
         LockedDay = true;
@@ -2137,6 +2201,12 @@ sealed class TestConcurrencyGuard : IConcurrencyGuard
         return Task.CompletedTask;
     }
     public Task LockAppointmentAsync(Guid appointmentId, CancellationToken ct = default) => Task.CompletedTask;
+    public Task LockPaymentAsync(Guid paymentId, CancellationToken ct = default)
+    {
+        Events.Add("lock-payment");
+        LockedPaymentId = paymentId;
+        return Task.CompletedTask;
+    }
 }
 
 sealed class TestStaffRoleReader(StaffRole? role) : IStaffRoleReader
@@ -2241,14 +2311,36 @@ sealed class TestHotelBookingRepo(int activeCages, IReadOnlyList<HeldHotelStay> 
     }
 }
 
-sealed class TestPaymentRepo(PaymentWithOwner? found) : IPaymentRepository
+sealed class TestPaymentRepo(PaymentWithOwner? found, PaymentCallbackTarget? callbackTarget = null) : IPaymentRepository
 {
     public List<PaymentTransaction> Added { get; } = [];
+    public List<string> Events { get; init; } = [];
+    public int SaveCalls { get; private set; }
     public Task<PaymentWithOwner?> FindWithOwnerAsync(Guid paymentId, CancellationToken ct = default) =>
         Task.FromResult(found is not null && found.Payment.PaymentId == paymentId ? found : null);
     public Task AddTransactionAsync(PaymentTransaction transaction, CancellationToken ct = default)
     {
         Added.Add(transaction);
+        return Task.CompletedTask;
+    }
+    public Task<Guid?> FindPaymentIdByTxnRefAsync(string txnRef, CancellationToken ct = default)
+    {
+        Events.Add("find-id");
+        return Task.FromResult(callbackTarget is not null && callbackTarget.Transaction.TxnRef == txnRef
+            ? (Guid?)callbackTarget.Payment.PaymentId
+            : null);
+    }
+    public Task<PaymentCallbackTarget?> FindCallbackTargetAsync(string txnRef, CancellationToken ct = default)
+    {
+        Events.Add("find-target");
+        return Task.FromResult(callbackTarget is not null && callbackTarget.Transaction.TxnRef == txnRef
+            ? callbackTarget
+            : null);
+    }
+    public Task SaveChangesAsync(CancellationToken ct = default)
+    {
+        Events.Add("save");
+        SaveCalls++;
         return Task.CompletedTask;
     }
 }
@@ -2261,7 +2353,9 @@ sealed class TestPaymentGateway : IPaymentGateway
     public string? LastClientIp { get; private set; }
     public Exception? Failure { get; init; }
     public bool CallbackSignatureValid { get; init; }
+    public GatewayCallback? Callback { get; init; }
     public int VerifyCalls { get; private set; }
+    public int ReadCalls { get; private set; }
     public IReadOnlyDictionary<string, string>? LastCallback { get; private set; }
     public PaymentGateway Gateway => PaymentGateway.VNPAY;
     public string CreatePaymentUrl(PaymentTransaction transaction, string clientIp)
@@ -2277,6 +2371,11 @@ sealed class TestPaymentGateway : IPaymentGateway
         VerifyCalls++;
         LastCallback = parameters;
         return CallbackSignatureValid;
+    }
+    public GatewayCallback? ReadCallback(IReadOnlyDictionary<string, string> parameters)
+    {
+        ReadCalls++;
+        return Callback;
     }
 }
 

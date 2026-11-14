@@ -52,6 +52,13 @@ public sealed class PostgresConcurrencyGuard(AppDbContext db) : IConcurrencyGuar
             $"SELECT 1 FROM \"Appointment\" WHERE \"AppointmentId\" = {appointmentId} FOR UPDATE", ct);
     }
 
+    public async Task LockPaymentAsync(Guid paymentId, CancellationToken ct = default)
+    {
+        RequireTransaction();
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM \"Payment\" WHERE \"PaymentId\" = {paymentId} FOR UPDATE", ct);
+    }
+
     private async Task LockAsync(int kind, int key, CancellationToken ct)
     {
         RequireTransaction();
