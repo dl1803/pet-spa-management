@@ -1,6 +1,6 @@
 "use client";
 
-import { skipToken, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -18,7 +18,7 @@ import {
   walkInSavedMessage,
   type WalkInFormValues,
 } from "@/features/reception-customers/forms";
-import { CUSTOMERS_QUERY_KEY, mockCreateWalkInCustomer, mockListCustomers } from "@/features/reception-customers/mock-api";
+import { invalidateCustomers, useCreateWalkInCustomer, useCustomerSearch } from "@/lib/queries/customers";
 import type { Customer } from "@/lib/api/types";
 import { formatPhone } from "@/lib/format";
 import { ROUTES, withQuery } from "@/lib/routes";
@@ -72,7 +72,7 @@ export function WalkInDuplicatePanel({
   );
 }
 
-// SW-04 vùng 4: ghi nhận khách vãng lai. Lưu xong đặt khách làm khách đang phục vụ rồi sang SW-05 để tạo hồ sơ thú cưng.
+// Ghi nhận khách vãng lai: lưu xong đặt khách làm khách đang phục vụ rồi chuyển sang tạo hồ sơ thú cưng.
 export function WalkInSection({ initialPhone }: { initialPhone: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -96,14 +96,11 @@ export function WalkInSection({ initialPhone }: { initialPhone: string }) {
   // Sửa số điện thoại khác số bị từ chối thì mở lại nút lưu.
   const isDuplicate = duplicatePhone !== null && normalizePhone(phone) === duplicatePhone;
 
-  const refreshCustomers = () => queryClient.invalidateQueries({ queryKey: CUSTOMERS_QUERY_KEY, refetchType: "all" });
-  const createWalkIn = useMutation({ mutationFn: mockCreateWalkInCustomer, onSuccess: refreshCustomers });
-  const duplicateSearch = useQuery({
-    queryKey: [...CUSTOMERS_QUERY_KEY, "search", duplicatePhone],
-    queryFn: duplicatePhone === null ? skipToken : () => mockListCustomers(duplicatePhone),
-  });
+  const refreshCustomers = () => invalidateCustomers(queryClient);
+  const createWalkIn = useCreateWalkInCustomer();
+  const duplicateSearch = useCustomerSearch(duplicatePhone);
   const duplicateCustomer = isDuplicate
-    ? duplicateSearch.data?.find((customer) => customer.phone === duplicatePhone)
+    ? duplicateSearch.data?.items.find((customer) => normalizePhone(customer.phone) === duplicatePhone)
     : undefined;
 
   function clearSubmitError() {

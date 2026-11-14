@@ -1,6 +1,5 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useMemo } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -19,8 +18,8 @@ import {
   toPetRequest,
   type PetFormValues,
 } from "@/features/reception-customers/forms";
-import { mockCreatePet, mockUpdatePet, PETS_QUERY_KEY } from "@/features/reception-customers/mock-api";
 import type { Pet, Species } from "@/lib/api/types";
+import { useCreatePet, useUpdatePet } from "@/lib/queries/pets";
 import { ROUTES, withQuery } from "@/lib/routes";
 import type { ServingCustomer } from "@/lib/serving-customer";
 import { estimateSize } from "@/lib/size-estimate";
@@ -32,10 +31,9 @@ type PetProfileFormProps = {
   cancelHref?: string;
 };
 
-// SW-05: form tạo/sửa hồ sơ thú cưng thay khách và thẻ nhóm kích cỡ dự kiến.
+// Form tạo/sửa hồ sơ thú cưng thay khách và thẻ nhóm kích cỡ dự kiến.
 export function PetProfileForm({ customer, pet, cancelHref = ROUTES.customers }: PetProfileFormProps) {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const { showSuccess } = useToast();
   const isEditing = pet !== undefined;
   const initialValues = useMemo(() => (pet ? toPetFormValues(pet) : PET_FORM_DEFAULT_VALUES), [pet]);
@@ -64,10 +62,8 @@ export function PetProfileForm({ customer, pet, cancelHref = ROUTES.customers }:
     heightCm: isDog(species) ? parseDecimal(height) : null,
   });
 
-  // Đợi làm mới cả các query đang ẩn (danh sách ở /khach-hang và chi tiết) trước khi chuyển trang.
-  const refreshPets = () => queryClient.invalidateQueries({ queryKey: PETS_QUERY_KEY, refetchType: "all" });
-  const createPet = useMutation({ mutationFn: mockCreatePet, onSuccess: refreshPets });
-  const updatePet = useMutation({ mutationFn: mockUpdatePet, onSuccess: refreshPets });
+  const createPet = useCreatePet();
+  const updatePet = useUpdatePet();
   const isPending = createPet.isPending || updatePet.isPending;
 
   function handleSpeciesChange(next: Species) {
@@ -99,7 +95,11 @@ export function PetProfileForm({ customer, pet, cancelHref = ROUTES.customers }:
     createPet.mutate(request, {
       onSuccess: (created) => {
         showSuccess(PET_SAVED_MESSAGE);
-        router.push(withQuery(ROUTES.booking, { customerId: customer.customerId, petId: created.petId }));
+        if (created.petId) {
+          router.push(withQuery(ROUTES.booking, { customerId: customer.customerId, petId: created.petId }));
+        } else {
+          router.push(withQuery(ROUTES.customers, { search: customer.phone }));
+        }
       },
     });
   }

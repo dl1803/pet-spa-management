@@ -1,8 +1,7 @@
 "use client";
 
-// SW-05 Hồ sơ thú cưng của lễ tân – UI-Screens.md. Một màn cho hai đường dẫn: .../thu-cung/them (tạo) và .../thu-cung/[petId] (sửa).
+// Màn Hồ sơ thú cưng của lễ tân: một màn cho hai đường dẫn: .../thu-cung/them (tạo) và .../thu-cung/[petId] (sửa).
 
-import { skipToken, useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { ErrorAlert } from "@/components/feedback/error-alert";
@@ -15,9 +14,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CustomerBreadcrumb } from "@/features/reception-customers/components/customer-breadcrumb";
 import { PetProfileForm } from "@/features/reception-customers/components/pet-profile-form";
 import { ServingCustomerStrip } from "@/features/reception-customers/components/serving-customer-strip";
-import { isNotFoundError } from "@/features/reception-customers/forms";
-import { mockGetPet, PETS_QUERY_KEY } from "@/features/reception-customers/mock-api";
+import { isNotFoundError, isPetEditableFor } from "@/features/reception-customers/forms";
 import { isForbiddenError } from "@/lib/api/errors";
+import { usePet } from "@/lib/queries/pets";
 import { ROUTES, withQuery } from "@/lib/routes";
 import { useServingCustomer, type ServingCustomer } from "@/lib/serving-customer";
 
@@ -106,25 +105,19 @@ export function PetProfileScreen() {
   const isEditing = editingPetId !== null;
   // Chỉ tải chi tiết thú cưng sau khi đã xác nhận đúng khách đang phục vụ trên URL.
   const targetPetId = isReady && customer !== null && customer.customerId === customerId ? editingPetId : null;
-  const {
-    data: pet,
-    error,
-    isFetching,
-    refetch,
-  } = useQuery({
-    queryKey: [...PETS_QUERY_KEY, "detail", targetPetId],
-    queryFn: targetPetId === null ? skipToken : () => mockGetPet(targetPetId),
-  });
+  const { data: pet, error, isFetching, refetch } = usePet(targetPetId);
 
   // Chưa biết có khách đang phục vụ hay không (máy chủ/hydrate): chưa báo gì để khỏi nhấp nháy.
   if (!isReady) return null;
 
-  // Không có khách đang phục vụ, hoặc đường dẫn thuộc khách khác: quay lại tìm khách (UI-Screens G-14).
+  // Không có khách đang phục vụ, hoặc đường dẫn thuộc khách khác: quay lại tìm khách.
   if (customer === null || customer.customerId !== customerId) {
     return <PetProfileBlockedState isEditing={isEditing} servingCustomer={customer} />;
   }
 
   const backToCustomerHref = withQuery(ROUTES.customers, { search: customer.phone });
+  // Hồ sơ đã gỡ hoặc của khách khác không được hiện tên ở tiêu đề hay breadcrumb.
+  const editablePet = pet !== undefined && isPetEditableFor(pet, customer.customerId) ? pet : undefined;
 
   let content: ReactNode;
   if (!isEditing) {
@@ -138,21 +131,23 @@ export function PetProfileScreen() {
         onRetry={() => void refetch()}
       />
     );
-  } else if (pet.customerId !== customer.customerId) {
+  } else if (editablePet === undefined) {
     content = <PetNotFoundState backHref={backToCustomerHref} />;
   } else {
-    content = <PetProfileForm key={pet.petId} customer={customer} pet={pet} cancelHref={backToCustomerHref} />;
+    content = (
+      <PetProfileForm key={editablePet.petId} customer={customer} pet={editablePet} cancelHref={backToCustomerHref} />
+    );
   }
 
   return (
     <>
       <CustomerBreadcrumb
         customerName={customer.fullName}
-        current={isEditing ? (pet?.name ?? "Sửa hồ sơ") : "Thêm thú cưng"}
+        current={isEditing ? (editablePet?.name ?? "Sửa hồ sơ") : "Thêm thú cưng"}
         customersHref={backToCustomerHref}
       />
       <PageHeader
-        title={isEditing ? (pet ? `Sửa hồ sơ ${pet.name}` : "Sửa hồ sơ thú cưng") : "Tạo hồ sơ thú cưng"}
+        title={isEditing ? (editablePet ? `Sửa hồ sơ ${editablePet.name}` : "Sửa hồ sơ thú cưng") : "Tạo hồ sơ thú cưng"}
         description={SCREEN_DESCRIPTION}
       />
       <ServingCustomerStrip customer={customer} />

@@ -19,6 +19,13 @@ export type Pet = {
   isActive: boolean;
 };
 
+export type PetPage = {
+  items: Pet[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
 export type AppointmentType = "Spa" | "Hotel";
 export type AppointmentStatus =
   | "Pending"
@@ -131,6 +138,13 @@ export type Customer = {
   phone: string;
   email?: string | null;
   isBookingLocked: boolean;
+};
+
+export type CustomerPage = {
+  items: Customer[];
+  page: number;
+  pageSize: number;
+  total: number;
 };
 
 export type HotelBookingRequest = {

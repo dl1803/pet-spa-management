@@ -20,9 +20,11 @@ import {
 } from "../features/reception-customers/screens/pet-profile-screen.tsx";
 import {
   describePet,
+  describeTruncatedCustomers,
   getInitials,
   isDuplicateContactError,
   isNotFoundError,
+  isPetEditableFor,
   parseDecimal,
   PET_FORM_DEFAULT_VALUES,
   toPetFormValues,
@@ -43,16 +45,7 @@ import {
   MOCK_CUSTOMER_IDS,
 } from "../features/reception-customers/mock-data.ts";
 import {
-  mockCreatePet,
-  mockCreateWalkInCustomer,
-  mockGetPet,
-  mockListCustomers,
-  mockListPets,
   mockListRecentAppointments,
-  mockUpdatePet,
-  MOCK_NETWORK_ERROR_PHONE,
-  MOCK_WEIGHT_INVALID_REQUEST,
-  MOCK_WEIGHT_NETWORK_ERROR,
   resetMockCustomerStore,
 } from "../features/reception-customers/mock-api.ts";
 import { ApiError } from "../lib/api/errors.ts";
@@ -127,6 +120,22 @@ test("hàm phụ: chữ cái đầu, mô tả thú cưng, nhận diện lỗi", 
   assert.equal(isNotFoundError(new Error("x")), false);
 });
 
+test("thông báo cắt kết quả tìm khách: chỉ hiện khi còn khách chưa hiển thị", () => {
+  assert.equal(describeTruncatedCustomers(1, 1), null);
+  assert.equal(describeTruncatedCustomers(20, 20), null);
+  assert.equal(
+    describeTruncatedCustomers(37, 20),
+    "Có 37 khách khớp, đang hiển thị 20 khách đầu tiên theo họ tên. Nhập thêm chữ số để thu hẹp kết quả.",
+  );
+});
+
+test("hồ sơ chỉ sửa được khi còn hoạt động và thuộc đúng khách đang phục vụ", () => {
+  const pet = createMockPets()[0];
+  assert.equal(isPetEditableFor(pet, pet.customerId), true);
+  assert.equal(isPetEditableFor(pet, "khach-khac"), false);
+  assert.equal(isPetEditableFor({ ...pet, isActive: false }, pet.customerId), false);
+});
+
 test("form thú cưng: số thập phân dấu phẩy, chiều cao chỉ bắt buộc với chó", () => {
   assert.equal(parseDecimal("9,5"), 9.5);
   assert.equal(parseDecimal("abc"), null);
@@ -174,53 +183,6 @@ test("dữ liệu mô phỏng: nhóm kích cỡ khớp bảng mốc, mã thú c�
     assert.equal(getSizeGroup({ species: pet.species, weightKg: pet.weightKg, heightCm: pet.heightCm ?? null }), pet.sizeGroup, pet.name);
   }
   assert.equal(createMockCustomers().filter((customer) => customer.isBookingLocked).length, 1);
-});
-
-test("mock tìm khách: khớp một phần, bỏ dấu cách, không có thì rỗng, số đặc biệt báo mất mạng", async () => {
-  resetMockCustomerStore();
-  assert.deepEqual((await mockListCustomers("0962 345")).map((customer) => customer.fullName), ["Ngô Thanh Bình"]);
-  assert.equal((await mockListCustomers("0988123456")).length, 0);
-  assert.equal((await mockListCustomers("09")).length, 4);
-  await assert.rejects(() => mockListCustomers(MOCK_NETWORK_ERROR_PHONE), (error) => error.kind === "network");
-});
-
-test("mock ghi nhận khách vãng lai: tạo được, tìm lại được, trùng số thì 409 DUPLICATE_CONTACT", async () => {
-  resetMockCustomerStore();
-  const { customerId } = await mockCreateWalkInCustomer({ fullName: " Phạm An ", phone: "0988 123 456" });
-  assert.equal(customerId, "c2000000-0000-4000-8000-000000000005");
-  const [found] = await mockListCustomers("0988123456");
-  assert.equal(found.fullName, "Phạm An");
-  assert.equal(found.isBookingLocked, false);
-  await assert.rejects(
-    () => mockCreateWalkInCustomer({ fullName: "Khác", phone: "0988123456" }),
-    (error) => isDuplicateContactError(error),
-  );
-  await assert.rejects(() => mockCreateWalkInCustomer({ fullName: "X", phone: MOCK_NETWORK_ERROR_PHONE }), (error) => error.kind === "network");
-});
-
-test("mock hồ sơ thú cưng: tạo trả nhóm kích cỡ, liệt kê theo khách, sửa tính lại nhóm, 404 khi không có", async () => {
-  resetMockCustomerStore();
-  assert.equal((await mockListPets(MOCK_CUSTOMER_IDS.binh)).length, 3);
-  assert.equal((await mockListPets(MOCK_CUSTOMER_IDS.linh)).length, 0);
-
-  const request = toPetRequest({ ...DOG_VALUES, weight: "26", height: "40" }, MOCK_CUSTOMER_IDS.linh);
-  const created = await mockCreatePet(request);
-  assert.equal(created.sizeGroup, "Large");
-  assert.equal(created.petId, "b2000000-0000-4000-8000-000000000006");
-  assert.equal((await mockListPets(MOCK_CUSTOMER_IDS.linh)).length, 1);
-
-  const pet = await mockGetPet(created.petId);
-  assert.equal(pet.name, "Bắp");
-  assert.equal(pet.customerId, MOCK_CUSTOMER_IDS.linh);
-
-  const updated = await mockUpdatePet({ petId: created.petId, request: toPetRequest({ ...DOG_VALUES, weight: "8", height: "30" }) });
-  assert.equal(updated.sizeGroup, "Small");
-  assert.equal((await mockGetPet(created.petId)).sizeGroup, "Small");
-
-  await assert.rejects(() => mockGetPet("khong-co"), (error) => isNotFoundError(error));
-  await assert.rejects(() => mockCreatePet({ ...request, customerId: undefined }), (error) => error.status === 400);
-  await assert.rejects(() => mockCreatePet({ ...request, weightKg: MOCK_WEIGHT_INVALID_REQUEST }), (error) => error.status === 400);
-  await assert.rejects(() => mockCreatePet({ ...request, weightKg: MOCK_WEIGHT_NETWORK_ERROR }), (error) => error.kind === "network");
 });
 
 test("khách đang phục vụ: lưu và đọc lại đúng, bỏ trường thừa, dữ liệu hỏng thì null", () => {

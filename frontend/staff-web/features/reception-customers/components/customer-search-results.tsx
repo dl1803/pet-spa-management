@@ -1,37 +1,25 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { Alert } from "@/components/feedback/alert";
 import { ErrorAlert } from "@/components/feedback/error-alert";
+import { ForbiddenState } from "@/components/feedback/forbidden-state";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CustomerCard } from "@/features/reception-customers/components/customer-card";
 import { CustomerPetList } from "@/features/reception-customers/components/customer-pet-list";
-import { RecentAppointmentsList } from "@/features/reception-customers/components/recent-appointments-list";
 import { WalkInSection } from "@/features/reception-customers/components/walk-in-section";
-import {
-  CUSTOMERS_QUERY_KEY,
-  PETS_QUERY_KEY,
-  RECENT_APPOINTMENTS_QUERY_KEY,
-  mockListCustomers,
-  mockListPets,
-  mockListRecentAppointments,
-} from "@/features/reception-customers/mock-api";
+import { describeTruncatedCustomers } from "@/features/reception-customers/forms";
+import { isForbiddenError } from "@/lib/api/errors";
 import type { Customer } from "@/lib/api/types";
 import { formatPhone } from "@/lib/format";
+import { useCustomerSearch } from "@/lib/queries/customers";
+import { usePets } from "@/lib/queries/pets";
 import { useServingCustomer } from "@/lib/serving-customer";
 
 function CustomerWithPets({ customer }: { customer: Customer }) {
   const { setCustomer } = useServingCustomer();
-  const pets = useQuery({
-    queryKey: [...PETS_QUERY_KEY, "list", customer.customerId],
-    queryFn: () => mockListPets(customer.customerId),
-  });
-  const recentAppointments = useQuery({
-    queryKey: [...RECENT_APPOINTMENTS_QUERY_KEY, customer.customerId],
-    queryFn: () => mockListRecentAppointments(customer.customerId),
-  });
+  const pets = usePets(customer.customerId);
   const handleSelect = () => setCustomer(customer);
 
   return (
@@ -46,39 +34,15 @@ function CustomerWithPets({ customer }: { customer: Customer }) {
           </Button>
         </div>
       ) : (
-        <CustomerPetList customerId={customer.customerId} pets={pets.data} onSelect={handleSelect} />
-      )}
-
-      {recentAppointments.isPending ? (
-        <div className="mt-5">
-          <Skeleton className="h-20 w-full" />
-        </div>
-      ) : recentAppointments.error ? (
-        <div className="mt-5 flex flex-col items-start gap-3">
-          <ErrorAlert error={recentAppointments.error} />
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => void recentAppointments.refetch()}
-            loading={recentAppointments.isFetching}
-            loadingText="Đang tải…"
-          >
-            Thử lại
-          </Button>
-        </div>
-      ) : (
-        <RecentAppointmentsList customerId={customer.customerId} appointments={recentAppointments.data} />
+        <CustomerPetList customerId={customer.customerId} pets={pets.data.items} onSelect={handleSelect} />
       )}
     </CustomerCard>
   );
 }
 
-// SW-04 vùng 2–4: kết quả tìm. Có khách thì hiện thẻ khách; không có thì báo và mở form khách vãng lai.
+// Kết quả tìm kiếm: có khách thì hiện thẻ khách; không có thì báo và mở form khách vãng lai.
 export function CustomerSearchResults({ search }: { search: string }) {
-  const { data, error, isPending, isFetching, refetch } = useQuery({
-    queryKey: [...CUSTOMERS_QUERY_KEY, "search", search],
-    queryFn: () => mockListCustomers(search),
-  });
+  const { data, error, isPending, isFetching, refetch } = useCustomerSearch(search);
 
   if (isPending) {
     return (
@@ -95,6 +59,13 @@ export function CustomerSearchResults({ search }: { search: string }) {
   }
 
   if (error) {
+    if (isForbiddenError(error)) {
+      return (
+        <div className="mt-4">
+          <ForbiddenState />
+        </div>
+      );
+    }
     return (
       <div className="mt-4 flex flex-col items-start gap-3">
         <ErrorAlert error={error} />
@@ -105,7 +76,7 @@ export function CustomerSearchResults({ search }: { search: string }) {
     );
   }
 
-  if (data.length === 0) {
+  if (data.items.length === 0) {
     return (
       <div className="mt-4 flex flex-col gap-4">
         <Alert tone="neutral" icon="search">
@@ -117,14 +88,22 @@ export function CustomerSearchResults({ search }: { search: string }) {
     );
   }
 
+  const truncatedNote = describeTruncatedCustomers(data.total, data.items.length);
+
   return (
-    <ul className="mt-4 flex flex-col gap-4">
-      {data.map((customer) => (
-        <li key={customer.customerId}>
-          <CustomerWithPets customer={customer} />
-        </li>
-      ))}
-    </ul>
+    <div className="mt-4 flex flex-col gap-4">
+      {truncatedNote !== null && (
+        <Alert tone="neutral" icon="info">
+          {truncatedNote}
+        </Alert>
+      )}
+      <ul className="flex flex-col gap-4">
+        {data.items.map((customer) => (
+          <li key={customer.customerId}>
+            <CustomerWithPets customer={customer} />
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
-
