@@ -1090,7 +1090,8 @@ var tests = new (string Name, Func<Task> Run)[]
             new TestStaffRoleReader(null),
             repo,
             new TestHotelCatalogRepo(),
-            new ShopTimeZone(TimeZoneInfo.Utc));
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            new TestConcurrencyGuard());
         var user = new CurrentUser(ownerUserId, UserRole.Customer);
 
         var fullOnNov11 = await service.HasCapacityAsync(
@@ -1119,7 +1120,8 @@ var tests = new (string Name, Func<Task> Run)[]
             new TestStaffRoleReader(staffRole),
             new TestHotelBookingRepo(1, []),
             new TestHotelCatalogRepo(),
-            new ShopTimeZone(TimeZoneInfo.Utc));
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            new TestConcurrencyGuard());
 
         async Task<string?> CodeOfAsync(Func<Task> action)
         {
@@ -1478,7 +1480,8 @@ var tests = new (string Name, Func<Task> Run)[]
             new TestStaffRoleReader(null),
             new TestHotelBookingRepo(activeCages, []),
             catalog,
-            new ShopTimeZone(TimeZoneInfo.Utc));
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            new TestConcurrencyGuard());
 
         var open = await ServiceFor(1).GetAvailabilityAsync(user, pet.PetId, checkIn, checkOut);
         var full = await ServiceFor(0).GetAvailabilityAsync(user, pet.PetId, checkIn, checkOut);
@@ -1529,16 +1532,19 @@ var tests = new (string Name, Func<Task> Run)[]
             Prices = [new HotelPricing { Species = Species.Cat, SizeGroup = SizeGroup.Small, PricePerNight = 100000m, FoodPerNight = 20000m }],
         };
         var repo = new TestHotelBookingRepo(1, []);
+        var guard = new TestConcurrencyGuard();
 
         HotelBookingService ServiceFor(StaffRole? staffRole) => new(
             new TestPetRepo(pet, ownerUserId),
             new TestStaffRoleReader(staffRole),
             repo,
             catalog,
-            new ShopTimeZone(TimeZoneInfo.Utc));
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            guard);
 
-        var checkIn = new DateTimeOffset(2026, 11, 10, 21, 0, 0, TimeSpan.FromHours(7));
-        var checkOut = new DateTimeOffset(2026, 11, 12, 19, 0, 0, TimeSpan.FromHours(7));
+        var futureDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2));
+        var checkIn = new DateTimeOffset(futureDate.ToDateTime(new TimeOnly(14, 0)), TimeSpan.Zero);
+        var checkOut = checkIn.AddDays(2);
 
         var byOwner = await ServiceFor(null).CreateHotelAppointmentAsync(
             new CurrentUser(ownerUserId, UserRole.Customer), null, pet.PetId, checkIn, checkOut);
@@ -1546,6 +1552,8 @@ var tests = new (string Name, Func<Task> Run)[]
             new CurrentUser(Guid.NewGuid(), UserRole.Staff), customerId, pet.PetId, checkIn, checkOut);
 
         Check(repo.AddedAppointments.Count == 2, "Each successful request must save one stay.");
+        Check(guard.LockedHotelGroup == (Species.Cat, SizeGroup.Small),
+            "CreateHotelAppointmentAsync must acquire advisory lock for the pet's species and size group.");
 
         var created = byOwner.Appointment;
         Check(created.Status == AppointmentStatus.Pending, "A new stay must be Pending.");
@@ -1577,7 +1585,8 @@ var tests = new (string Name, Func<Task> Run)[]
             new TestStaffRoleReader(staffRole),
             repository,
             catalog,
-            new ShopTimeZone(TimeZoneInfo.Utc));
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            new TestConcurrencyGuard());
 
         async Task<string?> CodeOfAsync(Func<Task> action)
         {
@@ -1594,8 +1603,9 @@ var tests = new (string Name, Func<Task> Run)[]
 
         var owner = new CurrentUser(ownerUserId, UserRole.Customer);
         var receptionist = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
-        var checkIn = new DateTimeOffset(2026, 11, 10, 14, 0, 0, TimeSpan.Zero);
-        var checkOut = new DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero);
+        var futureDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2));
+        var checkIn = new DateTimeOffset(futureDate.ToDateTime(new TimeOnly(14, 0)), TimeSpan.Zero);
+        var checkOut = checkIn.AddDays(2);
 
         var otherCustomer = await CodeOfAsync(() => ServiceFor(pet, null, openRepo).CreateHotelAppointmentAsync(
             new CurrentUser(Guid.NewGuid(), UserRole.Customer), null, pet.PetId, checkIn, checkOut));
@@ -1613,8 +1623,16 @@ var tests = new (string Name, Func<Task> Run)[]
             owner, null, inactivePet.PetId, checkIn, checkOut));
         var sameDay = await CodeOfAsync(() => ServiceFor(pet, null, openRepo).CreateHotelAppointmentAsync(
             owner, null, pet.PetId, checkIn, checkIn.AddHours(6)));
+        var pastCheckIn = await CodeOfAsync(() => ServiceFor(pet, null, openRepo).CreateHotelAppointmentAsync(
+            owner, null, pet.PetId, DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1)));
         var noCapacity = await CodeOfAsync(() => ServiceFor(pet, null, fullRepo).CreateHotelAppointmentAsync(
             owner, null, pet.PetId, checkIn, checkOut));
+
+        var lockedRepo = new TestHotelBookingRepo(1, []) { IsLocked = true };
+        var lockedCustomer = await CodeOfAsync(() => ServiceFor(pet, null, lockedRepo).CreateHotelAppointmentAsync(
+            owner, null, pet.PetId, checkIn, checkOut));
+        var receptionistForLocked = await ServiceFor(pet, StaffRole.Receptionist, lockedRepo).CreateHotelAppointmentAsync(
+            receptionist, customerId, pet.PetId, checkIn, checkOut);
 
         Check(otherCustomer == ErrorCodes.Forbidden, "A customer must not book for another customer's pet.");
         Check(spaStaff == ErrorCodes.Forbidden, "Spa staff must be rejected with Forbidden.");
@@ -1624,9 +1642,13 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(unknownPet == ErrorCodes.NotFound, "An unknown pet must be rejected with NotFound.");
         Check(inactive == ErrorCodes.NotFound, "An inactive pet must be rejected with NotFound.");
         Check(sameDay == ErrorCodes.ValidationError, "A check-out on the check-in date must be rejected with ValidationError.");
+        Check(pastCheckIn == ErrorCodes.ValidationError, "A check-in in the past must be rejected with ValidationError.");
         Check(noCapacity == ErrorCodes.NoCapacity, "No free cage must be rejected with NoCapacity.");
-        Check(openRepo.AddedAppointments.Count == 0 && fullRepo.AddedAppointments.Count == 0,
-            "A rejected request must not save any stay.");
+        Check(lockedCustomer == ErrorCodes.BookingLocked, "A locked customer must be rejected with BookingLocked.");
+        Check(receptionistForLocked.Appointment.Status == AppointmentStatus.Pending,
+            "A receptionist can book for a customer even when customer is booking locked.");
+        Check(openRepo.AddedAppointments.Count == 0 && fullRepo.AddedAppointments.Count == 0 && lockedRepo.AddedAppointments.Count == 1,
+            "Rejected requests must not save any stay.");
     }),
     ("HotelBookingRequestValidator requires petId, plannedCheckIn and plannedCheckOut", () =>
     {
@@ -1651,6 +1673,11 @@ var tests = new (string Name, Func<Task> Run)[]
             && missingDates.Errors.Any(e => e.PropertyName == "PlannedCheckOut"),
             "Missing check-in and check-out must fail validation.");
 
+        var pastCheckIn = validator.Validate(new HotelBookingRequest(
+            Guid.NewGuid(), DateTimeOffset.UtcNow.AddDays(-1), checkOut, null));
+        Check(!pastCheckIn.IsValid && pastCheckIn.Errors.Any(e => e.PropertyName == "PlannedCheckIn"),
+            "Past plannedCheckIn must fail validation.");
+
         return Task.CompletedTask;
     }),
     ("AppointmentsController.CreateHotel rejects null request with ValidationError", async () =>
@@ -1667,6 +1694,16 @@ var tests = new (string Name, Func<Task> Run)[]
         }
 
         Check(threw, "Controller must throw BusinessException(ValidationError) when request is null.");
+    }),
+    ("AppointmentsController.CreateHotel has RateLimitPolicies.Booking attribute", () =>
+    {
+        var method = typeof(AppointmentsController).GetMethod(nameof(AppointmentsController.CreateHotel));
+        var rateLimitAttr = method?.GetCustomAttributes(typeof(EnableRateLimitingAttribute), true)
+            .OfType<EnableRateLimitingAttribute>()
+            .FirstOrDefault();
+        Check(rateLimitAttr is not null && rateLimitAttr.PolicyName == RateLimitPolicies.Booking,
+            "CreateHotel must have [EnableRateLimiting(RateLimitPolicies.Booking)].");
+        return Task.CompletedTask;
     })
 };
 
@@ -1901,6 +1938,7 @@ sealed class TestScheduleRepo(
 sealed class TestConcurrencyGuard : IConcurrencyGuard
 {
     public bool LockedDay { get; private set; }
+    public (Species Species, SizeGroup SizeGroup)? LockedHotelGroup { get; private set; }
     public Task<T> RunAsync<T>(Func<Task<T>> work, CancellationToken ct = default) => work();
     public Task RunAsync(Func<Task> work, CancellationToken ct = default) => work();
     public Task LockSpaDayAsync(DateOnly day, CancellationToken ct = default)
@@ -1908,7 +1946,11 @@ sealed class TestConcurrencyGuard : IConcurrencyGuard
         LockedDay = true;
         return Task.CompletedTask;
     }
-    public Task LockHotelGroupAsync(Species species, SizeGroup sizeGroup, CancellationToken ct = default) => Task.CompletedTask;
+    public Task LockHotelGroupAsync(Species species, SizeGroup sizeGroup, CancellationToken ct = default)
+    {
+        LockedHotelGroup = (species, sizeGroup);
+        return Task.CompletedTask;
+    }
     public Task LockAppointmentAsync(Guid appointmentId, CancellationToken ct = default) => Task.CompletedTask;
 }
 
@@ -2002,6 +2044,10 @@ sealed class TestHotelBookingRepo(int activeCages, IReadOnlyList<HeldHotelStay> 
         Task.FromResult(held);
 
     public List<HotelAppointment> AddedAppointments { get; } = [];
+    public bool IsLocked { get; set; }
+
+    public Task<bool> IsBookingLockedAsync(Guid customerId, CancellationToken ct = default) =>
+        Task.FromResult(IsLocked);
 
     public Task AddHotelAppointmentAsync(HotelAppointment appointment, CancellationToken ct = default)
     {

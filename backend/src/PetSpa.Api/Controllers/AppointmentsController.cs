@@ -41,6 +41,7 @@ public sealed class AppointmentsController(
 
     [HttpPost("hotel")]
     [Authorize(Policy = AuthorizationPolicies.CustomerOrReceptionist)]
+    [EnableRateLimiting(RateLimitPolicies.Booking)]
     [EndpointSummary("Tạo lịch hẹn lưu trú Chờ xác nhận")]
     [EndpointDescription("Khách hàng tự đặt cho thú cưng của mình; lễ tân đặt thay và bắt buộc kèm customerId khớp chủ thú cưng. Không nhận chuồng, tiền, nhóm kích cỡ, trạng thái. Trả nights và estimatedAmount do hệ thống tính. Hết chuồng phù hợp trong khoảng đặt nhận 409 NO_CAPACITY. Ngày trả không sau ngày nhận hoặc customerId không khớp nhận 400 VALIDATION_ERROR. Lịch lưu trú không kèm dịch vụ spa.")]
     public async Task<IActionResult> CreateHotel([FromBody] HotelBookingRequest? request, CancellationToken ct)

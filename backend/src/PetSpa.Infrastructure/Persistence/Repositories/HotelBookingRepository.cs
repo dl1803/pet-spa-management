@@ -46,6 +46,12 @@ public sealed class HotelBookingRepository(AppDbContext db) : IHotelBookingRepos
         return await query.ToListAsync(ct);
     }
 
+    public Task<bool> IsBookingLockedAsync(Guid customerId, CancellationToken ct = default) =>
+        db.Set<Customer>().AsNoTracking()
+            .Where(c => c.CustomerId == customerId)
+            .Select(c => c.IsBookingLocked)
+            .FirstOrDefaultAsync(ct);
+
     public async Task AddHotelAppointmentAsync(HotelAppointment appointment, CancellationToken ct = default)
     {
         db.Set<HotelAppointment>().Add(appointment);

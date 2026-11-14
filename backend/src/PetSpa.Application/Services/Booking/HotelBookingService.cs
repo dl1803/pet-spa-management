@@ -17,7 +17,8 @@ public sealed class HotelBookingService(
     IStaffRoleReader staffRoles,
     IHotelBookingRepository hotelBookings,
     IHotelCatalogRepository hotelCatalog,
-    ShopTimeZone shopTimeZone)
+    ShopTimeZone shopTimeZone,
+    IConcurrencyGuard concurrency)
 {
     private sealed record StayQuote(int Nights, decimal Amount);
 
@@ -77,12 +78,25 @@ public sealed class HotelBookingService(
             if (customerId != pet.CustomerId)
                 throw new BusinessException(ErrorCodes.ValidationError, "Thú cưng không thuộc khách hàng này.");
         }
+        else if (await hotelBookings.IsBookingLockedAsync(pet.CustomerId, ct))
+        {
+            throw new BusinessException(ErrorCodes.BookingLocked);
+        }
 
         var checkIn = plannedCheckIn.ToUniversalTime();
         var checkOut = plannedCheckOut.ToUniversalTime();
 
-        if (!await HasCapacityForGroupAsync(pet.Species, pet.SizeGroup, checkIn, checkOut, ct))
-            throw new BusinessException(ErrorCodes.NoCapacity);
+        var (checkInDate, _) = shopTimeZone.ToLocal(checkIn);
+        var (today, _) = shopTimeZone.ToLocal(DateTimeOffset.UtcNow);
+
+        if (checkIn <= DateTimeOffset.UtcNow || checkInDate < today)
+            throw new BusinessException(
+                ErrorCodes.ValidationError, "Không thể đặt lịch ở thời điểm trong quá khứ.");
+
+        var (checkOutDate, _) = shopTimeZone.ToLocal(checkOut);
+        if (checkOutDate <= checkInDate)
+            throw new BusinessException(
+                ErrorCodes.ValidationError, "Ngày trả phòng phải sau ngày nhận phòng ít nhất 1 đêm.");
 
         var quote = await QuoteStayAsync(pet, checkIn, checkOut, ct);
 
@@ -96,7 +110,18 @@ public sealed class HotelBookingService(
             PlannedCheckOut = checkOut,
         };
 
-        await hotelBookings.AddHotelAppointmentAsync(appointment, ct);
+        await concurrency.RunAsync(async () =>
+        {
+            await concurrency.LockHotelGroupAsync(pet.Species, pet.SizeGroup, ct);
+
+            if (isCustomer && await hotelBookings.IsBookingLockedAsync(pet.CustomerId, ct))
+                throw new BusinessException(ErrorCodes.BookingLocked);
+
+            if (!await HasCapacityForGroupAsync(pet.Species, pet.SizeGroup, checkIn, checkOut, ct))
+                throw new BusinessException(ErrorCodes.NoCapacity);
+
+            await hotelBookings.AddHotelAppointmentAsync(appointment, ct);
+        }, ct);
 
         return new HotelBookingResult(appointment, quote.Nights, quote.Amount);
     }
@@ -145,6 +170,10 @@ public sealed class HotelBookingService(
     {
         var checkInDate = shopTimeZone.ToLocal(checkIn).Date;
         var checkOutDate = shopTimeZone.ToLocal(checkOut).Date;
+
+        if (checkOutDate <= checkInDate)
+            throw new BusinessException(
+                ErrorCodes.ValidationError, "Ngày trả phòng phải sau ngày nhận phòng ít nhất 1 đêm.");
 
         var pricing = await hotelCatalog.ListPricingAsync(ct);
         var amount = PricingService.StayAmount(pet.Species, pet.SizeGroup, checkInDate, checkOutDate, pricing);
