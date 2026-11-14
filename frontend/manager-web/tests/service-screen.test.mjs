@@ -51,7 +51,7 @@ test("hộp thoại ngừng dịch vụ: tiêu đề, hậu quả, nút Quay l�
 
 // Dựng màn với bộ đệm Query có sẵn dữ liệu hoặc lỗi; render phía server không gọi API.
 // retryOnMount: false để truy vấn đang ở trạng thái lỗi không bị coi là “đang tải lại” khi render.
-function renderScreen({ data, error } = {}) {
+function renderScreen({ data, error, initialStopping = null, initialDrawer = null } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retryOnMount: false } } });
   if (data !== undefined) client.setQueryData(serviceKeys.list(), data);
   if (error !== undefined) {
@@ -59,7 +59,11 @@ function renderScreen({ data, error } = {}) {
     query.setState({ ...query.state, status: "error", fetchStatus: "idle", error, errorUpdatedAt: Date.now() });
   }
   return renderToStaticMarkup(
-    React.createElement(QueryClientProvider, { client }, React.createElement(ToastProvider, null, React.createElement(ServicesScreen))),
+    React.createElement(
+      QueryClientProvider,
+      { client },
+      React.createElement(ToastProvider, null, React.createElement(ServicesScreen, { initialStopping, initialDrawer })),
+    ),
   );
 }
 
@@ -112,4 +116,32 @@ test("bảng dịch vụ: dòng đang đổi trạng thái bị khóa nút Ngừ
   assert.ok(!buttonOf("Sửa dịch vụ Cắt tỉa lông").includes('disabled=""'));
   assert.ok(buttonOf("Mở lại dịch vụ Nhuộm lông tạo màu").length > 0);
   assert.ok(!buttonOf("Mở lại dịch vụ Nhuộm lông tạo màu").includes('disabled=""'));
+});
+
+test("màn dịch vụ khi xác nhận ngừng: hiển thị ConfirmDialog ngay trên ServicesScreen", () => {
+  const [, cutTia] = MOCK_SERVICES;
+  const html = renderScreen({ data: MOCK_SERVICES, initialStopping: cutTia });
+  assert.match(html, /<dialog\b[^>]*aria-labelledby=/);
+  assert.ok(html.includes("Ngừng cung cấp dịch vụ này?"));
+  assert.ok(html.includes("Bạn có thể mở lại bất cứ lúc nào."));
+  assert.ok(html.includes("Dịch vụ sẽ không còn hiển thị khi khách hàng và lễ tân đặt lịch mới."));
+  assert.ok(html.indexOf("Quay lại") < html.indexOf("Ngừng cung cấp</button>"));
+});
+
+test("bảng dịch vụ: khi đang đổi trạng thái (isChangingStatus), toàn bộ nút Ngừng / Mở lại bị khóa để chống nuốt thao tác", () => {
+  const [, cutTia, , , , stopped] = MOCK_SERVICES;
+  const html = renderToStaticMarkup(
+    React.createElement(ServiceTable, {
+      services: [cutTia, stopped],
+      onEdit: noop,
+      onStop: noop,
+      onReopen: noop,
+      pendingServiceId: cutTia.serviceId,
+      isChangingStatus: true,
+    }),
+  );
+  const buttonOf = (label) => html.match(new RegExp(`<button[^>]*aria-label="${label}"[^>]*>`))?.[0] ?? "";
+  assert.ok(buttonOf("Ngừng dịch vụ Cắt tỉa lông").includes('disabled=""'));
+  assert.ok(buttonOf("Mở lại dịch vụ Nhuộm lông tạo màu").includes('disabled=""'));
+  assert.ok(!buttonOf("Sửa dịch vụ Cắt tỉa lông").includes('disabled=""'));
 });

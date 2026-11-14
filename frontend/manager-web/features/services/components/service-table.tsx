@@ -15,12 +15,21 @@ type ServiceTableProps = {
   onReopen: (service: Service) => void;
   // Dịch vụ đang chờ server đổi trạng thái: khóa nút Ngừng / Mở lại của dòng đó để chống bấm đúp.
   pendingServiceId?: string | null;
+  // Đang có yêu cầu đổi trạng thái chờ server xử lý: khóa toàn bộ nút trạng thái để chống nuốt thao tác.
+  isChangingStatus?: boolean;
 };
 
 const headerClass = "px-4 py-3 text-left text-xs font-semibold text-muted";
 
 // MW-06 vùng 2 – Bảng dịch vụ (UI-Screens.md).
-export function ServiceTable({ services, onEdit, onStop, onReopen, pendingServiceId = null }: ServiceTableProps) {
+export function ServiceTable({
+  services,
+  onEdit,
+  onStop,
+  onReopen,
+  pendingServiceId = null,
+  isChangingStatus = false,
+}: ServiceTableProps) {
   return (
     <Card>
       <div className="overflow-x-auto">
@@ -72,7 +81,7 @@ export function ServiceTable({ services, onEdit, onStop, onReopen, pendingServic
                           variant="ghost"
                           size="sm"
                           aria-label={`Ngừng dịch vụ ${service.name}`}
-                          disabled={service.serviceId === pendingServiceId}
+                          disabled={isChangingStatus || service.serviceId === pendingServiceId}
                           onClick={() => onStop(service)}
                         >
                           Ngừng
@@ -82,7 +91,7 @@ export function ServiceTable({ services, onEdit, onStop, onReopen, pendingServic
                           variant="ghost"
                           size="sm"
                           aria-label={`Mở lại dịch vụ ${service.name}`}
-                          disabled={service.serviceId === pendingServiceId}
+                          disabled={isChangingStatus || service.serviceId === pendingServiceId}
                           onClick={() => onReopen(service)}
                         >
                           Mở lại

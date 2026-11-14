@@ -18,15 +18,20 @@ import { SLOT_TIMES, countServices } from "../forms";
 
 type DrawerState = { mode: "create" } | { mode: "edit"; service: Service } | null;
 
+type ServicesScreenProps = {
+  initialDrawer?: DrawerState;
+  initialStopping?: Service | null;
+};
+
 // MW-06 – Danh mục dịch vụ. Dữ liệu lấy từ GET /services; thêm, sửa, ngừng / mở lại gọi API rồi tải lại danh sách từ server.
-export function ServicesScreen() {
+export function ServicesScreen({ initialDrawer = null, initialStopping = null }: ServicesScreenProps = {}) {
   const { showError, showSuccess } = useToast();
   const { data: services, error, isPending, refetch } = useServices();
   const createService = useCreateService();
   const updateService = useUpdateService();
   const setStatus = useSetServiceStatus();
-  const [drawer, setDrawer] = useState<DrawerState>(null);
-  const [stopping, setStopping] = useState<Service | null>(null);
+  const [drawer, setDrawer] = useState<DrawerState>(initialDrawer);
+  const [stopping, setStopping] = useState<Service | null>(initialStopping);
 
   const saving = drawer?.mode === "edit" ? updateService : createService;
 
@@ -115,6 +120,7 @@ export function ServicesScreen() {
           onStop={setStopping}
           onReopen={handleReopen}
           pendingServiceId={setStatus.isPending ? (setStatus.variables?.serviceId ?? null) : null}
+          isChangingStatus={setStatus.isPending}
         />
         <p className="text-xs text-muted">
           Dịch vụ đã ngừng không còn hiển thị khi khách đặt lịch mới. Giá và thời lượng sửa xong áp dụng cho các lượt đặt lịch tiếp theo.
@@ -162,6 +168,7 @@ export function ServicesScreen() {
         </Drawer>
       )}
 
+      {/* Hộp thoại xác nhận khi bấm Ngừng cung cấp dịch vụ (MW-06) */}
       {stopping && (
         <ConfirmDialog
           icon="ban"
