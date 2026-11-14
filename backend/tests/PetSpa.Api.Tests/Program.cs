@@ -1228,6 +1228,91 @@ var tests = new (string Name, Func<Task> Run)[]
             "An invalid TmnCode must still be rejected.");
         return Task.CompletedTask;
     }),
+    ("VnpayPaymentGateway accepts a callback signed over the sorted encoded vnp_ parameters", () =>
+    {
+        var gateway = new VnpayPaymentGateway(ValidVnpayGatewayOptions());
+
+        var callback = VnpayCallback();
+        Check(gateway.VerifyCallbackSignature(callback), "A callback signed with the shared secret must be accepted.");
+
+        callback["vnp_SecureHash"] = callback["vnp_SecureHash"].ToUpperInvariant();
+        Check(gateway.VerifyCallbackSignature(callback), "The received hash must be compared case-insensitively.");
+
+        var withIgnored = VnpayCallback();
+        withIgnored["vnp_SecureHashType"] = "HmacSHA512";
+        withIgnored["utm_source"] = "mail";
+        Check(gateway.VerifyCallbackSignature(withIgnored),
+            "vnp_SecureHashType and parameters without the vnp_ prefix must not be signed.");
+
+        var withEmpty = VnpayCallback("fbd0e7c10762d709d650e3d514f48c9ff1cce33a294f8d30f63ba7b7ec760de24df69d42d737fa12d27647b92d98bf5e0cf9149b7965f4ef1504f40e8f419b48");
+        withEmpty["vnp_BankTranNo"] = "";
+        Check(gateway.VerifyCallbackSignature(withEmpty), "Parameters with an empty value must not be signed.");
+        return Task.CompletedTask;
+    }),
+    ("VnpayPaymentGateway rejects callbacks with a missing, wrong or tampered signature", () =>
+    {
+        var gateway = new VnpayPaymentGateway(ValidVnpayGatewayOptions());
+        var validHash = VnpayCallback()["vnp_SecureHash"];
+
+        var missing = VnpayCallback();
+        missing.Remove("vnp_SecureHash");
+        Check(!gateway.VerifyCallbackSignature(missing), "A callback without vnp_SecureHash must be rejected.");
+
+        foreach (var invalid in new[] { "", "0", validHash[..^1], validHash + "0", new string('0', 128) })
+        {
+            var callback = VnpayCallback(invalid);
+            Check(!gateway.VerifyCallbackSignature(callback), $"The hash '{invalid}' must be rejected.");
+        }
+
+        foreach (var (key, value) in new[]
+        {
+            ("vnp_Amount", "1500000"),
+            ("vnp_TxnRef", "ABC123def457"),
+            ("vnp_ResponseCode", "24"),
+            ("vnp_TransactionStatus", "02"),
+        })
+        {
+            var tampered = VnpayCallback();
+            tampered[key] = value;
+            Check(!gateway.VerifyCallbackSignature(tampered), $"Changing {key} must invalidate the signature.");
+        }
+
+        var added = VnpayCallback();
+        added["vnp_Extra"] = "1";
+        Check(!gateway.VerifyCallbackSignature(added), "Adding a vnp_ parameter must invalidate the signature.");
+
+        var removed = VnpayCallback();
+        removed.Remove("vnp_BankCode");
+        Check(!gateway.VerifyCallbackSignature(removed), "Removing a signed parameter must invalidate the signature.");
+
+        var otherSecret = new VnpayPaymentGateway(new VnpayOptions
+        {
+            TmnCode = "TESTCODE",
+            HashSecret = "ANOTHERSECRETKEY0123456789ABCDE",
+            ReturnUrl = "https://example.test/payments/vnpay/return",
+        });
+        Check(!otherSecret.VerifyCallbackSignature(VnpayCallback()), "A callback signed with another secret must be rejected.");
+
+        Check(!gateway.VerifyCallbackSignature(new Dictionary<string, string>()), "An empty callback must be rejected.");
+        AssertThrows<ArgumentNullException>(() => gateway.VerifyCallbackSignature(null!), "Null parameters must be rejected.");
+        return Task.CompletedTask;
+    }),
+    ("VnpayPaymentGateway verifies the signature of the payment URL it created after the query is parsed", () =>
+    {
+        var gateway = new VnpayPaymentGateway(ValidVnpayGatewayOptions());
+        var url = gateway.CreatePaymentUrl(VnpayTransaction(), "203.0.113.7");
+
+        var parsed = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(url).Query)
+            .ToDictionary(p => p.Key, p => p.Value.ToString(), StringComparer.Ordinal);
+        Check(parsed["vnp_OrderInfo"] == "Thanh toan lich hen ABC123def456"
+                && parsed["vnp_ReturnUrl"] == "https://example.test/payments/vnpay/return",
+            "Parsing must decode the values so that they are encoded again when verified.");
+        Check(gateway.VerifyCallbackSignature(parsed), "The signature created by the adapter must verify after parsing.");
+
+        parsed["vnp_Amount"] = "15000001";
+        Check(!gateway.VerifyCallbackSignature(parsed), "A changed parameter must invalidate the signature.");
+        return Task.CompletedTask;
+    }),
     ("AddInfrastructure registers the VNPAY gateway lazily from Payment__Vnpay__* configuration", () =>
     {
         var baseSettings = new Dictionary<string, string?>
@@ -1840,6 +1925,24 @@ static Payment OnlinePayment(PaymentKind kind, decimal amount) => new()
     Amount = amount,
 };
 
+static Dictionary<string, string> VnpayCallback(
+    string secureHash = "3f12015b70c9d555ab94fb30dfce3cea7d42f1757cc703d88ceef756ac8f4423036c779bd1d435fa0de885fcb7cbdf0ec6c8986a3221ed7a47ce9f0c27b44108") =>
+    new(StringComparer.Ordinal)
+    {
+        ["vnp_Amount"] = "15000000",
+        ["vnp_BankCode"] = "NCB",
+        ["vnp_BankTranNo"] = "VNP14226112",
+        ["vnp_CardType"] = "ATM",
+        ["vnp_OrderInfo"] = "Thanh toan lich hen ABC123def456",
+        ["vnp_PayDate"] = "20261112170500",
+        ["vnp_ResponseCode"] = "00",
+        ["vnp_TmnCode"] = "TESTCODE",
+        ["vnp_TransactionNo"] = "14226112",
+        ["vnp_TransactionStatus"] = "00",
+        ["vnp_TxnRef"] = "ABC123def456",
+        ["vnp_SecureHash"] = secureHash,
+    };
+
 static string CreateTestJwt(string signingKey, Guid userId, string role, TimeSpan lifetime)
 {
     var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey));
@@ -2075,6 +2178,9 @@ sealed class TestPaymentGateway : IPaymentGateway
     public PaymentTransaction? LastTransaction { get; private set; }
     public string? LastClientIp { get; private set; }
     public Exception? Failure { get; init; }
+    public bool CallbackSignatureValid { get; init; }
+    public int VerifyCalls { get; private set; }
+    public IReadOnlyDictionary<string, string>? LastCallback { get; private set; }
     public PaymentGateway Gateway => PaymentGateway.VNPAY;
     public string CreatePaymentUrl(PaymentTransaction transaction, string clientIp)
     {
@@ -2083,6 +2189,12 @@ sealed class TestPaymentGateway : IPaymentGateway
         LastTransaction = transaction;
         LastClientIp = clientIp;
         return Url;
+    }
+    public bool VerifyCallbackSignature(IReadOnlyDictionary<string, string> parameters)
+    {
+        VerifyCalls++;
+        LastCallback = parameters;
+        return CallbackSignatureValid;
     }
 }
 
