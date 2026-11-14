@@ -1,18 +1,26 @@
 using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
+using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
 using PetSpa.Domain.Exceptions;
 using PetSpa.Domain.Services;
 
 namespace PetSpa.Application.Services.Booking;
 
+public sealed record HotelAvailabilityResult(bool Available, int Nights, decimal EstimatedAmount);
+
+public sealed record HotelBookingResult(HotelAppointment Appointment, int Nights, decimal EstimatedAmount);
+
 public sealed class HotelBookingService(
     IPetRepository pets,
     IStaffRoleReader staffRoles,
     IHotelBookingRepository hotelBookings,
+    IHotelCatalogRepository hotelCatalog,
     ShopTimeZone shopTimeZone)
 {
+    private sealed record StayQuote(int Nights, decimal Amount);
+
     public async Task<bool> HasCapacityAsync(
         CurrentUser user, Guid petId, DateTimeOffset checkIn, DateTimeOffset checkOut, CancellationToken ct = default)
     {
@@ -24,6 +32,73 @@ public sealed class HotelBookingService(
         if (!found.Pet.IsActive) throw new BusinessException(ErrorCodes.NotFound);
 
         return await HasCapacityForGroupAsync(found.Pet.Species, found.Pet.SizeGroup, checkIn, checkOut, ct);
+    }
+
+    public async Task<HotelAvailabilityResult> GetAvailabilityAsync(
+        CurrentUser user, Guid petId, DateTimeOffset checkIn, DateTimeOffset checkOut, CancellationToken ct = default)
+    {
+        var found = await pets.FindWithOwnerAsync(petId, ct)
+            ?? throw new BusinessException(ErrorCodes.NotFound);
+
+        await EnsureCanViewPetAsync(user, found, ct);
+
+        if (!found.Pet.IsActive) throw new BusinessException(ErrorCodes.NotFound);
+
+        var available = await HasCapacityForGroupAsync(found.Pet.Species, found.Pet.SizeGroup, checkIn, checkOut, ct);
+        var quote = await QuoteStayAsync(found.Pet, checkIn, checkOut, ct);
+
+        return new HotelAvailabilityResult(available, quote.Nights, quote.Amount);
+    }
+
+    public async Task<HotelBookingResult> CreateHotelAppointmentAsync(
+        CurrentUser user,
+        Guid? customerId,
+        Guid petId,
+        DateTimeOffset plannedCheckIn,
+        DateTimeOffset plannedCheckOut,
+        CancellationToken ct = default)
+    {
+        var isCustomer = await IsCustomerActorAsync(user, ct);
+
+        var found = await pets.FindWithOwnerAsync(petId, ct)
+            ?? throw new BusinessException(ErrorCodes.NotFound);
+
+        if (isCustomer) OwnershipGuard.EnsureOwner(user, found.OwnerUserId);
+
+        if (!found.Pet.IsActive) throw new BusinessException(ErrorCodes.NotFound);
+
+        var pet = found.Pet;
+
+        if (!isCustomer)
+        {
+            if (customerId is null || customerId == Guid.Empty)
+                throw new BusinessException(ErrorCodes.ValidationError, "Lễ tân phải chọn khách hàng (customerId).");
+
+            if (customerId != pet.CustomerId)
+                throw new BusinessException(ErrorCodes.ValidationError, "Thú cưng không thuộc khách hàng này.");
+        }
+
+        var checkIn = plannedCheckIn.ToUniversalTime();
+        var checkOut = plannedCheckOut.ToUniversalTime();
+
+        if (!await HasCapacityForGroupAsync(pet.Species, pet.SizeGroup, checkIn, checkOut, ct))
+            throw new BusinessException(ErrorCodes.NoCapacity);
+
+        var quote = await QuoteStayAsync(pet, checkIn, checkOut, ct);
+
+        var appointment = new HotelAppointment
+        {
+            AppointmentId = Guid.NewGuid(),
+            CustomerId = pet.CustomerId,
+            PetId = pet.PetId,
+            SizeGroup = pet.SizeGroup,
+            PlannedCheckIn = checkIn,
+            PlannedCheckOut = checkOut,
+        };
+
+        await hotelBookings.AddHotelAppointmentAsync(appointment, ct);
+
+        return new HotelBookingResult(appointment, quote.Nights, quote.Amount);
     }
 
     private async Task EnsureCanViewPetAsync(CurrentUser user, PetWithOwner found, CancellationToken ct)
@@ -63,6 +138,29 @@ public sealed class HotelBookingService(
             .ToList();
 
         return SlotService.AvailableCages(activeCages, stays, checkInDate, checkOutDate) >= 1;
+    }
+
+    private async Task<StayQuote> QuoteStayAsync(
+        Pet pet, DateTimeOffset checkIn, DateTimeOffset checkOut, CancellationToken ct)
+    {
+        var checkInDate = shopTimeZone.ToLocal(checkIn).Date;
+        var checkOutDate = shopTimeZone.ToLocal(checkOut).Date;
+
+        var pricing = await hotelCatalog.ListPricingAsync(ct);
+        var amount = PricingService.StayAmount(pet.Species, pet.SizeGroup, checkInDate, checkOutDate, pricing);
+
+        return new StayQuote(checkOutDate.DayNumber - checkInDate.DayNumber, amount);
+    }
+
+    private async Task<bool> IsCustomerActorAsync(CurrentUser user, CancellationToken ct)
+    {
+        if (user.Role == UserRole.Customer) return true;
+
+        if (user.Role == UserRole.Staff
+            && await staffRoles.GetStaffRoleAsync(user.UserId, ct) == StaffRole.Receptionist)
+            return false;
+
+        throw new BusinessException(ErrorCodes.Forbidden);
     }
 }
 
