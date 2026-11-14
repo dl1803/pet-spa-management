@@ -1552,7 +1552,7 @@ var tests = new (string Name, Func<Task> Run)[]
     }),
     ("PaymentsController.PayOnline rejects null request with ValidationError", async () =>
     {
-        var controller = new PaymentsController(new PaymentService(new TestPaymentRepo(null), new TestPaymentGateway(), new TestConcurrencyGuard()));
+        var controller = new PaymentsController(new PaymentService(new TestPaymentRepo(null), new TestPaymentGateway(), new TestConcurrencyGuard()), NullLogger<PaymentsController>.Instance);
 
         var threw = false;
         try
@@ -1584,7 +1584,7 @@ var tests = new (string Name, Func<Task> Run)[]
                 ], "test")),
             };
             httpContext.Connection.RemoteIpAddress = remoteIp;
-            var controller = new PaymentsController(new PaymentService(repo, gateway, new TestConcurrencyGuard()))
+            var controller = new PaymentsController(new PaymentService(repo, gateway, new TestConcurrencyGuard()), NullLogger<PaymentsController>.Instance)
             {
                 ControllerContext = new ControllerContext { HttpContext = httpContext },
             };
@@ -2011,45 +2011,86 @@ var tests = new (string Name, Func<Task> Run)[]
             "No authorization requirement may apply to the webhook.");
         return Task.CompletedTask;
     }),
-    ("PaymentsController.VnpayIpn passes the query to the gateway and answers a valid signature without processing", () =>
+    ("PaymentsController.VnpayIpn confirms a successful payment with RspCode 00 and logs it", async () =>
     {
-        var payment = OnlinePayment(PaymentKind.Spa, 150000m);
-        var repo = new TestPaymentRepo(new PaymentWithOwner(payment, AppointmentStatus.Completed, Guid.NewGuid()));
-        var gateway = new TestPaymentGateway { CallbackSignatureValid = true };
-        var controller = IpnController(gateway, repo, "?vnp_TxnRef=ABC123def456&vnp_OrderInfo=Thanh+toan+lich+hen&dup=1&dup=2");
+        var target = CallbackTarget();
+        var repo = new TestPaymentRepo(null, target);
+        var gateway = new TestPaymentGateway { CallbackSignatureValid = true, Callback = SuccessCallback(target) };
+        var logger = new CapturingLogger<PaymentsController>();
+        var controller = IpnController(gateway, repo, "?vnp_TxnRef=ABC123def456&vnp_OrderInfo=Thanh+toan+lich+hen&dup=1&dup=2", logger);
 
-        var body = (controller.VnpayIpn() as OkObjectResult)?.Value as VnpayIpnResponse;
+        var body = ((await controller.VnpayIpn(CancellationToken.None)) as OkObjectResult)?.Value as VnpayIpnResponse;
 
-        Check(body is { RspCode: "99", Message: "Unknown error" }, "A valid signature must be answered with the unprocessed response.");
+        Check(body is { RspCode: "00", Message: "Confirm Success" }, "A paid callback must be answered with RspCode 00.");
         Check(gateway.LastCallback is { Count: 3 }
                 && gateway.LastCallback["vnp_TxnRef"] == "ABC123def456"
                 && gateway.LastCallback["vnp_OrderInfo"] == "Thanh toan lich hen"
                 && gateway.LastCallback["dup"] == "1,2",
             "The decoded query must reach the gateway, repeated keys joined by a comma.");
-        Check(repo.Added.Count == 0 && payment.Status == PaymentStatus.Unpaid && payment.Method is null && payment.PaidAt is null,
-            "The webhook must not store a transaction or change the payment.");
-        return Task.CompletedTask;
+        Check(target.Payment.Status == PaymentStatus.Paid && target.Payment.Method == PaymentMethod.Online,
+            "The payment must be Paid online.");
+        Check(logger.Entries.Count == 1 && logger.Entries[0].Level == Microsoft.Extensions.Logging.LogLevel.Information
+                && logger.Entries[0].Message.Contains(target.Transaction.TxnRef)
+                && logger.Entries[0].Message.Contains(target.Payment.PaymentId.ToString()),
+            "One information entry with the TxnRef and the payment must be logged.");
     }),
-    ("PaymentsController.VnpayIpn answers an invalid signature with 200 InvalidChecksum and leaves the payment unpaid", () =>
+    ("PaymentsController.VnpayIpn answers an invalid signature with 200 InvalidChecksum, logs the rejection and processes nothing", async () =>
     {
-        var payment = OnlinePayment(PaymentKind.Spa, 150000m);
-        var repo = new TestPaymentRepo(new PaymentWithOwner(payment, AppointmentStatus.Completed, Guid.NewGuid()));
-        var controller = IpnController(new TestPaymentGateway(), repo, "?vnp_TxnRef=ABC123def456&vnp_SecureHash=invalid");
+        var target = CallbackTarget();
+        var events = new List<string>();
+        var repo = new TestPaymentRepo(null, target) { Events = events };
+        var gateway = new TestPaymentGateway { Callback = SuccessCallback(target) };
+        var logger = new CapturingLogger<PaymentsController>();
+        var controller = IpnController(gateway, repo, "?vnp_TxnRef=ABC123def456&vnp_SecureHash=invalid", logger);
 
-        var result = controller.VnpayIpn() as OkObjectResult;
+        var result = await controller.VnpayIpn(CancellationToken.None) as OkObjectResult;
+
         Check(result is not null && result.StatusCode == 200, "An invalid signature must return HTTP 200 OK according to VNPAY IPN specification.");
         var body = result!.Value as VnpayIpnResponse;
         Check(body is { RspCode: "97", Message: "Invalid Checksum" }, "The response must contain RspCode 97 and Invalid Checksum message.");
-        Check(repo.Added.Count == 0 && payment.Status == PaymentStatus.Unpaid && payment.Method is null && payment.PaidAt is null,
-            "A rejected webhook must not store a transaction or change the payment.");
+        Check(gateway.ReadCalls == 0 && events.Count == 0, "A rejected webhook must not be read or processed.");
+        Check(target.Payment.Status == PaymentStatus.Unpaid && target.Transaction.Result is null,
+            "A rejected webhook must leave the payment and the transaction unchanged.");
+        Check(logger.Entries.Count == 1 && logger.Entries[0].Level == Microsoft.Extensions.Logging.LogLevel.Warning
+                && logger.Entries[0].Message.Contains("127.0.0.1")
+                && !logger.Entries[0].Message.Contains("invalid"),
+            "One warning with the client IP and without the received hash must be logged.");
+    }),
+    ("PaymentsController.VnpayIpn answers an amount mismatch with RspCode 04 and logs both amounts", async () =>
+    {
+        var target = CallbackTarget();
+        var repo = new TestPaymentRepo(null, target);
+        var gateway = new TestPaymentGateway { CallbackSignatureValid = true, Callback = SuccessCallback(target, 149000m) };
+        var logger = new CapturingLogger<PaymentsController>();
+        var controller = IpnController(gateway, repo, "?vnp_TxnRef=ABC123def456", logger);
+
+        var body = ((await controller.VnpayIpn(CancellationToken.None)) as OkObjectResult)?.Value as VnpayIpnResponse;
+
+        Check(body is { RspCode: "04", Message: "Invalid amount" }, "An amount mismatch must be answered with RspCode 04.");
+        Check(target.Payment.Status == PaymentStatus.Unpaid && repo.SaveCalls == 0, "The payment must stay unpaid and nothing saved.");
+        Check(logger.Entries.Count == 1 && logger.Entries[0].Level == Microsoft.Extensions.Logging.LogLevel.Warning
+                && logger.Entries[0].Message.Contains("150000") && logger.Entries[0].Message.Contains("149000"),
+            "One warning with the expected and the confirmed amount must be logged.");
+    }),
+    ("VnpayIpnResponse.From maps every callback status to its VNPAY response", () =>
+    {
+        Check(VnpayIpnResponse.From(PaymentCallbackStatus.Paid) == VnpayIpnResponse.Confirmed, "Paid must map to 00.");
+        Check(VnpayIpnResponse.From(PaymentCallbackStatus.Failed) == VnpayIpnResponse.Confirmed, "Failed must map to 00.");
+        Check(VnpayIpnResponse.From(PaymentCallbackStatus.AlreadyProcessed) == VnpayIpnResponse.AlreadyConfirmed, "AlreadyProcessed must map to 02.");
+        Check(VnpayIpnResponse.From(PaymentCallbackStatus.TxnNotFound) == VnpayIpnResponse.OrderNotFound, "TxnNotFound must map to 01.");
+        Check(VnpayIpnResponse.From(PaymentCallbackStatus.AmountMismatch) == VnpayIpnResponse.InvalidAmount, "AmountMismatch must map to 04.");
+        Check(VnpayIpnResponse.From(PaymentCallbackStatus.Malformed) == VnpayIpnResponse.Unprocessed, "Malformed must map to 99.");
         return Task.CompletedTask;
     }),
     ("VnpayIpnResponse follows the VNPAY JSON contract", () =>
     {
-        var jsonUnprocessed = JsonSerializer.Serialize(VnpayIpnResponse.Unprocessed, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        Check(jsonUnprocessed == "{\"RspCode\":\"99\",\"Message\":\"Unknown error\"}", "The response must use the PascalCase RspCode and Message fields.");
-        var jsonInvalid = JsonSerializer.Serialize(VnpayIpnResponse.InvalidChecksum, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        Check(jsonInvalid == "{\"RspCode\":\"97\",\"Message\":\"Invalid Checksum\"}", "The invalid checksum response must use RspCode 97.");
+        var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        Check(JsonSerializer.Serialize(VnpayIpnResponse.Confirmed, web) == "{\"RspCode\":\"00\",\"Message\":\"Confirm Success\"}", "The confirmed response must use RspCode 00.");
+        Check(JsonSerializer.Serialize(VnpayIpnResponse.OrderNotFound, web) == "{\"RspCode\":\"01\",\"Message\":\"Order not found\"}", "The not found response must use RspCode 01.");
+        Check(JsonSerializer.Serialize(VnpayIpnResponse.AlreadyConfirmed, web) == "{\"RspCode\":\"02\",\"Message\":\"Order already confirmed\"}", "The already confirmed response must use RspCode 02.");
+        Check(JsonSerializer.Serialize(VnpayIpnResponse.InvalidAmount, web) == "{\"RspCode\":\"04\",\"Message\":\"Invalid amount\"}", "The invalid amount response must use RspCode 04.");
+        Check(JsonSerializer.Serialize(VnpayIpnResponse.InvalidChecksum, web) == "{\"RspCode\":\"97\",\"Message\":\"Invalid Checksum\"}", "The invalid checksum response must use RspCode 97.");
+        Check(JsonSerializer.Serialize(VnpayIpnResponse.Unprocessed, web) == "{\"RspCode\":\"99\",\"Message\":\"Unknown error\"}", "The unprocessed response must use RspCode 99.");
         return Task.CompletedTask;
     })
 };
@@ -2221,8 +2262,10 @@ static Dictionary<string, string> VnpayCallback(
         ["vnp_SecureHash"] = secureHash,
     };
 
-static PaymentsController IpnController(TestPaymentGateway gateway, TestPaymentRepo repo, string queryString) =>
-    new(new PaymentService(repo, gateway, new TestConcurrencyGuard()))
+static PaymentsController IpnController(
+    TestPaymentGateway gateway, TestPaymentRepo repo, string queryString,
+    Microsoft.Extensions.Logging.ILogger<PaymentsController>? logger = null) =>
+    new(new PaymentService(repo, gateway, new TestConcurrencyGuard()), logger ?? NullLogger<PaymentsController>.Instance)
     {
         ControllerContext = new ControllerContext
         {
@@ -2528,6 +2571,17 @@ sealed class TestPaymentGateway : IPaymentGateway
         ReadCalls++;
         return Callback;
     }
+}
+
+sealed class CapturingLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
+{
+    public List<(Microsoft.Extensions.Logging.LogLevel Level, string Message)> Entries { get; } = [];
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+    public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+    public void Log<TState>(
+        Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state,
+        Exception? exception, Func<TState, Exception?, string> formatter) =>
+        Entries.Add((logLevel, formatter(state, exception)));
 }
 
 
