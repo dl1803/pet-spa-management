@@ -1089,7 +1089,9 @@ var tests = new (string Name, Func<Task> Run)[]
             new TestPetRepo(pet, ownerUserId),
             new TestStaffRoleReader(null),
             repo,
-            new ShopTimeZone(TimeZoneInfo.Utc));
+            new TestHotelCatalogRepo(),
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            new TestConcurrencyGuard());
         var user = new CurrentUser(ownerUserId, UserRole.Customer);
 
         var fullOnNov11 = await service.HasCapacityAsync(
@@ -1117,7 +1119,9 @@ var tests = new (string Name, Func<Task> Run)[]
             new TestPetRepo(pet, ownerUserId),
             new TestStaffRoleReader(staffRole),
             new TestHotelBookingRepo(1, []),
-            new ShopTimeZone(TimeZoneInfo.Utc));
+            new TestHotelCatalogRepo(),
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            new TestConcurrencyGuard());
 
         async Task<string?> CodeOfAsync(Func<Task> action)
         {
@@ -1458,6 +1462,248 @@ var tests = new (string Name, Func<Task> Run)[]
 
         await CallAsync(System.Net.IPAddress.IPv6Loopback);
         Check(gateway.LastClientIp == "127.0.0.1", "An IPv6 loopback address (::1) must be normalized to 127.0.0.1.");
+    }),
+    ("HotelBookingService.GetAvailabilityAsync returns availability, nights and the estimated amount from server pricing", async () =>
+    {
+        var ownerUserId = Guid.NewGuid();
+        var pet = new Pet { PetId = Guid.NewGuid(), CustomerId = Guid.NewGuid(), Species = Species.Cat, SizeGroup = SizeGroup.Small, IsActive = true };
+        var catalog = new TestHotelCatalogRepo
+        {
+            Prices = [new HotelPricing { Species = Species.Cat, SizeGroup = SizeGroup.Small, PricePerNight = 100000m, FoodPerNight = 20000m }],
+        };
+        var checkIn = new DateTimeOffset(2026, 11, 10, 14, 0, 0, TimeSpan.Zero);
+        var checkOut = new DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero);
+        var user = new CurrentUser(ownerUserId, UserRole.Customer);
+
+        HotelBookingService ServiceFor(int activeCages) => new(
+            new TestPetRepo(pet, ownerUserId),
+            new TestStaffRoleReader(null),
+            new TestHotelBookingRepo(activeCages, []),
+            catalog,
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            new TestConcurrencyGuard());
+
+        var open = await ServiceFor(1).GetAvailabilityAsync(user, pet.PetId, checkIn, checkOut);
+        var full = await ServiceFor(0).GetAvailabilityAsync(user, pet.PetId, checkIn, checkOut);
+
+        Check(open.Available, "One free cage must be reported as available.");
+        Check(open.Nights == 2, "10/11 to 12/11 must count 2 nights.");
+        Check(open.EstimatedAmount == 240000m, "The amount must be nights x (price per night + food per night).");
+        Check(!full.Available && full.Nights == 2 && full.EstimatedAmount == 240000m,
+            "Without a free cage the result must be unavailable but still carry nights and amount.");
+    }),
+    ("HotelAvailabilityQueryValidator requires from, to and petId", () =>
+    {
+        var validator = new HotelAvailabilityQueryValidator();
+
+        var valid = validator.Validate(new HotelAvailabilityQuery
+        {
+            From = DateTimeOffset.UtcNow.AddDays(1),
+            To = DateTimeOffset.UtcNow.AddDays(3),
+            PetId = Guid.NewGuid(),
+        });
+        Check(valid.IsValid, "A complete query must pass validation.");
+
+        var empty = validator.Validate(new HotelAvailabilityQuery());
+        Check(!empty.IsValid
+            && empty.Errors.Any(e => e.PropertyName == "From")
+            && empty.Errors.Any(e => e.PropertyName == "To")
+            && empty.Errors.Any(e => e.PropertyName == "PetId"),
+            "Missing From, To and PetId must fail validation.");
+
+        var emptyPet = validator.Validate(new HotelAvailabilityQuery
+        {
+            From = DateTimeOffset.UtcNow.AddDays(1),
+            To = DateTimeOffset.UtcNow.AddDays(3),
+            PetId = Guid.Empty,
+        });
+        Check(!emptyPet.IsValid && emptyPet.Errors.Any(e => e.PropertyName == "PetId"),
+            "An empty PetId must fail validation.");
+
+        return Task.CompletedTask;
+    }),
+    ("HotelBookingService.CreateHotelAppointmentAsync creates a Pending stay from the pet data for the owner and for a receptionist", async () =>
+    {
+        var ownerUserId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var pet = new Pet { PetId = Guid.NewGuid(), CustomerId = customerId, Species = Species.Cat, SizeGroup = SizeGroup.Small, IsActive = true };
+        var catalog = new TestHotelCatalogRepo
+        {
+            Prices = [new HotelPricing { Species = Species.Cat, SizeGroup = SizeGroup.Small, PricePerNight = 100000m, FoodPerNight = 20000m }],
+        };
+        var repo = new TestHotelBookingRepo(1, []);
+        var guard = new TestConcurrencyGuard();
+
+        HotelBookingService ServiceFor(StaffRole? staffRole) => new(
+            new TestPetRepo(pet, ownerUserId),
+            new TestStaffRoleReader(staffRole),
+            repo,
+            catalog,
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            guard);
+
+        var futureDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2));
+        var checkIn = new DateTimeOffset(futureDate.ToDateTime(new TimeOnly(14, 0)), TimeSpan.Zero);
+        var checkOut = checkIn.AddDays(2);
+
+        var byOwner = await ServiceFor(null).CreateHotelAppointmentAsync(
+            new CurrentUser(ownerUserId, UserRole.Customer), null, pet.PetId, checkIn, checkOut);
+        var byReceptionist = await ServiceFor(StaffRole.Receptionist).CreateHotelAppointmentAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Staff), customerId, pet.PetId, checkIn, checkOut);
+
+        Check(repo.AddedAppointments.Count == 2, "Each successful request must save one stay.");
+        Check(guard.LockedHotelGroup == (Species.Cat, SizeGroup.Small),
+            "CreateHotelAppointmentAsync must acquire advisory lock for the pet's species and size group.");
+
+        var created = byOwner.Appointment;
+        Check(created.Status == AppointmentStatus.Pending, "A new stay must be Pending.");
+        Check(created.CustomerId == customerId && created.PetId == pet.PetId && created.SizeGroup == SizeGroup.Small,
+            "Customer, pet and size group must come from the pet record.");
+        Check(created.PlannedCheckIn.Offset == TimeSpan.Zero && created.PlannedCheckOut.Offset == TimeSpan.Zero,
+            "Planned times must be stored in UTC.");
+        Check(created.CageId is null, "A Pending stay must not have a cage yet.");
+        Check(byOwner.Nights == 2 && byOwner.EstimatedAmount == 240000m,
+            "The result must carry the server-calculated nights and amount.");
+        Check(byReceptionist.Appointment.CustomerId == customerId,
+            "A stay booked by a receptionist must belong to the pet's customer.");
+    }),
+    ("HotelBookingService.CreateHotelAppointmentAsync rejects wrong actors, customer mismatch, unknown or inactive pet, same-day stay and full capacity without saving", async () =>
+    {
+        var ownerUserId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var pet = new Pet { PetId = Guid.NewGuid(), CustomerId = customerId, Species = Species.Cat, SizeGroup = SizeGroup.Small, IsActive = true };
+        var inactivePet = new Pet { PetId = Guid.NewGuid(), CustomerId = customerId, Species = Species.Cat, SizeGroup = SizeGroup.Small, IsActive = false };
+        var catalog = new TestHotelCatalogRepo
+        {
+            Prices = [new HotelPricing { Species = Species.Cat, SizeGroup = SizeGroup.Small, PricePerNight = 100000m, FoodPerNight = 20000m }],
+        };
+        var openRepo = new TestHotelBookingRepo(1, []);
+        var fullRepo = new TestHotelBookingRepo(0, []);
+
+        HotelBookingService ServiceFor(Pet target, StaffRole? staffRole, TestHotelBookingRepo repository) => new(
+            new TestPetRepo(target, ownerUserId),
+            new TestStaffRoleReader(staffRole),
+            repository,
+            catalog,
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            new TestConcurrencyGuard());
+
+        async Task<string?> CodeOfAsync(Func<Task> action)
+        {
+            try
+            {
+                await action();
+                return null;
+            }
+            catch (BusinessException ex)
+            {
+                return ex.Code;
+            }
+        }
+
+        var owner = new CurrentUser(ownerUserId, UserRole.Customer);
+        var receptionist = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+        var futureDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2));
+        var checkIn = new DateTimeOffset(futureDate.ToDateTime(new TimeOnly(14, 0)), TimeSpan.Zero);
+        var checkOut = checkIn.AddDays(2);
+
+        var otherCustomer = await CodeOfAsync(() => ServiceFor(pet, null, openRepo).CreateHotelAppointmentAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Customer), null, pet.PetId, checkIn, checkOut));
+        var spaStaff = await CodeOfAsync(() => ServiceFor(pet, StaffRole.SpaStaff, openRepo).CreateHotelAppointmentAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Staff), customerId, pet.PetId, checkIn, checkOut));
+        var manager = await CodeOfAsync(() => ServiceFor(pet, null, openRepo).CreateHotelAppointmentAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Manager), customerId, pet.PetId, checkIn, checkOut));
+        var noCustomerId = await CodeOfAsync(() => ServiceFor(pet, StaffRole.Receptionist, openRepo).CreateHotelAppointmentAsync(
+            receptionist, null, pet.PetId, checkIn, checkOut));
+        var wrongCustomerId = await CodeOfAsync(() => ServiceFor(pet, StaffRole.Receptionist, openRepo).CreateHotelAppointmentAsync(
+            receptionist, Guid.NewGuid(), pet.PetId, checkIn, checkOut));
+        var unknownPet = await CodeOfAsync(() => ServiceFor(pet, null, openRepo).CreateHotelAppointmentAsync(
+            owner, null, Guid.NewGuid(), checkIn, checkOut));
+        var inactive = await CodeOfAsync(() => ServiceFor(inactivePet, null, openRepo).CreateHotelAppointmentAsync(
+            owner, null, inactivePet.PetId, checkIn, checkOut));
+        var sameDay = await CodeOfAsync(() => ServiceFor(pet, null, openRepo).CreateHotelAppointmentAsync(
+            owner, null, pet.PetId, checkIn, checkIn.AddHours(6)));
+        var pastCheckIn = await CodeOfAsync(() => ServiceFor(pet, null, openRepo).CreateHotelAppointmentAsync(
+            owner, null, pet.PetId, DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1)));
+        var noCapacity = await CodeOfAsync(() => ServiceFor(pet, null, fullRepo).CreateHotelAppointmentAsync(
+            owner, null, pet.PetId, checkIn, checkOut));
+
+        var lockedRepo = new TestHotelBookingRepo(1, []) { IsLocked = true };
+        var lockedCustomer = await CodeOfAsync(() => ServiceFor(pet, null, lockedRepo).CreateHotelAppointmentAsync(
+            owner, null, pet.PetId, checkIn, checkOut));
+        var receptionistForLocked = await ServiceFor(pet, StaffRole.Receptionist, lockedRepo).CreateHotelAppointmentAsync(
+            receptionist, customerId, pet.PetId, checkIn, checkOut);
+
+        Check(otherCustomer == ErrorCodes.Forbidden, "A customer must not book for another customer's pet.");
+        Check(spaStaff == ErrorCodes.Forbidden, "Spa staff must be rejected with Forbidden.");
+        Check(manager == ErrorCodes.Forbidden, "A manager must be rejected with Forbidden.");
+        Check(noCustomerId == ErrorCodes.ValidationError, "A receptionist without customerId must be rejected with ValidationError.");
+        Check(wrongCustomerId == ErrorCodes.ValidationError, "A customerId that does not own the pet must be rejected with ValidationError.");
+        Check(unknownPet == ErrorCodes.NotFound, "An unknown pet must be rejected with NotFound.");
+        Check(inactive == ErrorCodes.NotFound, "An inactive pet must be rejected with NotFound.");
+        Check(sameDay == ErrorCodes.ValidationError, "A check-out on the check-in date must be rejected with ValidationError.");
+        Check(pastCheckIn == ErrorCodes.ValidationError, "A check-in in the past must be rejected with ValidationError.");
+        Check(noCapacity == ErrorCodes.NoCapacity, "No free cage must be rejected with NoCapacity.");
+        Check(lockedCustomer == ErrorCodes.BookingLocked, "A locked customer must be rejected with BookingLocked.");
+        Check(receptionistForLocked.Appointment.Status == AppointmentStatus.Pending,
+            "A receptionist can book for a customer even when customer is booking locked.");
+        Check(openRepo.AddedAppointments.Count == 0 && fullRepo.AddedAppointments.Count == 0 && lockedRepo.AddedAppointments.Count == 1,
+            "Rejected requests must not save any stay.");
+    }),
+    ("HotelBookingRequestValidator requires petId, plannedCheckIn and plannedCheckOut", () =>
+    {
+        var validator = new HotelBookingRequestValidator();
+        var checkIn = DateTimeOffset.UtcNow.AddDays(1);
+        var checkOut = DateTimeOffset.UtcNow.AddDays(3);
+
+        var valid = validator.Validate(new HotelBookingRequest(Guid.NewGuid(), checkIn, checkOut, null));
+        Check(valid.IsValid, "A complete request must pass validation.");
+
+        var missingPet = validator.Validate(new HotelBookingRequest(null, checkIn, checkOut, null));
+        Check(!missingPet.IsValid && missingPet.Errors.Any(e => e.PropertyName == "PetId"),
+            "Missing PetId must fail validation.");
+
+        var emptyPet = validator.Validate(new HotelBookingRequest(Guid.Empty, checkIn, checkOut, null));
+        Check(!emptyPet.IsValid && emptyPet.Errors.Any(e => e.PropertyName == "PetId"),
+            "An empty PetId must fail validation.");
+
+        var missingDates = validator.Validate(new HotelBookingRequest(Guid.NewGuid(), null, null, null));
+        Check(!missingDates.IsValid
+            && missingDates.Errors.Any(e => e.PropertyName == "PlannedCheckIn")
+            && missingDates.Errors.Any(e => e.PropertyName == "PlannedCheckOut"),
+            "Missing check-in and check-out must fail validation.");
+
+        var pastCheckIn = validator.Validate(new HotelBookingRequest(
+            Guid.NewGuid(), DateTimeOffset.UtcNow.AddDays(-1), checkOut, null));
+        Check(!pastCheckIn.IsValid && pastCheckIn.Errors.Any(e => e.PropertyName == "PlannedCheckIn"),
+            "Past plannedCheckIn must fail validation.");
+
+        return Task.CompletedTask;
+    }),
+    ("AppointmentsController.CreateHotel rejects null request with ValidationError", async () =>
+    {
+        var controller = new AppointmentsController(null!);
+        var threw = false;
+        try
+        {
+            await controller.CreateHotel(null, CancellationToken.None);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.ValidationError)
+        {
+            threw = true;
+        }
+
+        Check(threw, "Controller must throw BusinessException(ValidationError) when request is null.");
+    }),
+    ("AppointmentsController.CreateHotel has RateLimitPolicies.Booking attribute", () =>
+    {
+        var method = typeof(AppointmentsController).GetMethod(nameof(AppointmentsController.CreateHotel));
+        var rateLimitAttr = method?.GetCustomAttributes(typeof(EnableRateLimitingAttribute), true)
+            .OfType<EnableRateLimitingAttribute>()
+            .FirstOrDefault();
+        Check(rateLimitAttr is not null && rateLimitAttr.PolicyName == RateLimitPolicies.Booking,
+            "CreateHotel must have [EnableRateLimiting(RateLimitPolicies.Booking)].");
+        return Task.CompletedTask;
     })
 };
 
@@ -1692,6 +1938,7 @@ sealed class TestScheduleRepo(
 sealed class TestConcurrencyGuard : IConcurrencyGuard
 {
     public bool LockedDay { get; private set; }
+    public (Species Species, SizeGroup SizeGroup)? LockedHotelGroup { get; private set; }
     public Task<T> RunAsync<T>(Func<Task<T>> work, CancellationToken ct = default) => work();
     public Task RunAsync(Func<Task> work, CancellationToken ct = default) => work();
     public Task LockSpaDayAsync(DateOnly day, CancellationToken ct = default)
@@ -1699,7 +1946,11 @@ sealed class TestConcurrencyGuard : IConcurrencyGuard
         LockedDay = true;
         return Task.CompletedTask;
     }
-    public Task LockHotelGroupAsync(Species species, SizeGroup sizeGroup, CancellationToken ct = default) => Task.CompletedTask;
+    public Task LockHotelGroupAsync(Species species, SizeGroup sizeGroup, CancellationToken ct = default)
+    {
+        LockedHotelGroup = (species, sizeGroup);
+        return Task.CompletedTask;
+    }
     public Task LockAppointmentAsync(Guid appointmentId, CancellationToken ct = default) => Task.CompletedTask;
 }
 
@@ -1791,6 +2042,18 @@ sealed class TestHotelBookingRepo(int activeCages, IReadOnlyList<HeldHotelStay> 
         Species species, SizeGroup sizeGroup, DateTimeOffset rangeStart, DateTimeOffset rangeEnd,
         CancellationToken ct = default) =>
         Task.FromResult(held);
+
+    public List<HotelAppointment> AddedAppointments { get; } = [];
+    public bool IsLocked { get; set; }
+
+    public Task<bool> IsBookingLockedAsync(Guid customerId, CancellationToken ct = default) =>
+        Task.FromResult(IsLocked);
+
+    public Task AddHotelAppointmentAsync(HotelAppointment appointment, CancellationToken ct = default)
+    {
+        AddedAppointments.Add(appointment);
+        return Task.CompletedTask;
+    }
 }
 
 sealed class TestPaymentRepo(PaymentWithOwner? found) : IPaymentRepository
