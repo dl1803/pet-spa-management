@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { PetGlyph } from "@/components/domain/pet-avatar";
 import { ServiceCatalogTable } from "@/components/domain/service-catalog-table";
 import { ErrorAlert } from "@/components/feedback/error-alert";
@@ -33,11 +33,12 @@ function CatalogSkeleton() {
 
 export function ServiceCatalogSection() {
   const [species, setSpecies] = useState<Species>("Dog");
-  const { data, error, isFetching, refetch } = useServices();
+  const { data, error, isPending, isError, isFetching, refetch } = useServices();
 
-  // Gọi GET /services một lần rồi lọc theo loài ở web để đổi loài không phải tải lại
-  // (API có tham số `species` nhưng không dùng ở đây).
-  const services = data?.filter((service) => service.pricing.some((row) => row.species === species));
+  const services = useMemo(
+    () => data?.filter((service) => service.pricing.some((row) => row.species === species)),
+    [data, species],
+  );
 
   function handleSpeciesChange(value: string) {
     const next = CATALOG_SPECIES.find((item) => item === value);
@@ -45,8 +46,8 @@ export function ServiceCatalogSection() {
   }
 
   function renderBody() {
-    if (services === undefined) {
-      if (error === null) return <CatalogSkeleton />;
+    if (isPending) return <CatalogSkeleton />;
+    if (isError) {
       return (
         <div>
           <ErrorAlert error={error} />
@@ -58,7 +59,7 @@ export function ServiceCatalogSection() {
         </div>
       );
     }
-    if (services.length === 0) {
+    if (!services || services.length === 0) {
       return (
         <Card>
           <p className="px-5 py-10 text-center text-muted">Chưa có dịch vụ cho loài này.</p>
