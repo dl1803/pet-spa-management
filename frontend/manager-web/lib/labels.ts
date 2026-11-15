@@ -1,11 +1,13 @@
 import type {
   AppointmentStatus,
+  AppointmentType,
   PaymentKind,
   PaymentMethod,
   PaymentStatus,
   SizeGroup,
   Species,
   StaffRole,
+  Temperament,
 } from "@/lib/api/types";
 
 export const SPECIES_LABELS: Record<Species, string> = {
@@ -19,6 +21,17 @@ export const SIZE_GROUP_LABELS: Record<SizeGroup, string> = {
   Small: "Nhỏ",
   Medium: "Vừa",
   Large: "Lớn",
+};
+
+export const TEMPERAMENT_LABELS: Record<Temperament, string> = {
+  Calm: "Hiền",
+  Normal: "Bình thường",
+  Difficult: "Khó tính, dữ",
+};
+
+export const APPOINTMENT_TYPE_LABELS: Record<AppointmentType, string> = {
+  Spa: "Spa",
+  Hotel: "Lưu trú",
 };
 
 export const STAFF_ROLE_LABELS: Record<StaffRole, string> = {
