@@ -17,6 +17,26 @@ export type SpaSuggestions = {
 
 export type Species = "Dog" | "Cat" | "Rabbit" | "GuineaPig";
 export type SizeGroup = "Small" | "Medium" | "Large";
+export type Temperament = "Calm" | "Normal" | "Difficult";
+
+export type Pet = {
+  petId: string;
+  customerId: string;
+  name: string;
+  species: Species;
+  breed: string;
+  temperament: Temperament;
+  // kg.
+  weightKg: number;
+  // cm; chỉ có ở chó.
+  heightCm?: number | null;
+  coatNote?: string | null;
+  notes?: string | null;
+  // Do backend xác định theo bảng mốc (BR-19).
+  sizeGroup: SizeGroup;
+  // false: khách đã gỡ hồ sơ (xóa mềm).
+  isActive: boolean;
+};
 
 export type PricingRow = {
   species: Species;
@@ -206,6 +226,13 @@ export type Appointment = {
   cageId?: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type AppointmentPage = {
+  page: number;
+  pageSize: number;
+  total: number;
+  items: Appointment[];
 };
 
 export type AppointmentServiceItem = {
