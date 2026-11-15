@@ -43,10 +43,18 @@ public sealed class PaymentsController(PaymentService paymentService, ILogger<Pa
             return Ok(VnpayIpnResponse.InvalidChecksum);
         }
 
-        var result = await paymentService.ProcessCallbackAsync(parameters, ct);
-        LogCallback(result);
+        try
+        {
+            var result = await paymentService.ProcessCallbackAsync(parameters, ct);
+            LogCallback(result);
 
-        return Ok(VnpayIpnResponse.From(result.Status));
+            return Ok(VnpayIpnResponse.From(result.Status));
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Lỗi khi xử lý webhook VNPAY: {Message}", ex.Message);
+            return Ok(VnpayIpnResponse.Unprocessed);
+        }
     }
 
     private void LogCallback(PaymentCallbackResult result)

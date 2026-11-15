@@ -89,8 +89,12 @@ public sealed class PaymentService(IPaymentRepository payments, IPaymentGateway 
 
             if (!callback.Succeeded)
             {
-                RecordCallback(transaction, callback, TransactionResult.Failed);
-                await payments.SaveChangesAsync(ct);
+                if (transaction.Result != TransactionResult.Failed)
+                {
+                    RecordCallback(transaction, callback, TransactionResult.Failed);
+                    await payments.SaveChangesAsync(ct);
+                }
+
                 return Outcome(PaymentCallbackStatus.Failed, transaction, payment, callback);
             }
 

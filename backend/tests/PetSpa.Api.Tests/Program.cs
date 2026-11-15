@@ -2103,6 +2103,11 @@ var tests = new (string Name, Func<Task> Run)[]
             "A failed gateway result must be recorded on the transaction.");
         Check(repo.SaveCalls == 1, "The failed result must be saved once.");
 
+        var repeatedFailed = await new PaymentService(repo, new TestPaymentGateway { Callback = SuccessCallback(target, succeeded: false) }, guard)
+            .ProcessCallbackAsync(new Dictionary<string, string>());
+        Check(repeatedFailed.Status == PaymentCallbackStatus.Failed && repo.SaveCalls == 1,
+            "A repeated failed callback must not re-save.");
+
         var paid = await new PaymentService(repo, new TestPaymentGateway { Callback = SuccessCallback(target) }, guard)
             .ProcessCallbackAsync(new Dictionary<string, string>());
 
@@ -2242,6 +2247,28 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(logger.Entries.Count == 1 && logger.Entries[0].Level == Microsoft.Extensions.Logging.LogLevel.Warning
                 && logger.Entries[0].Message.Contains("150000") && logger.Entries[0].Message.Contains("149000"),
             "One warning with the expected and the confirmed amount must be logged.");
+    }),
+    ("PaymentsController.VnpayIpn catches unexpected exception, logs error and returns 200 with RspCode 99", async () =>
+    {
+        var target = CallbackTarget();
+        var gateway = new TestPaymentGateway { CallbackSignatureValid = true, Callback = SuccessCallback(target) };
+        var logger = new CapturingLogger<PaymentsController>();
+        var failingService = new PaymentService(null!, gateway, new TestConcurrencyGuard());
+        var controller = new PaymentsController(failingService, logger)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext { Request = { QueryString = new QueryString("?vnp_TxnRef=ABC123def456") } },
+            },
+        };
+
+        var result = await controller.VnpayIpn(CancellationToken.None) as OkObjectResult;
+
+        Check(result is not null && result.StatusCode == 200, "An unexpected exception must return HTTP 200 OK.");
+        var body = result!.Value as VnpayIpnResponse;
+        Check(body is { RspCode: "99", Message: "Unknown error" }, "The response must contain RspCode 99.");
+        Check(logger.Entries.Count == 1 && logger.Entries[0].Level == Microsoft.Extensions.Logging.LogLevel.Error,
+            "An error entry must be logged.");
     }),
     ("VnpayIpnResponse.From maps every callback status to its VNPAY response", () =>
     {
