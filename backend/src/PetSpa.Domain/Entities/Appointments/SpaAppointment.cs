@@ -13,15 +13,19 @@ public class SpaAppointment : Appointment
 
     protected override AppointmentLifecycle GetLifecycle() => AppointmentLifecycle.Spa;
 
-    public IReadOnlyList<AppointmentStaff> AssignStaff(IReadOnlyCollection<Guid> staffIds)
+    public IReadOnlyList<AppointmentStaff> AssignStaff(IReadOnlyCollection<Guid>? staffIds)
     {
+        if (staffIds is null || staffIds.Count == 0)
+            throw new BusinessException(ErrorCodes.ValidationError, "Danh sách nhân viên phân công không được để trống.");
+
         GetLifecycle().EnsureTransition(Status, AppointmentStatus.Confirmed);
 
         var distinctIds = staffIds.Distinct().ToList();
         if (distinctIds.Count != StaffRequired)
             throw new BusinessException(ErrorCodes.StaffCountMismatch);
 
-        var assignedAt = DateTimeOffset.UtcNow;
+        var now = DateTimeOffset.UtcNow;
+        UpdatedAt = now;
 
         return distinctIds
             .Select(staffId => new AppointmentStaff
@@ -31,7 +35,7 @@ public class SpaAppointment : Appointment
                 BusyFrom = SlotStart,
                 BusyUntil = BusyUntil,
                 IsHolding = true,
-                AssignedAt = assignedAt,
+                AssignedAt = now,
             })
             .ToList();
     }

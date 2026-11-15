@@ -21,19 +21,37 @@ public sealed class AssignmentRepository(AppDbContext db) : IAssignmentRepositor
     }
 
     public async Task<IReadOnlyList<StaffBusyWindow>> ListHoldingStaffWindowsAsync(
-        DateTimeOffset rangeStart, DateTimeOffset rangeEnd, CancellationToken ct = default)
+        DateTimeOffset rangeStart,
+        DateTimeOffset rangeEnd,
+        Guid? excludeAppointmentId = null,
+        CancellationToken ct = default)
     {
         var start = rangeStart.ToUniversalTime();
         var end = rangeEnd.ToUniversalTime();
 
-        return await db.Set<AppointmentStaff>().AsNoTracking()
-            .Where(a => a.IsHolding && a.BusyFrom < end && a.BusyUntil > start)
+        var query =
+            from a in db.Set<AppointmentStaff>().AsNoTracking()
+            join appointment in db.Set<Appointment>().AsNoTracking()
+                on a.AppointmentId equals appointment.AppointmentId
+            where a.IsHolding
+                && appointment.Status != AppointmentStatus.Cancelled
+                && appointment.Status != AppointmentStatus.Completed
+                && a.BusyFrom < end
+                && a.BusyUntil > start
+            select a;
+
+        if (excludeAppointmentId.HasValue)
+        {
+            query = query.Where(a => a.AppointmentId != excludeAppointmentId.Value);
+        }
+
+        return await query
             .Select(a => new StaffBusyWindow(a.StaffId, a.BusyFrom, a.BusyUntil))
             .ToListAsync(ct);
     }
 
     public Task<SpaAppointment?> FindSpaAppointmentAsync(Guid appointmentId, CancellationToken ct = default) =>
-        db.Set<SpaAppointment>().AsNoTracking()
+        db.Set<SpaAppointment>()
             .FirstOrDefaultAsync(a => a.AppointmentId == appointmentId, ct);
 
     public async Task<int> GetSuggestLookbackDaysAsync(CancellationToken ct = default)
@@ -65,10 +83,32 @@ public sealed class AssignmentRepository(AppDbContext db) : IAssignmentRepositor
             .ToDictionaryAsync(x => x.StaffId, x => x.Count, ct);
     }
 
-    public async Task AddStaffAssignmentsAsync(
+    public async Task SetStaffAssignmentsAsync(
+        Guid appointmentId,
+        IReadOnlyList<AppointmentStaff> staffAssignments,
+        CancellationToken ct = default)
+    {
+        var existing = await db.Set<AppointmentStaff>()
+            .Where(a => a.AppointmentId == appointmentId)
+            .ToListAsync(ct);
+
+        if (existing.Count > 0)
+        {
+            db.Set<AppointmentStaff>().RemoveRange(existing);
+        }
+
+        if (staffAssignments.Count > 0)
+        {
+            db.Set<AppointmentStaff>().AddRange(staffAssignments);
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    public Task AddStaffAssignmentsAsync(
         IReadOnlyList<AppointmentStaff> staffAssignments, CancellationToken ct = default)
     {
-        db.Set<AppointmentStaff>().AddRange(staffAssignments);
-        await db.SaveChangesAsync(ct);
+        if (staffAssignments.Count == 0) return Task.CompletedTask;
+        return SetStaffAssignmentsAsync(staffAssignments[0].AppointmentId, staffAssignments, ct);
     }
 }

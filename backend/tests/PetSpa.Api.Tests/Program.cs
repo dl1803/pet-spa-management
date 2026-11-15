@@ -1024,7 +1024,8 @@ var tests = new (string Name, Func<Task> Run)[]
 
         var service = new AssignmentService(
             new TestAssignmentRepo(appointment, [an, binh, chi, dung], busy, recentCounts),
-            new TestScheduleRepo(15, false, shifts, []));
+            new TestScheduleRepo(15, false, shifts, []),
+            new TestConcurrencyGuard());
 
         var result = await service.GetSpaSuggestionsAsync(
             new CurrentUser(Guid.NewGuid(), UserRole.Manager), appointment.AppointmentId);
@@ -1050,7 +1051,8 @@ var tests = new (string Name, Func<Task> Run)[]
         };
         var service = new AssignmentService(
             new TestAssignmentRepo(appointment, [], [], new Dictionary<Guid, int>()),
-            new TestScheduleRepo(15, false, [], []));
+            new TestScheduleRepo(15, false, [], []),
+            new TestConcurrencyGuard());
         var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
 
         async Task<string?> CodeOfAsync(Func<Task> action)
@@ -1094,7 +1096,8 @@ var tests = new (string Name, Func<Task> Run)[]
             .Select(s => new StaffShiftWindow(s.StaffId, slotStart.AddHours(-1), busyUntil.AddHours(1)))
             .ToList();
         var repo = new TestAssignmentRepo(appointment, [an, binh], [], new Dictionary<Guid, int>());
-        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, shifts, []));
+        var guard = new TestConcurrencyGuard();
+        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, shifts, []), guard);
 
         await service.AssignSpaStaffAsync(
             new CurrentUser(Guid.NewGuid(), UserRole.Manager),
@@ -1102,6 +1105,8 @@ var tests = new (string Name, Func<Task> Run)[]
             [an.StaffId, binh.StaffId],
             false);
 
+        Check(guard.LockedAppointmentId == appointment.AppointmentId, "The appointment must be locked with LockAppointmentAsync.");
+        Check(repo.LastExcludeAppointmentId == appointment.AppointmentId, "The appointment must be excluded from conflict check.");
         Check(repo.Added.Count == 2, "One holding row must be saved for each chosen staff.");
         Check(repo.Added.Select(r => r.StaffId).OrderBy(id => id)
                 .SequenceEqual(new[] { an.StaffId, binh.StaffId }.OrderBy(id => id)),
@@ -1111,6 +1116,25 @@ var tests = new (string Name, Func<Task> Run)[]
                 && r.BusyFrom == slotStart
                 && r.BusyUntil == busyUntil),
             "Each row must hold the appointment's SlotStart and BusyUntil.");
+
+        // Idempotency / Re-assignment: assigning again replaces the staff without self-conflict or ghost holds
+        var cuong = new SpaStaffCandidate(Guid.NewGuid(), "Cuong");
+        var shiftsWithCuong = new[] { an, cuong }
+            .Select(s => new StaffShiftWindow(s.StaffId, slotStart.AddHours(-1), busyUntil.AddHours(1)))
+            .ToList();
+        var repoReassign = new TestAssignmentRepo(appointment, [an, cuong], [], new Dictionary<Guid, int>());
+        repoReassign.Added.AddRange(repo.Added); // simulate existing assignments in DB
+        var serviceReassign = new AssignmentService(repoReassign, new TestScheduleRepo(15, false, shiftsWithCuong, []), guard);
+
+        await serviceReassign.AssignSpaStaffAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Manager),
+            appointment.AppointmentId,
+            [an.StaffId, cuong.StaffId],
+            false);
+
+        Check(repoReassign.Added.Count == 2, "Re-assigning must maintain exactly 2 staff rows without ghost holds.");
+        Check(repoReassign.Added.Any(r => r.StaffId == cuong.StaffId), "Re-assigning must include newly chosen staff.");
+        Check(!repoReassign.Added.Any(r => r.StaffId == binh.StaffId), "Old replaced staff must no longer be held.");
     }),
     ("AssignmentService.AssignSpaStaffAsync rejects non-manager, wrong state, wrong staff count, inactive staff, conflict and out-of-shift staff without saving", async () =>
     {
@@ -1139,7 +1163,7 @@ var tests = new (string Name, Func<Task> Run)[]
             IReadOnlyList<StaffShiftWindow> shifts)
         {
             var repo = new TestAssignmentRepo(target, [an, binh], busy, new Dictionary<Guid, int>());
-            return (new AssignmentService(repo, new TestScheduleRepo(15, false, shifts, [])), repo);
+            return (new AssignmentService(repo, new TestScheduleRepo(15, false, shifts, []), new TestConcurrencyGuard()), repo);
         }
 
         async Task<BusinessException?> ThrownAsync(Func<Task> action)
@@ -1160,6 +1184,14 @@ var tests = new (string Name, Func<Task> Run)[]
         var forCustomer = Make(pending, [], coveringShifts);
         var customerError = await ThrownAsync(() => forCustomer.Service.AssignSpaStaffAsync(
             new CurrentUser(Guid.NewGuid(), UserRole.Customer), pending.AppointmentId, [an.StaffId], false));
+
+        var forNull = Make(pending, [], coveringShifts);
+        var nullError = await ThrownAsync(() => forNull.Service.AssignSpaStaffAsync(
+            manager, pending.AppointmentId, null, false));
+
+        var forEmpty = Make(pending, [], coveringShifts);
+        var emptyError = await ThrownAsync(() => forEmpty.Service.AssignSpaStaffAsync(
+            manager, pending.AppointmentId, [], false));
 
         var forUnknown = Make(pending, [], coveringShifts);
         var unknownError = await ThrownAsync(() => forUnknown.Service.AssignSpaStaffAsync(
@@ -1192,6 +1224,8 @@ var tests = new (string Name, Func<Task> Run)[]
         await forConfirmedAgain.Service.AssignSpaStaffAsync(manager, pending.AppointmentId, [an.StaffId], true);
 
         Check(customerError?.Code == ErrorCodes.Forbidden, "A non-manager must be rejected with Forbidden.");
+        Check(nullError?.Code == ErrorCodes.ValidationError, "A null staff collection must be rejected with ValidationError.");
+        Check(emptyError?.Code == ErrorCodes.ValidationError, "An empty staff collection must be rejected with ValidationError.");
         Check(unknownError?.Code == ErrorCodes.NotFound, "An unknown appointment must be rejected with NotFound.");
         Check(confirmedError?.Code == ErrorCodes.InvalidTransition, "A non-pending appointment must be rejected with InvalidTransition.");
         Check(wrongCountError?.Code == ErrorCodes.StaffCountMismatch, "A wrong staff count must be rejected with StaffCountMismatch.");
@@ -1200,6 +1234,8 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(outOfShiftError?.Code == ErrorCodes.StaffOutOfShift, "A staff without a covering shift must be rejected with StaffOutOfShift.");
         Check(outOfShiftError!.Detail!.Contains("An"), "The out-of-shift error must name the staff.");
         Check(forCustomer.Repo.Added.Count == 0
+                && forNull.Repo.Added.Count == 0
+                && forEmpty.Repo.Added.Count == 0
                 && forUnknown.Repo.Added.Count == 0
                 && forConfirmed.Repo.Added.Count == 0
                 && forWrongCount.Repo.Added.Count == 0
@@ -2259,6 +2295,7 @@ sealed class TestConcurrencyGuard : IConcurrencyGuard
 {
     public bool LockedDay { get; private set; }
     public (Species Species, SizeGroup SizeGroup)? LockedHotelGroup { get; private set; }
+    public Guid? LockedAppointmentId { get; private set; }
     public Task<T> RunAsync<T>(Func<Task<T>> work, CancellationToken ct = default) => work();
     public Task RunAsync(Func<Task> work, CancellationToken ct = default) => work();
     public Task LockSpaDayAsync(DateOnly day, CancellationToken ct = default)
@@ -2271,7 +2308,11 @@ sealed class TestConcurrencyGuard : IConcurrencyGuard
         LockedHotelGroup = (species, sizeGroup);
         return Task.CompletedTask;
     }
-    public Task LockAppointmentAsync(Guid appointmentId, CancellationToken ct = default) => Task.CompletedTask;
+    public Task LockAppointmentAsync(Guid appointmentId, CancellationToken ct = default)
+    {
+        LockedAppointmentId = appointmentId;
+        return Task.CompletedTask;
+    }
 }
 
 sealed class TestStaffRoleReader(StaffRole? role) : IStaffRoleReader
@@ -2329,12 +2370,20 @@ sealed class TestAssignmentRepo(
     IReadOnlyList<StaffBusyWindow> busy,
     IReadOnlyDictionary<Guid, int> recentCounts) : IAssignmentRepository
 {
+    public Guid? LastExcludeAppointmentId { get; private set; }
+
     public Task<IReadOnlyList<SpaStaffCandidate>> ListActiveSpaStaffAsync(CancellationToken ct = default) =>
         Task.FromResult(staff);
 
     public Task<IReadOnlyList<StaffBusyWindow>> ListHoldingStaffWindowsAsync(
-        DateTimeOffset rangeStart, DateTimeOffset rangeEnd, CancellationToken ct = default) =>
-        Task.FromResult(busy);
+        DateTimeOffset rangeStart,
+        DateTimeOffset rangeEnd,
+        Guid? excludeAppointmentId = null,
+        CancellationToken ct = default)
+    {
+        LastExcludeAppointmentId = excludeAppointmentId;
+        return Task.FromResult(busy);
+    }
 
     public Task<SpaAppointment?> FindSpaAppointmentAsync(Guid appointmentId, CancellationToken ct = default) =>
         Task.FromResult(appointment is not null && appointment.AppointmentId == appointmentId ? appointment : null);
@@ -2347,11 +2396,21 @@ sealed class TestAssignmentRepo(
 
     public List<AppointmentStaff> Added { get; } = [];
 
+    public Task SetStaffAssignmentsAsync(
+        Guid appointmentId,
+        IReadOnlyList<AppointmentStaff> staffAssignments,
+        CancellationToken ct = default)
+    {
+        Added.RemoveAll(a => a.AppointmentId == appointmentId);
+        Added.AddRange(staffAssignments);
+        return Task.CompletedTask;
+    }
+
     public Task AddStaffAssignmentsAsync(
         IReadOnlyList<AppointmentStaff> staffAssignments, CancellationToken ct = default)
     {
-        Added.AddRange(staffAssignments);
-        return Task.CompletedTask;
+        if (staffAssignments.Count == 0) return Task.CompletedTask;
+        return SetStaffAssignmentsAsync(staffAssignments[0].AppointmentId, staffAssignments, ct);
     }
 }
 

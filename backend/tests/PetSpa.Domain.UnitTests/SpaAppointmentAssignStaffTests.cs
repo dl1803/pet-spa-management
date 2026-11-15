@@ -80,5 +80,37 @@ public class SpaAppointmentAssignStaffTests
         Assert.Equal(ErrorCodes.InvalidTransition, ex.Code);
         Assert.Equal(status, spa.Status);
     }
+
+    [Fact]
+    public void AssignStaff_WhenStaffIdsNull_ThrowsValidationError()
+    {
+        var spa = Spa(AppointmentStatus.Pending, 1);
+
+        var ex = Assert.Throws<BusinessException>(() => spa.AssignStaff(null));
+
+        Assert.Equal(ErrorCodes.ValidationError, ex.Code);
+    }
+
+    [Fact]
+    public void AssignStaff_WhenStaffIdsEmpty_ThrowsValidationError()
+    {
+        var spa = Spa(AppointmentStatus.Pending, 1);
+
+        var ex = Assert.Throws<BusinessException>(() => spa.AssignStaff([]));
+
+        Assert.Equal(ErrorCodes.ValidationError, ex.Code);
+    }
+
+    [Fact]
+    public void AssignStaff_UpdatesAppointmentUpdatedAt()
+    {
+        var past = DateTimeOffset.UtcNow.AddHours(-1);
+        var spa = Spa(AppointmentStatus.Pending, 1);
+        spa.UpdatedAt = past;
+
+        spa.AssignStaff([Guid.NewGuid()]);
+
+        Assert.True(spa.UpdatedAt > past);
+    }
 }
 
