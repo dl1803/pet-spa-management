@@ -36,7 +36,7 @@ Khối này ẩn dưới 980px cùng thanh bên. Huy hiệu chờ xác nhận nh
 gồm tiền tố `/api/v1`. Biến này công khai trong bundle trình duyệt; không chứa secret.
 Nếu thiếu URL, client dừng trước khi gửi request và trả `ApiError` loại `configuration`, không retry.
 Development hiển thị tên biến cần cấu hình; production hiển thị câu lỗi chung.
-Các trang hiện dùng dữ liệu mô phỏng, chưa gọi API.
+Màn Dịch vụ (`/dich-vu`) gọi backend thật (`GET`, `POST`, `PUT`, `PATCH /services`) qua `lib/api/endpoints/services.ts` và `lib/queries/services.ts`; các trang còn lại hiện dùng dữ liệu mô phỏng, chưa gọi API. Danh sách mốc giờ của form dịch vụ là hằng `SLOT_TIMES` (`features/services/forms.ts`) vì backend chưa có `GET /config`.
 
 `apiClient` và `setAccessTokenProvider` chỉ dùng trong trình duyệt, sau khi component đã mount hoặc
 trong event handler; gọi khi SSR/Server Component/Server Action sẽ bị chặn trước khi đọc token hay gửi request.

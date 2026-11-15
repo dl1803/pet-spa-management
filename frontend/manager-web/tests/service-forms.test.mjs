@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   PRICING_SLOTS,
+  SLOT_TIMES,
   countServices,
   createFormValues,
   findPricingProblems,
@@ -10,11 +11,11 @@ import {
   normalizeInteger,
   toServiceRequest,
 } from "../features/services/forms.ts";
-import { MOCK_SERVICES, MOCK_SLOT_TIMES, buildMockService } from "../features/services/mock-data.ts";
+import { MOCK_SERVICES } from "./fixtures/services.ts";
 
 const cutTia = MOCK_SERVICES.find((service) => service.name === "Cắt tỉa lông");
 
-test("dữ liệu mô phỏng khớp bảng MW-06: 5 đang cung cấp, 1 đã ngừng, giá từ và mốc muộn nhất", () => {
+test("dữ liệu mẫu theo bảng MW-06: 5 đang cung cấp, 1 đã ngừng, giá từ và mốc muộn nhất", () => {
   assert.deepEqual(countServices(MOCK_SERVICES), { active: 5, inactive: 1 });
   assert.deepEqual(
     MOCK_SERVICES.map((service) => [service.name, getMinPrice(service.pricing), service.latestStartTime, service.isActive]),
@@ -30,7 +31,7 @@ test("dữ liệu mô phỏng khớp bảng MW-06: 5 đang cung cấp, 1 đã ng
   assert.deepEqual(getPricingSpecies(MOCK_SERVICES[0].pricing), ["Dog", "Cat", "Rabbit", "GuineaPig"]);
   assert.deepEqual(getPricingSpecies(MOCK_SERVICES[5].pricing), ["Dog"]);
   for (const service of MOCK_SERVICES) {
-    assert.ok(MOCK_SLOT_TIMES.includes(service.latestStartTime));
+    assert.ok(SLOT_TIMES.includes(service.latestStartTime));
     assert.equal(service.pricing.filter((row) => row.species === "GuineaPig" && row.sizeGroup === "Medium").length, 0);
   }
 });
@@ -116,10 +117,9 @@ test("giá hoặc thời lượng không hợp lệ bị báo; giá 0 hợp lệ
   );
 });
 
-test("buildMockService giữ id và trạng thái; mô tả bị xóa thì thành null", () => {
-  const request = toServiceRequest({ ...createFormValues(cutTia), description: "" });
-  const updated = buildMockService(request, { serviceId: cutTia.serviceId, isActive: false });
-  assert.equal(updated.serviceId, cutTia.serviceId);
-  assert.equal(updated.isActive, false);
-  assert.equal(updated.description, null);
+test("mốc giờ lựa chọn: 11 mốc tròn 09:00 – 19:00 tăng dần", () => {
+  assert.equal(SLOT_TIMES.length, 11);
+  assert.deepEqual(SLOT_TIMES, [...SLOT_TIMES].sort());
+  assert.equal(SLOT_TIMES[0], "09:00");
+  assert.equal(SLOT_TIMES.at(-1), "19:00");
 });

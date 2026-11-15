@@ -11,7 +11,10 @@ public interface IAssignmentRepository
     Task<IReadOnlyList<SpaStaffCandidate>> ListActiveSpaStaffAsync(CancellationToken ct = default);
 
     Task<IReadOnlyList<StaffBusyWindow>> ListHoldingStaffWindowsAsync(
-        DateTimeOffset rangeStart, DateTimeOffset rangeEnd, CancellationToken ct = default);
+        DateTimeOffset rangeStart,
+        DateTimeOffset rangeEnd,
+        Guid? excludeAppointmentId = null,
+        CancellationToken ct = default);
 
     Task<SpaAppointment?> FindSpaAppointmentAsync(Guid appointmentId, CancellationToken ct = default);
 
@@ -19,4 +22,9 @@ public interface IAssignmentRepository
 
     Task<IReadOnlyDictionary<Guid, int>> CountRecentAssignmentsAsync(
         DateTimeOffset since, CancellationToken ct = default);
+
+    Task SetStaffAssignmentsAsync(
+        Guid appointmentId, IReadOnlyList<AppointmentStaff> staffAssignments, CancellationToken ct = default);
+
+    Task AddStaffAssignmentsAsync(IReadOnlyList<AppointmentStaff> staffAssignments, CancellationToken ct = default);
 }

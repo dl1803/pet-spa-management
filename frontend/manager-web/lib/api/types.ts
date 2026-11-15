@@ -44,6 +44,14 @@ export type ServiceRequest = {
   pricing: PricingRow[];
 };
 
+export type ServiceCreated = {
+  serviceId: string;
+};
+
+export type ActiveToggleRequest = {
+  isActive: boolean;
+};
+
 export type CageOccupant = {
   petId: string;
   petName: string;

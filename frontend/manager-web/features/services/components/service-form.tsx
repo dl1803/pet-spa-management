@@ -3,6 +3,7 @@
 import { useId } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { Alert } from "@/components/feedback/alert";
+import { ErrorAlert } from "@/components/feedback/error-alert";
 import { Button } from "@/components/ui/button";
 import { Field, describedBy } from "@/components/ui/field";
 import { Input, Select, Textarea } from "@/components/ui/input";
@@ -26,10 +27,14 @@ type ServiceFormProps = {
   slotTimes: string[];
   onSubmit: (request: ServiceRequest) => void;
   onCancel: () => void;
+  // Đang gửi lên server: khóa nút lưu để chống bấm đúp (SA 6.6).
+  isSubmitting?: boolean;
+  // Lỗi lần gửi gần nhất (400 VALIDATION_ERROR, 404…); form giữ nguyên dữ liệu đã nhập (Frontend-Conventions 4.1).
+  submitError?: unknown;
 };
 
 // MW-06·D1 – nội dung ngăn kéo thêm/sửa dịch vụ (đặt trong <Drawer>).
-export function ServiceForm({ service, slotTimes, onSubmit, onCancel }: ServiceFormProps) {
+export function ServiceForm({ service, slotTimes, onSubmit, onCancel, isSubmitting = false, submitError = null }: ServiceFormProps) {
   const id = useId();
   const {
     register,
@@ -58,6 +63,7 @@ export function ServiceForm({ service, slotTimes, onSubmit, onCancel }: ServiceF
       className="flex min-h-0 grow flex-col"
     >
       <div className="flex grow flex-col gap-6 overflow-y-auto px-6 py-5">
+        <ErrorAlert error={submitError} />
         {problems.length > 0 && <Alert tone="danger">{problems[0].message}</Alert>}
 
         <Field id={nameId} label="Tên dịch vụ" required error={errors.name?.message}>
@@ -126,8 +132,10 @@ export function ServiceForm({ service, slotTimes, onSubmit, onCancel }: ServiceF
       </div>
 
       <div className="flex shrink-0 justify-end gap-2.5 border-t border-line px-6 py-4">
-        <Button variant="ghost" onClick={onCancel}>Hủy bỏ</Button>
-        <Button type="submit" disabled={problems.length > 0}>Lưu dịch vụ</Button>
+        <Button variant="ghost" onClick={onCancel} disabled={isSubmitting}>Hủy bỏ</Button>
+        <Button type="submit" disabled={problems.length > 0 || isSubmitting} aria-busy={isSubmitting || undefined}>
+          {isSubmitting ? "Đang lưu…" : "Lưu dịch vụ"}
+        </Button>
       </div>
     </form>
   );

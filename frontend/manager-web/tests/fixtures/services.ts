@@ -1,11 +1,7 @@
-import type { PricingRow, Service, ServiceRequest, Species } from "@/lib/api/types";
-import { SPECIES_SIZE_GROUPS } from "./forms";
+import type { PricingRow, Service, Species } from "@/lib/api/types";
+import { SPECIES_SIZE_GROUPS } from "../../features/services/forms";
 
-// Dữ liệu mô phỏng theo UI demo (MW-06 và CW-03), đúng hình dạng Service của GET /services.
-// Thay bằng dữ liệu API thật khi nối backend.
-
-// Mặc định của Booking.SlotTimes (openapi ConfigSettings); thay bằng GET /config khi nối API.
-export const MOCK_SLOT_TIMES = ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00"];
+// Dữ liệu mẫu đúng hình dạng Service của GET /services, theo UI demo (MW-06 và CW-03); chỉ dùng cho kiểm thử.
 
 // Mỗi ô: [giá (đ), thời lượng (phút), số nhân viên (mặc định 1)] theo thứ tự nhóm của loài.
 type Cell = [number, number, (1 | 2)?];
@@ -93,15 +89,3 @@ export const MOCK_SERVICES: Service[] = [
     pricing: pricing("Dog", [[250000, 90], [300000, 105], [380000, 120]]),
   },
 ];
-
-// Mô phỏng kết quả server sau POST/PUT /services: giữ serviceId, isActive; description bỏ trống → null.
-export function buildMockService(request: ServiceRequest, base: Pick<Service, "serviceId" | "isActive">): Service {
-  return {
-    serviceId: base.serviceId,
-    isActive: base.isActive,
-    name: request.name,
-    description: request.description ?? null,
-    latestStartTime: request.latestStartTime,
-    pricing: request.pricing,
-  };
-}
