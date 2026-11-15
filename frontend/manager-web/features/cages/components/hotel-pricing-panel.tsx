@@ -3,6 +3,7 @@
 import { useId } from "react";
 import type { UseFormRegister } from "react-hook-form";
 import { Alert } from "@/components/feedback/alert";
+import { ErrorAlert } from "@/components/feedback/error-alert";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Field, describedBy } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -21,18 +22,21 @@ type HotelPricingPanelProps = {
   problems: PricingProblem[];
   // Lỗi của ô “Mức phí mỗi lần” do form báo.
   lateFeeError?: string;
+  // Lỗi server của lần lưu gần nhất (PUT /hotel/pricing); hiện đầu khối, không xóa các ô đang nhập.
+  submitError?: unknown;
 };
 
 const headerClass = "px-3 py-2.5 text-left text-xs font-semibold text-muted";
 
 // MW-07 tab Giá – vùng 5 (bảng giá theo loài và nhóm kích cỡ), vùng 6 (phí trả muộn) và ghi chú (UI-Screens.md).
 // Đặt trong <form>; nút “Lưu bảng giá” ở đầu trang gắn với form qua thuộc tính `form`.
-export function HotelPricingPanel({ register, problems, lateFeeError }: HotelPricingPanelProps) {
+export function HotelPricingPanel({ register, problems, lateFeeError, submitError }: HotelPricingPanelProps) {
   const id = useId();
   const lateFeeId = `${id}-late-fee`;
 
   return (
     <div className="flex flex-col gap-5">
+      <ErrorAlert error={submitError} />
       {problems.length > 0 && <Alert tone="danger">{problems[0].message}</Alert>}
 
       <div className="grid grid-cols-[minmax(0,1fr)_340px] items-start gap-5 max-[980px]:grid-cols-1">
