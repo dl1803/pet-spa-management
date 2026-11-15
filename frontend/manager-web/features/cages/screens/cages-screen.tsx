@@ -9,21 +9,30 @@ import { Button } from "@/components/ui/button";
 import { Tabs } from "@/components/ui/tabs";
 import type { Cage, CageCreateRequest } from "@/lib/api/types";
 import { MOCK_NOW } from "@/lib/mock-shop-day";
+import { useHotelPricing, useUpdateHotelPricing } from "@/lib/queries/hotel-pricing";
 import { ROUTES, withQuery } from "@/lib/routes";
 import { CageForm } from "../components/cage-form";
 import { CageStats } from "../components/cage-stats";
 import { CageTable } from "../components/cage-table";
+import { HotelPricingGate } from "../components/hotel-pricing-gate";
 import { HotelPricingPanel } from "../components/hotel-pricing-panel";
-import { createHotelPricingFormValues, findPricingProblems, toHotelPricingRequest, type HotelPricingFormValues } from "../forms";
+import {
+  createEmptyHotelPricingFormValues,
+  createHotelPricingFormValues,
+  findPricingProblems,
+  toHotelPricingRequest,
+  type HotelPricingFormValues,
+} from "../forms";
 import { CAGES_TABS, parseCagesTab, summarizeCages, type CagesTab } from "../list";
-import { MOCK_CAGES, MOCK_HOTEL_PRICING, createMockCage, setMockCageActive, updateMockCage } from "../mock-data";
+import { MOCK_CAGES, createMockCage, setMockCageActive, updateMockCage } from "../mock-data";
 
 type ModalState = { mode: "create" } | { mode: "edit"; cage: Cage } | null;
 
 // Nút “Lưu bảng giá” ở đầu trang gắn với form giá qua thuộc tính `form`.
 const PRICING_FORM_ID = "hotel-pricing-form";
 
-// MW-07 – Chuồng và giá lưu trú. Dữ liệu mô phỏng giữ trong state của màn hình; thay bằng TanStack Query khi nối API.
+// MW-07 – Chuồng và giá lưu trú. Tab Giá lấy dữ liệu từ GET /hotel/pricing và lưu bằng PUT /hotel/pricing.
+// Tab Chuồng vẫn dùng dữ liệu mô phỏng giữ trong state của màn hình (backend chưa có GET /cages); thay bằng TanStack Query khi có.
 export function CagesScreen() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -33,8 +42,13 @@ export function CagesScreen() {
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   // Form giá nằm ở màn hình, không ở tab, để giá đang sửa dở không mất khi chuyển qua lại giữa hai tab.
+  // `values` đưa giá từ server vào form khi tải xong hoặc khi tải lại; ô người dùng đang sửa dở được giữ nguyên.
+  const pricingQuery = useHotelPricing();
+  const updatePricing = useUpdateHotelPricing();
   const pricingForm = useForm<HotelPricingFormValues>({
-    defaultValues: createHotelPricingFormValues(MOCK_HOTEL_PRICING),
+    defaultValues: createEmptyHotelPricingFormValues(),
+    values: pricingQuery.data ? createHotelPricingFormValues(pricingQuery.data) : undefined,
+    resetOptions: { keepDirtyValues: true },
     mode: "onTouched",
   });
   const pricingRows = useWatch({ control: pricingForm.control, name: "rows" });
@@ -73,10 +87,15 @@ export function CagesScreen() {
   }
 
   const handleSavePricing = pricingForm.handleSubmit((values) => {
-    const request = toHotelPricingRequest(values);
-    // Hiển thị lại số theo dạng chuẩn (“175000” → “175.000”); giá vừa lưu trở thành giá trị gốc của form.
-    pricingForm.reset(createHotelPricingFormValues(request));
-    showSuccess("Đã lưu bảng giá. Áp dụng cho lịch lưu trú tạo từ bây giờ.");
+    if (updatePricing.isPending) return;
+    updatePricing.mutate(toHotelPricingRequest(values), {
+      onSuccess: (_result, request) => {
+        // Hiển thị lại số theo dạng chuẩn (“175000” → “175.000”); giá vừa lưu trở thành giá trị gốc của form.
+        // reset() thừa hưởng resetOptions của form nên phải tắt keepDirtyValues, nếu không ô vừa sửa giữ nguyên chữ đã gõ.
+        pricingForm.reset(createHotelPricingFormValues(request), { keepDirtyValues: false });
+        showSuccess("Đã lưu bảng giá. Áp dụng cho lịch lưu trú tạo từ bây giờ.");
+      },
+    });
   });
 
   return (
@@ -92,7 +111,13 @@ export function CagesScreen() {
             Thêm chuồng
           </Button>
         ) : (
-          <Button type="submit" form={PRICING_FORM_ID} disabled={pricingProblems.length > 0}>Lưu bảng giá</Button>
+          <Button
+            type="submit"
+            form={PRICING_FORM_ID}
+            disabled={!pricingQuery.data || pricingProblems.length > 0 || updatePricing.isPending}
+          >
+            {updatePricing.isPending ? "Đang lưu…" : "Lưu bảng giá"}
+          </Button>
         )}
       </div>
 
@@ -119,13 +144,21 @@ export function CagesScreen() {
       </div>
 
       <div hidden={tab !== "pricing"}>
-        <form id={PRICING_FORM_ID} noValidate onSubmit={handleSavePricing}>
-          <HotelPricingPanel
-            register={pricingForm.register}
-            problems={pricingProblems}
-            lateFeeError={pricingForm.formState.errors.lateFeePerBlock?.message}
-          />
-        </form>
+        <HotelPricingGate
+          hasData={pricingQuery.data !== undefined}
+          isPending={pricingQuery.isPending}
+          error={pricingQuery.error}
+          onRetry={() => void pricingQuery.refetch()}
+        >
+          <form id={PRICING_FORM_ID} noValidate onSubmit={handleSavePricing}>
+            <HotelPricingPanel
+              register={pricingForm.register}
+              problems={pricingProblems}
+              lateFeeError={pricingForm.formState.errors.lateFeePerBlock?.message}
+              submitError={updatePricing.error}
+            />
+          </form>
+        </HotelPricingGate>
       </div>
 
       {modal && (

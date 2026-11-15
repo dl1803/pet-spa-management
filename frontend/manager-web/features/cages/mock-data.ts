@@ -1,9 +1,9 @@
 import { ApiError } from "@/lib/api/errors";
-import type { Cage, CageCreateRequest, CageOccupant, CageUpdateRequest, HotelPricing, SizeGroup, Species } from "@/lib/api/types";
+import type { Cage, CageCreateRequest, CageOccupant, CageUpdateRequest, SizeGroup, Species } from "@/lib/api/types";
 import { FORM_MESSAGES } from "./forms";
 
-// Dữ liệu mô phỏng theo UI demo (MW-07), đúng hình dạng Cage của GET /cages và HotelPricing của GET /hotel/pricing.
-// Thay bằng dữ liệu API thật khi nối backend.
+// Dữ liệu mô phỏng theo UI demo (MW-07), đúng hình dạng Cage của GET /cages.
+// Thay bằng dữ liệu API thật khi backend có GET /cages.
 const cageId = (n: number) => `c1000000-0000-4000-8000-0000000000${n.toString().padStart(2, "0")}`;
 
 const occupant = (n: number, petName: string, customerName: string, plannedCheckOut: string): CageOccupant => ({
@@ -40,24 +40,6 @@ export const MOCK_CAGES: Cage[] = ROWS.map(([code, species, sizeGroup, state], i
   isActive: state !== "inactive",
   occupant: state === undefined || state === "inactive" ? null : state,
 }));
-
-// Giá theo UI demo (MW-07 tab Giá): [chỗ ở/đêm, thức ăn/đêm] theo thứ tự nhóm của loài.
-export const MOCK_HOTEL_PRICING: HotelPricing = {
-  pricing: [
-    { species: "Dog", sizeGroup: "Small", pricePerNight: 180000, foodPerNight: 40000 },
-    { species: "Dog", sizeGroup: "Medium", pricePerNight: 220000, foodPerNight: 50000 },
-    { species: "Dog", sizeGroup: "Large", pricePerNight: 280000, foodPerNight: 70000 },
-    { species: "Cat", sizeGroup: "Small", pricePerNight: 150000, foodPerNight: 35000 },
-    { species: "Cat", sizeGroup: "Medium", pricePerNight: 170000, foodPerNight: 40000 },
-    { species: "Cat", sizeGroup: "Large", pricePerNight: 200000, foodPerNight: 45000 },
-    { species: "Rabbit", sizeGroup: "Small", pricePerNight: 100000, foodPerNight: 25000 },
-    { species: "Rabbit", sizeGroup: "Medium", pricePerNight: 120000, foodPerNight: 30000 },
-    { species: "Rabbit", sizeGroup: "Large", pricePerNight: 140000, foodPerNight: 35000 },
-    { species: "GuineaPig", sizeGroup: "Small", pricePerNight: 80000, foodPerNight: 20000 },
-    { species: "GuineaPig", sizeGroup: "Large", pricePerNight: 100000, foodPerNight: 25000 },
-  ],
-  lateFeePerBlock: 50000,
-};
 
 // Mã chuồng là duy nhất (Cage.Code UNIQUE): đã có chuồng khác dùng mã này thì API trả 409 DUPLICATE_CAGE_CODE
 // (openapi createCage, updateCage). So sánh đúng từng ký tự sau khi bỏ khoảng trắng hai đầu, như ràng buộc UNIQUE của DB;

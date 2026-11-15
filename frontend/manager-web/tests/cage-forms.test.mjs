@@ -5,6 +5,7 @@ import {
   PRICING_SLOTS,
   SPECIES_SIZE_GROUPS,
   createCageFormValues,
+  createEmptyHotelPricingFormValues,
   createHotelPricingFormValues,
   findPricingProblems,
   getSizeGroupOptions,
@@ -19,7 +20,8 @@ import {
   validateSpecies,
 } from "../features/cages/forms.ts";
 import { CAGES_TABS, describeOccupant, getCageStatus, parseCagesTab, summarizeCages } from "../features/cages/list.ts";
-import { MOCK_CAGES, MOCK_HOTEL_PRICING, createMockCage, setMockCageActive, updateMockCage } from "../features/cages/mock-data.ts";
+import { MOCK_CAGES, createMockCage, setMockCageActive, updateMockCage } from "../features/cages/mock-data.ts";
+import { MOCK_HOTEL_PRICING } from "./fixtures/hotel-pricing.ts";
 import { ApiError } from "../lib/api/errors.ts";
 
 const NOW = "2026-10-06T09:20:00+07:00";
@@ -202,3 +204,20 @@ test("parseMoneyInput: chỉ nhận số nguyên, bỏ dấu phân nhóm ba ch�
   }
   for (const text of ["", " ", "1.5", "1,5", "12.34", "1.2345", "-1", "5đ", "1.000,000"]) assert.equal(parseMoneyInput(text), null, text);
 });
+
+test("form giá khi chưa có dữ liệu từ server: 11 dòng và phí đều trống, không có giá mặc định", () => {
+  const values = createEmptyHotelPricingFormValues();
+  assert.equal(values.rows.length, PRICING_SLOTS.length);
+  assert.ok(values.rows.every((row) => row.pricePerNight === "" && row.foodPerNight === ""));
+  assert.equal(values.lateFeePerBlock, "");
+  assert.equal(findPricingProblems(values.rows).length, PRICING_SLOTS.length);
+  assert.notEqual(createEmptyHotelPricingFormValues().rows, values.rows);
+});
+
+test("server chưa thiết lập giá (pricing rỗng, phí 0): form để trống các dòng giá, phí hiện 0, web không tự thêm giá", () => {
+  const values = createHotelPricingFormValues({ pricing: [], lateFeePerBlock: 0 });
+  assert.ok(values.rows.every((row) => row.pricePerNight === "" && row.foodPerNight === ""));
+  assert.equal(values.lateFeePerBlock, "0");
+  assert.equal(findPricingProblems(values.rows).length, PRICING_SLOTS.length);
+});
+

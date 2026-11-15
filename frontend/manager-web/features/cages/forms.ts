@@ -124,6 +124,14 @@ export function createHotelPricingFormValues(pricing: HotelPricing): HotelPricin
   };
 }
 
+// Giá trị ban đầu của form trước khi có dữ liệu từ server; chỉ để khởi tạo form, không phải giá mặc định của cửa hàng.
+export function createEmptyHotelPricingFormValues(): HotelPricingFormValues {
+  return {
+    rows: PRICING_SLOTS.map(() => ({ pricePerNight: "", foodPerNight: "" })),
+    lateFeePerBlock: "",
+  };
+}
+
 export type PricingProblem = PricingSlot & { message: string };
 
 // Mỗi dòng (loài × nhóm) phải có đủ giá chỗ ở và giá thức ăn, số nguyên ≥ 0 (BR-22, FR-HTL-03; UI-Screens MW-07).
