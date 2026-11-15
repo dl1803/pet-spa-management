@@ -10,7 +10,7 @@ namespace PetSpa.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/payments")]
-public sealed class PaymentsController(PaymentService paymentService) : ControllerBase
+public sealed class PaymentsController(PaymentService paymentService, ILogger<PaymentsController> logger) : ControllerBase
 {
     [HttpPost("{id}/online")]
     [Authorize(Policy = AuthorizationPolicies.Customer)]
@@ -30,18 +30,64 @@ public sealed class PaymentsController(PaymentService paymentService) : Controll
     [HttpGet("ipn/vnpay")]
     [AllowAnonymous]
     [EndpointSummary("Webhook VNPAY (IPN)")]
-    [EndpointDescription("Không dùng JWT, xác thực bằng chữ ký của VNPAY trên các tham số query. Chữ ký sai hoặc thiếu nhận HTTP 200 RspCode 97 và không cập nhật trạng thái thanh toán.")]
-    public IActionResult VnpayIpn()
+    [EndpointDescription("Không dùng JWT, xác thực bằng chữ ký của VNPAY trên các tham số query. Luôn trả HTTP 200 kèm RspCode theo đặc tả VNPAY: 00 đã ghi nhận (thanh toán thành công, hoặc kết quả thất bại của cổng đã được lưu), 01 không tìm thấy giao dịch theo TxnRef, 02 giao dịch đã xử lý hoặc khoản thanh toán không còn chờ thanh toán, 04 số tiền cổng xác nhận không khớp số tiền cần thanh toán (không cập nhật, ghi log), 97 chữ ký sai hoặc thiếu (không cập nhật, ghi log), 99 thiếu tham số bắt buộc. Chỉ khi chữ ký hợp lệ, TxnRef đã tạo, kết quả thành công và số tiền khớp đủ thì khoản thanh toán mới chuyển Đã thanh toán (Online); callback lặp cùng TxnRef bị bỏ qua.")]
+    public async Task<IActionResult> VnpayIpn(CancellationToken ct)
     {
         var parameters = Request.Query.ToDictionary(
             query => query.Key, query => query.Value.ToString(), StringComparer.Ordinal);
 
         if (!paymentService.VerifyIpnSignature(parameters))
         {
+            logger.LogWarning(
+                "Sự kiện bảo mật: webhook VNPAY bị từ chối do chữ ký không hợp lệ, IP {ClientIp}", GetClientIp());
             return Ok(VnpayIpnResponse.InvalidChecksum);
         }
 
-        return Ok(VnpayIpnResponse.Unprocessed);
+        try
+        {
+            var result = await paymentService.ProcessCallbackAsync(parameters, ct);
+            LogCallback(result);
+
+            return Ok(VnpayIpnResponse.From(result.Status));
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Lỗi khi xử lý webhook VNPAY: {Message}", ex.Message);
+            return Ok(VnpayIpnResponse.Unprocessed);
+        }
+    }
+
+    private void LogCallback(PaymentCallbackResult result)
+    {
+        switch (result.Status)
+        {
+            case PaymentCallbackStatus.Paid:
+                logger.LogInformation(
+                    "Webhook VNPAY: đã ghi nhận thanh toán {PaymentId} qua giao dịch {TxnRef}, số tiền {ConfirmedAmount}",
+                    result.PaymentId, result.TxnRef, result.ConfirmedAmount);
+                break;
+            case PaymentCallbackStatus.Failed:
+                logger.LogInformation(
+                    "Webhook VNPAY: giao dịch {TxnRef} không thành công tại cổng, khoản thanh toán {PaymentId} giữ nguyên Chưa thanh toán",
+                    result.TxnRef, result.PaymentId);
+                break;
+            case PaymentCallbackStatus.AlreadyProcessed:
+                logger.LogInformation(
+                    "Webhook VNPAY: bỏ qua giao dịch {TxnRef}, đã xử lý hoặc khoản thanh toán {PaymentId} không còn chờ thanh toán",
+                    result.TxnRef, result.PaymentId);
+                break;
+            case PaymentCallbackStatus.AmountMismatch:
+                logger.LogWarning(
+                    "Sự kiện bảo mật: webhook VNPAY lệch số tiền, giao dịch {TxnRef}, khoản thanh toán {PaymentId}, cần {ExpectedAmount}, cổng xác nhận {ConfirmedAmount}; không cập nhật",
+                    result.TxnRef, result.PaymentId, result.ExpectedAmount, result.ConfirmedAmount);
+                break;
+            case PaymentCallbackStatus.TxnNotFound:
+                logger.LogWarning("Webhook VNPAY: không tìm thấy giao dịch {TxnRef}", result.TxnRef);
+                break;
+            case PaymentCallbackStatus.Malformed:
+                logger.LogWarning("Webhook VNPAY: thiếu hoặc sai tham số bắt buộc, không xử lý");
+                break;
+        }
     }
 
     private string GetClientIp()

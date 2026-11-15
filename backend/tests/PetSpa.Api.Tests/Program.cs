@@ -1469,6 +1469,60 @@ var tests = new (string Name, Func<Task> Run)[]
         AssertThrows<ArgumentNullException>(() => gateway.VerifyCallbackSignature(null!), "Null parameters must be rejected.");
         return Task.CompletedTask;
     }),
+    ("VnpayPaymentGateway.ReadCallback maps a successful callback", () =>
+    {
+        var gateway = new VnpayPaymentGateway(ValidVnpayGatewayOptions());
+
+        var callback = gateway.ReadCallback(VnpayCallback());
+
+        Check(callback is { TxnRef: "ABC123def456", ConfirmedAmount: 150000m, Succeeded: true },
+            "TxnRef, the amount divided by 100 and a successful result must be read from the callback.");
+        return Task.CompletedTask;
+    }),
+    ("VnpayPaymentGateway.ReadCallback treats any code other than 00 as a failed result", () =>
+    {
+        var gateway = new VnpayPaymentGateway(ValidVnpayGatewayOptions());
+
+        foreach (var (key, value) in new[] { ("vnp_ResponseCode", "24"), ("vnp_TransactionStatus", "02") })
+        {
+            var parameters = VnpayCallback();
+            parameters[key] = value;
+            var callback = gateway.ReadCallback(parameters);
+            Check(callback is { Succeeded: false, TxnRef: "ABC123def456", ConfirmedAmount: 150000m },
+                $"{key}={value} must be read as a failed result.");
+        }
+
+        var odd = VnpayCallback();
+        odd["vnp_Amount"] = "15000050";
+        Check(gateway.ReadCallback(odd)?.ConfirmedAmount == 150000.50m,
+            "An amount that is not a whole number of VND must not be rounded.");
+        return Task.CompletedTask;
+    }),
+    ("VnpayPaymentGateway.ReadCallback returns null when a required parameter is missing or malformed", () =>
+    {
+        var gateway = new VnpayPaymentGateway(ValidVnpayGatewayOptions());
+
+        foreach (var key in new[] { "vnp_TxnRef", "vnp_Amount", "vnp_ResponseCode", "vnp_TransactionStatus" })
+        {
+            var parameters = VnpayCallback();
+            parameters.Remove(key);
+            Check(gateway.ReadCallback(parameters) is null, $"A callback without {key} must be unreadable.");
+        }
+
+        foreach (var invalid in new[] { "", "abc", "-100", "1.5", "15000000 ", "1e5" })
+        {
+            var parameters = VnpayCallback();
+            parameters["vnp_Amount"] = invalid;
+            Check(gateway.ReadCallback(parameters) is null, $"The amount '{invalid}' must be unreadable.");
+        }
+
+        var emptyRef = VnpayCallback();
+        emptyRef["vnp_TxnRef"] = "";
+        Check(gateway.ReadCallback(emptyRef) is null, "An empty TxnRef must be unreadable.");
+
+        AssertThrows<ArgumentNullException>(() => gateway.ReadCallback(null!), "Null parameters must be rejected.");
+        return Task.CompletedTask;
+    }),
     ("VnpayPaymentGateway verifies the signature of the payment URL it created after the query is parsed", () =>
     {
         var gateway = new VnpayPaymentGateway(ValidVnpayGatewayOptions());
@@ -1526,7 +1580,7 @@ var tests = new (string Name, Func<Task> Run)[]
         var payment = OnlinePayment(PaymentKind.Spa, 150000m);
         var repo = new TestPaymentRepo(new PaymentWithOwner(payment, AppointmentStatus.Completed, ownerUserId));
         var gateway = new TestPaymentGateway();
-        var service = new PaymentService(repo, gateway);
+        var service = new PaymentService(repo, gateway, new TestConcurrencyGuard());
 
         var result = await service.StartOnlineAsync(
             new CurrentUser(ownerUserId, UserRole.Customer), payment.PaymentId, PaymentGateway.VNPAY, "203.0.113.7");
@@ -1558,7 +1612,7 @@ var tests = new (string Name, Func<Task> Run)[]
         {
             var repo = new TestPaymentRepo(found);
             var gateway = new TestPaymentGateway();
-            var service = new PaymentService(repo, gateway);
+            var service = new PaymentService(repo, gateway, new TestConcurrencyGuard());
             var threw = false;
             try
             {
@@ -1590,7 +1644,7 @@ var tests = new (string Name, Func<Task> Run)[]
         {
             var repo = new TestPaymentRepo(new PaymentWithOwner(payment, appointmentStatus, ownerUserId));
             var gateway = new TestPaymentGateway();
-            var service = new PaymentService(repo, gateway);
+            var service = new PaymentService(repo, gateway, new TestConcurrencyGuard());
             var threw = false;
             try
             {
@@ -1622,7 +1676,7 @@ var tests = new (string Name, Func<Task> Run)[]
         var ownerUserId = Guid.NewGuid();
         var payment = OnlinePayment(PaymentKind.Spa, 150000m);
         var repo = new TestPaymentRepo(new PaymentWithOwner(payment, AppointmentStatus.Completed, ownerUserId));
-        var service = new PaymentService(repo, new TestPaymentGateway { Failure = new InvalidOperationException("gateway") });
+        var service = new PaymentService(repo, new TestPaymentGateway { Failure = new InvalidOperationException("gateway") }, new TestConcurrencyGuard());
 
         var threw = false;
         try
@@ -1669,7 +1723,7 @@ var tests = new (string Name, Func<Task> Run)[]
     }),
     ("PaymentsController.PayOnline rejects null request with ValidationError", async () =>
     {
-        var controller = new PaymentsController(new PaymentService(new TestPaymentRepo(null), new TestPaymentGateway()));
+        var controller = new PaymentsController(new PaymentService(new TestPaymentRepo(null), new TestPaymentGateway(), new TestConcurrencyGuard()), NullLogger<PaymentsController>.Instance);
 
         var threw = false;
         try
@@ -1701,7 +1755,7 @@ var tests = new (string Name, Func<Task> Run)[]
                 ], "test")),
             };
             httpContext.Connection.RemoteIpAddress = remoteIp;
-            var controller = new PaymentsController(new PaymentService(repo, gateway))
+            var controller = new PaymentsController(new PaymentService(repo, gateway, new TestConcurrencyGuard()), NullLogger<PaymentsController>.Instance)
             {
                 ControllerContext = new ControllerContext { HttpContext = httpContext },
             };
@@ -1969,16 +2023,156 @@ var tests = new (string Name, Func<Task> Run)[]
         var parameters = new Dictionary<string, string> { ["vnp_TxnRef"] = "ABC123def456" };
 
         var accepting = new TestPaymentGateway { CallbackSignatureValid = true };
-        var valid = new PaymentService(repo, accepting).VerifyIpnSignature(parameters);
+        var valid = new PaymentService(repo, accepting, new TestConcurrencyGuard()).VerifyIpnSignature(parameters);
         Check(valid, "A valid signature must return true.");
         Check(accepting.VerifyCalls == 1 && ReferenceEquals(accepting.LastCallback, parameters),
             "The parameters must reach the gateway unchanged.");
 
-        var invalid = new PaymentService(repo, new TestPaymentGateway()).VerifyIpnSignature(parameters);
+        var invalid = new PaymentService(repo, new TestPaymentGateway(), new TestConcurrencyGuard()).VerifyIpnSignature(parameters);
         Check(!invalid, "An invalid signature must return false.");
         Check(repo.Added.Count == 0 && payment.Status == PaymentStatus.Unpaid && payment.Method is null && payment.PaidAt is null,
             "A webhook must not store a transaction or change the payment.");
         return Task.CompletedTask;
+    }),
+    ("PaymentService.ProcessCallbackAsync pays the payment online and records the callback on the transaction", async () =>
+    {
+        var target = CallbackTarget();
+        var events = new List<string>();
+        var repo = new TestPaymentRepo(null, target) { Events = events };
+        var guard = new TestConcurrencyGuard { Events = events };
+        var gateway = new TestPaymentGateway { Callback = SuccessCallback(target) };
+        var service = new PaymentService(repo, gateway, guard);
+
+        var result = await service.ProcessCallbackAsync(new Dictionary<string, string>());
+
+        Check(result.Status == PaymentCallbackStatus.Paid, "A signed, successful, exact-amount callback must pay the payment.");
+        Check(result.TxnRef == target.Transaction.TxnRef && result.PaymentId == target.Payment.PaymentId
+                && result.ExpectedAmount == 150000m && result.ConfirmedAmount == 150000m,
+            "The result must carry the TxnRef, the payment and both amounts.");
+        var payment = target.Payment;
+        Check(payment.Status == PaymentStatus.Paid && payment.Method == PaymentMethod.Online
+                && payment.ReceivedAmount == 150000m && payment.PaidAt is not null && payment.ConfirmedByUserId is null,
+            "The payment must be Paid online with the received amount and no confirmer.");
+        var transaction = target.Transaction;
+        Check(transaction.Result == TransactionResult.Success && transaction.ConfirmedAmount == 150000m
+                && transaction.SignatureValid == true && transaction.CallbackAt is not null,
+            "The callback must be recorded on the transaction.");
+        Check(guard.LockedPaymentId == payment.PaymentId, "The Payment row must be locked.");
+        Check(events.SequenceEqual(new[] { "find-id", "run", "lock-payment", "find-target", "save" }),
+            $"The target must be read inside the transaction after the lock and saved once, got: {string.Join(",", events)}.");
+    }),
+    ("PaymentService.ProcessCallbackAsync rejects an amount that differs from the payment amount and changes nothing", async () =>
+    {
+        foreach (var confirmed in new[] { 149000m, 150001m })
+        {
+            var target = CallbackTarget();
+            var repo = new TestPaymentRepo(null, target);
+            var gateway = new TestPaymentGateway { Callback = SuccessCallback(target, confirmed) };
+            var service = new PaymentService(repo, gateway, new TestConcurrencyGuard());
+
+            var result = await service.ProcessCallbackAsync(new Dictionary<string, string>());
+
+            Check(result.Status == PaymentCallbackStatus.AmountMismatch
+                    && result.ExpectedAmount == 150000m && result.ConfirmedAmount == confirmed,
+                $"{confirmed} must be reported as an amount mismatch with both amounts.");
+            var payment = target.Payment;
+            Check(payment.Status == PaymentStatus.Unpaid && payment.Method is null
+                    && payment.ReceivedAmount is null && payment.PaidAt is null,
+                "A mismatching amount must leave the payment unpaid.");
+            var transaction = target.Transaction;
+            Check(transaction.Result is null && transaction.ConfirmedAmount is null
+                    && transaction.SignatureValid is null && transaction.CallbackAt is null,
+                "A mismatching amount must leave the transaction untouched.");
+            Check(repo.SaveCalls == 0, "Nothing may be saved.");
+        }
+    }),
+    ("PaymentService.ProcessCallbackAsync records a failed gateway result without paying and still accepts a later success", async () =>
+    {
+        var target = CallbackTarget();
+        var repo = new TestPaymentRepo(null, target);
+        var guard = new TestConcurrencyGuard();
+
+        var failed = await new PaymentService(repo, new TestPaymentGateway { Callback = SuccessCallback(target, succeeded: false) }, guard)
+            .ProcessCallbackAsync(new Dictionary<string, string>());
+
+        Check(failed.Status == PaymentCallbackStatus.Failed, "A failed gateway result must be reported as Failed.");
+        Check(target.Payment.Status == PaymentStatus.Unpaid && target.Payment.PaidAt is null,
+            "A failed gateway result must leave the payment unpaid.");
+        Check(target.Transaction.Result == TransactionResult.Failed && target.Transaction.ConfirmedAmount == 150000m
+                && target.Transaction.SignatureValid == true && target.Transaction.CallbackAt is not null,
+            "A failed gateway result must be recorded on the transaction.");
+        Check(repo.SaveCalls == 1, "The failed result must be saved once.");
+
+        var repeatedFailed = await new PaymentService(repo, new TestPaymentGateway { Callback = SuccessCallback(target, succeeded: false) }, guard)
+            .ProcessCallbackAsync(new Dictionary<string, string>());
+        Check(repeatedFailed.Status == PaymentCallbackStatus.Failed && repo.SaveCalls == 1,
+            "A repeated failed callback must not re-save.");
+
+        var paid = await new PaymentService(repo, new TestPaymentGateway { Callback = SuccessCallback(target) }, guard)
+            .ProcessCallbackAsync(new Dictionary<string, string>());
+
+        Check(paid.Status == PaymentCallbackStatus.Paid && target.Payment.Status == PaymentStatus.Paid
+                && target.Transaction.Result == TransactionResult.Success,
+            "A later successful callback for the same TxnRef must still pay the payment.");
+    }),
+    ("PaymentService.ProcessCallbackAsync ignores a callback repeated after the payment succeeded", async () =>
+    {
+        var target = CallbackTarget();
+        var repo = new TestPaymentRepo(null, target);
+        var service = new PaymentService(repo, new TestPaymentGateway { Callback = SuccessCallback(target) }, new TestConcurrencyGuard());
+
+        await service.ProcessCallbackAsync(new Dictionary<string, string>());
+        var paidAt = target.Payment.PaidAt;
+        var callbackAt = target.Transaction.CallbackAt;
+
+        var repeated = await service.ProcessCallbackAsync(new Dictionary<string, string>());
+
+        Check(repeated.Status == PaymentCallbackStatus.AlreadyProcessed, "A repeated callback must be reported as already processed.");
+        Check(target.Payment.PaidAt == paidAt && target.Transaction.CallbackAt == callbackAt && repo.SaveCalls == 1,
+            "A repeated callback must not change or save anything.");
+    }),
+    ("PaymentService.ProcessCallbackAsync does not overwrite a payment already settled at the counter", async () =>
+    {
+        var target = CallbackTarget();
+        var cashier = Guid.NewGuid();
+        target.Payment.MarkPaid(AppointmentStatus.Completed, 150000m, PaymentMethod.Cash, cashier);
+        var repo = new TestPaymentRepo(null, target);
+        var service = new PaymentService(repo, new TestPaymentGateway { Callback = SuccessCallback(target) }, new TestConcurrencyGuard());
+
+        var result = await service.ProcessCallbackAsync(new Dictionary<string, string>());
+
+        Check(result.Status == PaymentCallbackStatus.AlreadyProcessed, "A payment that is no longer unpaid must be reported as already processed.");
+        Check(target.Payment.Method == PaymentMethod.Cash && target.Payment.ConfirmedByUserId == cashier,
+            "The counter payment must be kept.");
+        Check(target.Transaction.Result is null && repo.SaveCalls == 0, "Nothing may be recorded or saved.");
+    }),
+    ("PaymentService.ProcessCallbackAsync reports an unknown TxnRef without opening a transaction", async () =>
+    {
+        var target = CallbackTarget();
+        var events = new List<string>();
+        var repo = new TestPaymentRepo(null, target) { Events = events };
+        var guard = new TestConcurrencyGuard { Events = events };
+        var gateway = new TestPaymentGateway { Callback = new GatewayCallback("UNKNOWN0001", 150000m, true) };
+
+        var result = await new PaymentService(repo, gateway, guard).ProcessCallbackAsync(new Dictionary<string, string>());
+
+        Check(result.Status == PaymentCallbackStatus.TxnNotFound && result.TxnRef == "UNKNOWN0001",
+            "An unknown TxnRef must be reported as not found.");
+        Check(events.SequenceEqual(new[] { "find-id" }) && target.Payment.Status == PaymentStatus.Unpaid,
+            "No transaction, lock or write may happen for an unknown TxnRef.");
+    }),
+    ("PaymentService.ProcessCallbackAsync reports an unreadable callback without touching the repository", async () =>
+    {
+        var target = CallbackTarget();
+        var events = new List<string>();
+        var repo = new TestPaymentRepo(null, target) { Events = events };
+        var guard = new TestConcurrencyGuard { Events = events };
+
+        var result = await new PaymentService(repo, new TestPaymentGateway(), guard)
+            .ProcessCallbackAsync(new Dictionary<string, string>());
+
+        Check(result.Status == PaymentCallbackStatus.Malformed, "An unreadable callback must be reported as malformed.");
+        Check(events.Count == 0, "The repository and the guard must not be used.");
     }),
     ("PaymentsController.VnpayIpn is an anonymous GET endpoint at ipn/vnpay", () =>
     {
@@ -1993,45 +2187,108 @@ var tests = new (string Name, Func<Task> Run)[]
             "No authorization requirement may apply to the webhook.");
         return Task.CompletedTask;
     }),
-    ("PaymentsController.VnpayIpn passes the query to the gateway and answers a valid signature without processing", () =>
+    ("PaymentsController.VnpayIpn confirms a successful payment with RspCode 00 and logs it", async () =>
     {
-        var payment = OnlinePayment(PaymentKind.Spa, 150000m);
-        var repo = new TestPaymentRepo(new PaymentWithOwner(payment, AppointmentStatus.Completed, Guid.NewGuid()));
-        var gateway = new TestPaymentGateway { CallbackSignatureValid = true };
-        var controller = IpnController(gateway, repo, "?vnp_TxnRef=ABC123def456&vnp_OrderInfo=Thanh+toan+lich+hen&dup=1&dup=2");
+        var target = CallbackTarget();
+        var repo = new TestPaymentRepo(null, target);
+        var gateway = new TestPaymentGateway { CallbackSignatureValid = true, Callback = SuccessCallback(target) };
+        var logger = new CapturingLogger<PaymentsController>();
+        var controller = IpnController(gateway, repo, "?vnp_TxnRef=ABC123def456&vnp_OrderInfo=Thanh+toan+lich+hen&dup=1&dup=2", logger);
 
-        var body = (controller.VnpayIpn() as OkObjectResult)?.Value as VnpayIpnResponse;
+        var body = ((await controller.VnpayIpn(CancellationToken.None)) as OkObjectResult)?.Value as VnpayIpnResponse;
 
-        Check(body is { RspCode: "99", Message: "Unknown error" }, "A valid signature must be answered with the unprocessed response.");
+        Check(body is { RspCode: "00", Message: "Confirm Success" }, "A paid callback must be answered with RspCode 00.");
         Check(gateway.LastCallback is { Count: 3 }
                 && gateway.LastCallback["vnp_TxnRef"] == "ABC123def456"
                 && gateway.LastCallback["vnp_OrderInfo"] == "Thanh toan lich hen"
                 && gateway.LastCallback["dup"] == "1,2",
             "The decoded query must reach the gateway, repeated keys joined by a comma.");
-        Check(repo.Added.Count == 0 && payment.Status == PaymentStatus.Unpaid && payment.Method is null && payment.PaidAt is null,
-            "The webhook must not store a transaction or change the payment.");
-        return Task.CompletedTask;
+        Check(target.Payment.Status == PaymentStatus.Paid && target.Payment.Method == PaymentMethod.Online,
+            "The payment must be Paid online.");
+        Check(logger.Entries.Count == 1 && logger.Entries[0].Level == Microsoft.Extensions.Logging.LogLevel.Information
+                && logger.Entries[0].Message.Contains(target.Transaction.TxnRef)
+                && logger.Entries[0].Message.Contains(target.Payment.PaymentId.ToString()),
+            "One information entry with the TxnRef and the payment must be logged.");
     }),
-    ("PaymentsController.VnpayIpn answers an invalid signature with 200 InvalidChecksum and leaves the payment unpaid", () =>
+    ("PaymentsController.VnpayIpn answers an invalid signature with 200 InvalidChecksum, logs the rejection and processes nothing", async () =>
     {
-        var payment = OnlinePayment(PaymentKind.Spa, 150000m);
-        var repo = new TestPaymentRepo(new PaymentWithOwner(payment, AppointmentStatus.Completed, Guid.NewGuid()));
-        var controller = IpnController(new TestPaymentGateway(), repo, "?vnp_TxnRef=ABC123def456&vnp_SecureHash=invalid");
+        var target = CallbackTarget();
+        var events = new List<string>();
+        var repo = new TestPaymentRepo(null, target) { Events = events };
+        var gateway = new TestPaymentGateway { Callback = SuccessCallback(target) };
+        var logger = new CapturingLogger<PaymentsController>();
+        var controller = IpnController(gateway, repo, "?vnp_TxnRef=ABC123def456&vnp_SecureHash=invalid", logger);
 
-        var result = controller.VnpayIpn() as OkObjectResult;
+        var result = await controller.VnpayIpn(CancellationToken.None) as OkObjectResult;
+
         Check(result is not null && result.StatusCode == 200, "An invalid signature must return HTTP 200 OK according to VNPAY IPN specification.");
         var body = result!.Value as VnpayIpnResponse;
         Check(body is { RspCode: "97", Message: "Invalid Checksum" }, "The response must contain RspCode 97 and Invalid Checksum message.");
-        Check(repo.Added.Count == 0 && payment.Status == PaymentStatus.Unpaid && payment.Method is null && payment.PaidAt is null,
-            "A rejected webhook must not store a transaction or change the payment.");
+        Check(gateway.ReadCalls == 0 && events.Count == 0, "A rejected webhook must not be read or processed.");
+        Check(target.Payment.Status == PaymentStatus.Unpaid && target.Transaction.Result is null,
+            "A rejected webhook must leave the payment and the transaction unchanged.");
+        Check(logger.Entries.Count == 1 && logger.Entries[0].Level == Microsoft.Extensions.Logging.LogLevel.Warning
+                && logger.Entries[0].Message.Contains("127.0.0.1")
+                && !logger.Entries[0].Message.Contains("invalid"),
+            "One warning with the client IP and without the received hash must be logged.");
+    }),
+    ("PaymentsController.VnpayIpn answers an amount mismatch with RspCode 04 and logs both amounts", async () =>
+    {
+        var target = CallbackTarget();
+        var repo = new TestPaymentRepo(null, target);
+        var gateway = new TestPaymentGateway { CallbackSignatureValid = true, Callback = SuccessCallback(target, 149000m) };
+        var logger = new CapturingLogger<PaymentsController>();
+        var controller = IpnController(gateway, repo, "?vnp_TxnRef=ABC123def456", logger);
+
+        var body = ((await controller.VnpayIpn(CancellationToken.None)) as OkObjectResult)?.Value as VnpayIpnResponse;
+
+        Check(body is { RspCode: "04", Message: "Invalid amount" }, "An amount mismatch must be answered with RspCode 04.");
+        Check(target.Payment.Status == PaymentStatus.Unpaid && repo.SaveCalls == 0, "The payment must stay unpaid and nothing saved.");
+        Check(logger.Entries.Count == 1 && logger.Entries[0].Level == Microsoft.Extensions.Logging.LogLevel.Warning
+                && logger.Entries[0].Message.Contains("150000") && logger.Entries[0].Message.Contains("149000"),
+            "One warning with the expected and the confirmed amount must be logged.");
+    }),
+    ("PaymentsController.VnpayIpn catches unexpected exception, logs error and returns 200 with RspCode 99", async () =>
+    {
+        var target = CallbackTarget();
+        var gateway = new TestPaymentGateway { CallbackSignatureValid = true, Callback = SuccessCallback(target) };
+        var logger = new CapturingLogger<PaymentsController>();
+        var failingService = new PaymentService(null!, gateway, new TestConcurrencyGuard());
+        var controller = new PaymentsController(failingService, logger)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext { Request = { QueryString = new QueryString("?vnp_TxnRef=ABC123def456") } },
+            },
+        };
+
+        var result = await controller.VnpayIpn(CancellationToken.None) as OkObjectResult;
+
+        Check(result is not null && result.StatusCode == 200, "An unexpected exception must return HTTP 200 OK.");
+        var body = result!.Value as VnpayIpnResponse;
+        Check(body is { RspCode: "99", Message: "Unknown error" }, "The response must contain RspCode 99.");
+        Check(logger.Entries.Count == 1 && logger.Entries[0].Level == Microsoft.Extensions.Logging.LogLevel.Error,
+            "An error entry must be logged.");
+    }),
+    ("VnpayIpnResponse.From maps every callback status to its VNPAY response", () =>
+    {
+        Check(VnpayIpnResponse.From(PaymentCallbackStatus.Paid) == VnpayIpnResponse.Confirmed, "Paid must map to 00.");
+        Check(VnpayIpnResponse.From(PaymentCallbackStatus.Failed) == VnpayIpnResponse.Confirmed, "Failed must map to 00.");
+        Check(VnpayIpnResponse.From(PaymentCallbackStatus.AlreadyProcessed) == VnpayIpnResponse.AlreadyConfirmed, "AlreadyProcessed must map to 02.");
+        Check(VnpayIpnResponse.From(PaymentCallbackStatus.TxnNotFound) == VnpayIpnResponse.OrderNotFound, "TxnNotFound must map to 01.");
+        Check(VnpayIpnResponse.From(PaymentCallbackStatus.AmountMismatch) == VnpayIpnResponse.InvalidAmount, "AmountMismatch must map to 04.");
+        Check(VnpayIpnResponse.From(PaymentCallbackStatus.Malformed) == VnpayIpnResponse.Unprocessed, "Malformed must map to 99.");
         return Task.CompletedTask;
     }),
     ("VnpayIpnResponse follows the VNPAY JSON contract", () =>
     {
-        var jsonUnprocessed = JsonSerializer.Serialize(VnpayIpnResponse.Unprocessed, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        Check(jsonUnprocessed == "{\"RspCode\":\"99\",\"Message\":\"Unknown error\"}", "The response must use the PascalCase RspCode and Message fields.");
-        var jsonInvalid = JsonSerializer.Serialize(VnpayIpnResponse.InvalidChecksum, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        Check(jsonInvalid == "{\"RspCode\":\"97\",\"Message\":\"Invalid Checksum\"}", "The invalid checksum response must use RspCode 97.");
+        var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        Check(JsonSerializer.Serialize(VnpayIpnResponse.Confirmed, web) == "{\"RspCode\":\"00\",\"Message\":\"Confirm Success\"}", "The confirmed response must use RspCode 00.");
+        Check(JsonSerializer.Serialize(VnpayIpnResponse.OrderNotFound, web) == "{\"RspCode\":\"01\",\"Message\":\"Order not found\"}", "The not found response must use RspCode 01.");
+        Check(JsonSerializer.Serialize(VnpayIpnResponse.AlreadyConfirmed, web) == "{\"RspCode\":\"02\",\"Message\":\"Order already confirmed\"}", "The already confirmed response must use RspCode 02.");
+        Check(JsonSerializer.Serialize(VnpayIpnResponse.InvalidAmount, web) == "{\"RspCode\":\"04\",\"Message\":\"Invalid amount\"}", "The invalid amount response must use RspCode 04.");
+        Check(JsonSerializer.Serialize(VnpayIpnResponse.InvalidChecksum, web) == "{\"RspCode\":\"97\",\"Message\":\"Invalid Checksum\"}", "The invalid checksum response must use RspCode 97.");
+        Check(JsonSerializer.Serialize(VnpayIpnResponse.Unprocessed, web) == "{\"RspCode\":\"99\",\"Message\":\"Unknown error\"}", "The unprocessed response must use RspCode 99.");
         return Task.CompletedTask;
     })
 };
@@ -2169,6 +2426,22 @@ static Payment OnlinePayment(PaymentKind kind, decimal amount) => new()
     Amount = amount,
 };
 
+static PaymentCallbackTarget CallbackTarget(
+    PaymentKind kind = PaymentKind.Spa,
+    decimal amount = 150000m,
+    AppointmentStatus appointmentStatus = AppointmentStatus.Completed,
+    string txnRef = "ABC123def456")
+{
+    var payment = OnlinePayment(kind, amount);
+    var transaction = VnpayTransaction(amount, txnRef);
+    transaction.PaymentId = payment.PaymentId;
+    return new PaymentCallbackTarget(transaction, payment, appointmentStatus);
+}
+
+static GatewayCallback SuccessCallback(
+    PaymentCallbackTarget target, decimal? confirmedAmount = null, bool succeeded = true) =>
+    new(target.Transaction.TxnRef, confirmedAmount ?? target.Payment.Amount, succeeded);
+
 static Dictionary<string, string> VnpayCallback(
     string secureHash = "3f12015b70c9d555ab94fb30dfce3cea7d42f1757cc703d88ceef756ac8f4423036c779bd1d435fa0de885fcb7cbdf0ec6c8986a3221ed7a47ce9f0c27b44108") =>
     new(StringComparer.Ordinal)
@@ -2187,8 +2460,10 @@ static Dictionary<string, string> VnpayCallback(
         ["vnp_SecureHash"] = secureHash,
     };
 
-static PaymentsController IpnController(TestPaymentGateway gateway, TestPaymentRepo repo, string queryString) =>
-    new(new PaymentService(repo, gateway))
+static PaymentsController IpnController(
+    TestPaymentGateway gateway, TestPaymentRepo repo, string queryString,
+    Microsoft.Extensions.Logging.ILogger<PaymentsController>? logger = null) =>
+    new(new PaymentService(repo, gateway, new TestConcurrencyGuard()), logger ?? NullLogger<PaymentsController>.Instance)
     {
         ControllerContext = new ControllerContext
         {
@@ -2293,11 +2568,21 @@ sealed class TestScheduleRepo(
 
 sealed class TestConcurrencyGuard : IConcurrencyGuard
 {
+    public List<string> Events { get; init; } = [];
     public bool LockedDay { get; private set; }
     public (Species Species, SizeGroup SizeGroup)? LockedHotelGroup { get; private set; }
     public Guid? LockedAppointmentId { get; private set; }
-    public Task<T> RunAsync<T>(Func<Task<T>> work, CancellationToken ct = default) => work();
-    public Task RunAsync(Func<Task> work, CancellationToken ct = default) => work();
+    public Guid? LockedPaymentId { get; private set; }
+    public Task<T> RunAsync<T>(Func<Task<T>> work, CancellationToken ct = default)
+    {
+        Events.Add("run");
+        return work();
+    }
+    public Task RunAsync(Func<Task> work, CancellationToken ct = default)
+    {
+        Events.Add("run");
+        return work();
+    }
     public Task LockSpaDayAsync(DateOnly day, CancellationToken ct = default)
     {
         LockedDay = true;
@@ -2311,6 +2596,12 @@ sealed class TestConcurrencyGuard : IConcurrencyGuard
     public Task LockAppointmentAsync(Guid appointmentId, CancellationToken ct = default)
     {
         LockedAppointmentId = appointmentId;
+        return Task.CompletedTask;
+    }
+    public Task LockPaymentAsync(Guid paymentId, CancellationToken ct = default)
+    {
+        Events.Add("lock-payment");
+        LockedPaymentId = paymentId;
         return Task.CompletedTask;
     }
 }
@@ -2444,14 +2735,36 @@ sealed class TestHotelBookingRepo(int activeCages, IReadOnlyList<HeldHotelStay> 
     }
 }
 
-sealed class TestPaymentRepo(PaymentWithOwner? found) : IPaymentRepository
+sealed class TestPaymentRepo(PaymentWithOwner? found, PaymentCallbackTarget? callbackTarget = null) : IPaymentRepository
 {
     public List<PaymentTransaction> Added { get; } = [];
+    public List<string> Events { get; init; } = [];
+    public int SaveCalls { get; private set; }
     public Task<PaymentWithOwner?> FindWithOwnerAsync(Guid paymentId, CancellationToken ct = default) =>
         Task.FromResult(found is not null && found.Payment.PaymentId == paymentId ? found : null);
     public Task AddTransactionAsync(PaymentTransaction transaction, CancellationToken ct = default)
     {
         Added.Add(transaction);
+        return Task.CompletedTask;
+    }
+    public Task<Guid?> FindPaymentIdByTxnRefAsync(string txnRef, CancellationToken ct = default)
+    {
+        Events.Add("find-id");
+        return Task.FromResult(callbackTarget is not null && callbackTarget.Transaction.TxnRef == txnRef
+            ? (Guid?)callbackTarget.Payment.PaymentId
+            : null);
+    }
+    public Task<PaymentCallbackTarget?> FindCallbackTargetAsync(string txnRef, CancellationToken ct = default)
+    {
+        Events.Add("find-target");
+        return Task.FromResult(callbackTarget is not null && callbackTarget.Transaction.TxnRef == txnRef
+            ? callbackTarget
+            : null);
+    }
+    public Task SaveChangesAsync(CancellationToken ct = default)
+    {
+        Events.Add("save");
+        SaveCalls++;
         return Task.CompletedTask;
     }
 }
@@ -2464,7 +2777,9 @@ sealed class TestPaymentGateway : IPaymentGateway
     public string? LastClientIp { get; private set; }
     public Exception? Failure { get; init; }
     public bool CallbackSignatureValid { get; init; }
+    public GatewayCallback? Callback { get; init; }
     public int VerifyCalls { get; private set; }
+    public int ReadCalls { get; private set; }
     public IReadOnlyDictionary<string, string>? LastCallback { get; private set; }
     public PaymentGateway Gateway => PaymentGateway.VNPAY;
     public string CreatePaymentUrl(PaymentTransaction transaction, string clientIp)
@@ -2481,6 +2796,22 @@ sealed class TestPaymentGateway : IPaymentGateway
         LastCallback = parameters;
         return CallbackSignatureValid;
     }
+    public GatewayCallback? ReadCallback(IReadOnlyDictionary<string, string> parameters)
+    {
+        ReadCalls++;
+        return Callback;
+    }
+}
+
+sealed class CapturingLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
+{
+    public List<(Microsoft.Extensions.Logging.LogLevel Level, string Message)> Entries { get; } = [];
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+    public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+    public void Log<TState>(
+        Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state,
+        Exception? exception, Func<TState, Exception?, string> formatter) =>
+        Entries.Add((logLevel, formatter(state, exception)));
 }
 
 

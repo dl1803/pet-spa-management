@@ -24,4 +24,25 @@ public sealed class PaymentRepository(AppDbContext db) : IPaymentRepository
         db.Set<PaymentTransaction>().Add(transaction);
         await db.SaveChangesAsync(ct);
     }
+
+    public Task<Guid?> FindPaymentIdByTxnRefAsync(string txnRef, CancellationToken ct = default) =>
+        db.Set<PaymentTransaction>().AsNoTracking()
+            .Where(t => t.TxnRef == txnRef)
+            .Select(t => (Guid?)t.PaymentId)
+            .FirstOrDefaultAsync(ct);
+
+    public async Task<PaymentCallbackTarget?> FindCallbackTargetAsync(string txnRef, CancellationToken ct = default)
+    {
+        var row = await (
+            from t in db.Set<PaymentTransaction>()
+            join p in db.Set<Payment>() on t.PaymentId equals p.PaymentId
+            join a in db.Set<Appointment>() on p.AppointmentId equals a.AppointmentId
+            where t.TxnRef == txnRef
+            select new { Transaction = t, Payment = p, a.Status })
+            .FirstOrDefaultAsync(ct);
+
+        return row is null ? null : new PaymentCallbackTarget(row.Transaction, row.Payment, row.Status);
+    }
+
+    public Task SaveChangesAsync(CancellationToken ct = default) => db.SaveChangesAsync(ct);
 }
