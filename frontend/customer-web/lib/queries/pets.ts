@@ -1,8 +1,14 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { skipToken, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  createPet,
+  deletePet,
+  getPet,
+  listPets,
+  updatePet,
+  type UpdatePetVariables,
+} from "@/lib/api/endpoints/pets";
 import type { PetRequest } from "@/lib/api/types";
-import { mockCreatePet, mockDeletePet, mockGetPet, mockListPets, mockUpdatePet } from "@/lib/mock-pets";
 
-// Lấy tối đa 50 hồ sơ một lần.
 export const PETS_PAGE_SIZE = 50;
 
 export const petKeys = {
@@ -14,20 +20,19 @@ export const petKeys = {
 export function usePets() {
   return useQuery({
     queryKey: petKeys.list(),
-    queryFn: () => mockListPets({ page: 1, pageSize: PETS_PAGE_SIZE }),
+    queryFn: () => listPets({ page: 1, pageSize: PETS_PAGE_SIZE }),
   });
 }
 
-// petId = null: không tải (màn thêm mới dùng chung màn hình với màn sửa).
+// Không kích hoạt tải chi tiết khi petId là null (dùng cho form thêm mới).
 export function usePet(petId: string | null) {
+  const id = petId;
   return useQuery({
-    queryKey: petKeys.detail(petId ?? ""),
-    queryFn: () => mockGetPet(petId ?? ""),
-    enabled: petId !== null,
+    queryKey: petKeys.detail(id ?? ""),
+    queryFn: id === null ? skipToken : () => getPet(id),
   });
 }
 
-// Làm mới cả danh sách (kể cả khi đang ở màn khác) trước khi hook báo xong, để màn danh sách không nháy dữ liệu cũ.
 function useRefreshPets() {
   const queryClient = useQueryClient();
   return () => queryClient.invalidateQueries({ queryKey: petKeys.all, refetchType: "all" });
@@ -36,7 +41,7 @@ function useRefreshPets() {
 export function useCreatePet() {
   const refreshPets = useRefreshPets();
   return useMutation({
-    mutationFn: (request: PetRequest) => mockCreatePet(request),
+    mutationFn: (request: PetRequest) => createPet(request),
     onSuccess: refreshPets,
   });
 }
@@ -44,17 +49,15 @@ export function useCreatePet() {
 export function useUpdatePet() {
   const refreshPets = useRefreshPets();
   return useMutation({
-    mutationFn: (params: { petId: string; request: PetRequest }) => mockUpdatePet(params),
+    mutationFn: (variables: UpdatePetVariables) => updatePet(variables),
     onSuccess: refreshPets,
   });
 }
 
-// Tải lại danh sách cả khi lỗi 403/404.
 export function useDeletePet() {
   const refreshPets = useRefreshPets();
   return useMutation({
-    mutationFn: (petId: string) => mockDeletePet(petId),
+    mutationFn: (petId: string) => deletePet(petId),
     onSettled: refreshPets,
   });
 }
-
