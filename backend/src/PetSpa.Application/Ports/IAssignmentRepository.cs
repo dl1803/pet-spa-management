@@ -19,4 +19,6 @@ public interface IAssignmentRepository
 
     Task<IReadOnlyDictionary<Guid, int>> CountRecentAssignmentsAsync(
         DateTimeOffset since, CancellationToken ct = default);
+
+    Task AddStaffAssignmentsAsync(IReadOnlyList<AppointmentStaff> staffAssignments, CancellationToken ct = default);
 }

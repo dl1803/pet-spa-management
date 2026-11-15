@@ -1075,6 +1075,141 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(forUnknown == ErrorCodes.NotFound, "An unknown appointment must be rejected with NotFound.");
         Check(forConfirmed == ErrorCodes.InvalidTransition, "A non-pending appointment must be rejected with InvalidTransition.");
     }),
+    ("AssignmentService.AssignSpaStaffAsync saves one holding row per chosen staff for a manager", async () =>
+    {
+        var slotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var busyUntil = slotStart.AddMinutes(135);
+        var appointment = new SpaAppointment
+        {
+            AppointmentId = Guid.NewGuid(),
+            Status = AppointmentStatus.Pending,
+            SlotStart = slotStart,
+            SlotEnd = slotStart.AddMinutes(120),
+            BusyUntil = busyUntil,
+            StaffRequired = 2,
+        };
+        var an = new SpaStaffCandidate(Guid.NewGuid(), "An");
+        var binh = new SpaStaffCandidate(Guid.NewGuid(), "Binh");
+        var shifts = new[] { an, binh }
+            .Select(s => new StaffShiftWindow(s.StaffId, slotStart.AddHours(-1), busyUntil.AddHours(1)))
+            .ToList();
+        var repo = new TestAssignmentRepo(appointment, [an, binh], [], new Dictionary<Guid, int>());
+        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, shifts, []));
+
+        await service.AssignSpaStaffAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Manager),
+            appointment.AppointmentId,
+            [an.StaffId, binh.StaffId],
+            false);
+
+        Check(repo.Added.Count == 2, "One holding row must be saved for each chosen staff.");
+        Check(repo.Added.Select(r => r.StaffId).OrderBy(id => id)
+                .SequenceEqual(new[] { an.StaffId, binh.StaffId }.OrderBy(id => id)),
+            "The saved rows must belong to the chosen staff.");
+        Check(repo.Added.All(r => r.AppointmentId == appointment.AppointmentId
+                && r.IsHolding
+                && r.BusyFrom == slotStart
+                && r.BusyUntil == busyUntil),
+            "Each row must hold the appointment's SlotStart and BusyUntil.");
+    }),
+    ("AssignmentService.AssignSpaStaffAsync rejects non-manager, wrong state, wrong staff count, inactive staff, conflict and out-of-shift staff without saving", async () =>
+    {
+        var slotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var busyUntil = slotStart.AddMinutes(135);
+        var an = new SpaStaffCandidate(Guid.NewGuid(), "An");
+        var binh = new SpaStaffCandidate(Guid.NewGuid(), "Binh");
+        var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+        var coveringShifts = new[] { an, binh }
+            .Select(s => new StaffShiftWindow(s.StaffId, slotStart.AddHours(-1), busyUntil.AddHours(1)))
+            .ToList();
+
+        SpaAppointment SpaWith(AppointmentStatus status, short staffRequired) => new()
+        {
+            AppointmentId = Guid.NewGuid(),
+            Status = status,
+            SlotStart = slotStart,
+            SlotEnd = slotStart.AddMinutes(120),
+            BusyUntil = busyUntil,
+            StaffRequired = staffRequired,
+        };
+
+        (AssignmentService Service, TestAssignmentRepo Repo) Make(
+            SpaAppointment target,
+            IReadOnlyList<StaffBusyWindow> busy,
+            IReadOnlyList<StaffShiftWindow> shifts)
+        {
+            var repo = new TestAssignmentRepo(target, [an, binh], busy, new Dictionary<Guid, int>());
+            return (new AssignmentService(repo, new TestScheduleRepo(15, false, shifts, [])), repo);
+        }
+
+        async Task<BusinessException?> ThrownAsync(Func<Task> action)
+        {
+            try
+            {
+                await action();
+                return null;
+            }
+            catch (BusinessException ex)
+            {
+                return ex;
+            }
+        }
+
+        var pending = SpaWith(AppointmentStatus.Pending, 1);
+
+        var forCustomer = Make(pending, [], coveringShifts);
+        var customerError = await ThrownAsync(() => forCustomer.Service.AssignSpaStaffAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Customer), pending.AppointmentId, [an.StaffId], false));
+
+        var forUnknown = Make(pending, [], coveringShifts);
+        var unknownError = await ThrownAsync(() => forUnknown.Service.AssignSpaStaffAsync(
+            manager, Guid.NewGuid(), [an.StaffId], false));
+
+        var confirmed = SpaWith(AppointmentStatus.Confirmed, 1);
+        var forConfirmed = Make(confirmed, [], coveringShifts);
+        var confirmedError = await ThrownAsync(() => forConfirmed.Service.AssignSpaStaffAsync(
+            manager, confirmed.AppointmentId, [an.StaffId], false));
+
+        var forWrongCount = Make(pending, [], coveringShifts);
+        var wrongCountError = await ThrownAsync(() => forWrongCount.Service.AssignSpaStaffAsync(
+            manager, pending.AppointmentId, [an.StaffId, binh.StaffId], false));
+
+        var forInactive = Make(pending, [], coveringShifts);
+        var inactiveError = await ThrownAsync(() => forInactive.Service.AssignSpaStaffAsync(
+            manager, pending.AppointmentId, [Guid.NewGuid()], false));
+
+        var busyAn = new[] { new StaffBusyWindow(an.StaffId, slotStart.AddMinutes(30), busyUntil.AddMinutes(30)) };
+        var forConflict = Make(pending, busyAn, coveringShifts);
+        var conflictError = await ThrownAsync(() => forConflict.Service.AssignSpaStaffAsync(
+            manager, pending.AppointmentId, [an.StaffId], false));
+
+        var onlyBinhShift = new[] { new StaffShiftWindow(binh.StaffId, slotStart.AddHours(-1), busyUntil.AddHours(1)) };
+        var forOutOfShift = Make(pending, [], onlyBinhShift);
+        var outOfShiftError = await ThrownAsync(() => forOutOfShift.Service.AssignSpaStaffAsync(
+            manager, pending.AppointmentId, [an.StaffId], false));
+
+        var forConfirmedAgain = Make(pending, [], onlyBinhShift);
+        await forConfirmedAgain.Service.AssignSpaStaffAsync(manager, pending.AppointmentId, [an.StaffId], true);
+
+        Check(customerError?.Code == ErrorCodes.Forbidden, "A non-manager must be rejected with Forbidden.");
+        Check(unknownError?.Code == ErrorCodes.NotFound, "An unknown appointment must be rejected with NotFound.");
+        Check(confirmedError?.Code == ErrorCodes.InvalidTransition, "A non-pending appointment must be rejected with InvalidTransition.");
+        Check(wrongCountError?.Code == ErrorCodes.StaffCountMismatch, "A wrong staff count must be rejected with StaffCountMismatch.");
+        Check(inactiveError?.Code == ErrorCodes.ValidationError, "A staff that is not an active spa staff must be rejected with ValidationError.");
+        Check(conflictError?.Code == ErrorCodes.StaffConflict, "A staff with an overlapping holding must be rejected with StaffConflict.");
+        Check(outOfShiftError?.Code == ErrorCodes.StaffOutOfShift, "A staff without a covering shift must be rejected with StaffOutOfShift.");
+        Check(outOfShiftError!.Detail!.Contains("An"), "The out-of-shift error must name the staff.");
+        Check(forCustomer.Repo.Added.Count == 0
+                && forUnknown.Repo.Added.Count == 0
+                && forConfirmed.Repo.Added.Count == 0
+                && forWrongCount.Repo.Added.Count == 0
+                && forInactive.Repo.Added.Count == 0
+                && forConflict.Repo.Added.Count == 0
+                && forOutOfShift.Repo.Added.Count == 0,
+            "Rejected requests must not save any assignment.");
+        Check(forConfirmedAgain.Repo.Added.Count == 1,
+            "An out-of-shift staff must be saved when the manager confirms again with confirmOutOfShift = true.");
+    }),
     ("HotelBookingService.HasCapacityAsync counts held stays per night in shop time zone for the pet's species and size group", async () =>
     {
         var ownerUserId = Guid.NewGuid();
@@ -2209,6 +2344,15 @@ sealed class TestAssignmentRepo(
     public Task<IReadOnlyDictionary<Guid, int>> CountRecentAssignmentsAsync(
         DateTimeOffset since, CancellationToken ct = default) =>
         Task.FromResult(recentCounts);
+
+    public List<AppointmentStaff> Added { get; } = [];
+
+    public Task AddStaffAssignmentsAsync(
+        IReadOnlyList<AppointmentStaff> staffAssignments, CancellationToken ct = default)
+    {
+        Added.AddRange(staffAssignments);
+        return Task.CompletedTask;
+    }
 }
 
 sealed class TestHotelBookingRepo(int activeCages, IReadOnlyList<HeldHotelStay> held) : IHotelBookingRepository

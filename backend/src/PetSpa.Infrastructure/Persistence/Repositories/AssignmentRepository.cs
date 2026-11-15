@@ -64,4 +64,11 @@ public sealed class AssignmentRepository(AppDbContext db) : IAssignmentRepositor
             select new { StaffId = grouped.Key, Count = grouped.Count() })
             .ToDictionaryAsync(x => x.StaffId, x => x.Count, ct);
     }
+
+    public async Task AddStaffAssignmentsAsync(
+        IReadOnlyList<AppointmentStaff> staffAssignments, CancellationToken ct = default)
+    {
+        db.Set<AppointmentStaff>().AddRange(staffAssignments);
+        await db.SaveChangesAsync(ct);
+    }
 }
