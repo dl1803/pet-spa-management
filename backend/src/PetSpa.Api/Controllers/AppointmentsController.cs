@@ -16,7 +16,8 @@ public sealed class AppointmentsController(
     BookingService bookingService,
     AppointmentQueryService appointmentQueryService = null!,
     AssignmentService assignmentService = null!,
-    HotelBookingService hotelBookingService = null!) : ControllerBase
+    HotelBookingService hotelBookingService = null!,
+    AppointmentChangeService appointmentChangeService = null!) : ControllerBase
 {
     [HttpPost("spa")]
     [Authorize(Policy = AuthorizationPolicies.CustomerOrReceptionist)]
@@ -92,5 +93,25 @@ public sealed class AppointmentsController(
         var detail = await appointmentQueryService.GetAsync(User.ToCurrentUser(), id, ct);
         return Ok(AppointmentDetailResponse.From(detail));
     }
-}
 
+    [HttpPut("{id}")]
+    [Authorize(Policy = AuthorizationPolicies.Customer)]
+    [EndpointSummary("Khách hàng đổi lịch hẹn của mình trong hạn tự đổi")]
+    [EndpointDescription("Chỉ khách hàng sở hữu lịch hẹn. Lịch spa gửi petId, slotStart, serviceIds; lịch lưu trú gửi petId, plannedCheckIn, plannedCheckOut; trường của loại lịch khác không được dùng; staffIds, cageId, confirmOutOfShift bị bỏ qua. Đổi thành công trả status = Pending: lịch Đã xác nhận quay về Chờ xác nhận, phân công nhân viên hoặc chuồng bị bỏ để quản lý duyệt lại. Quá hạn tự đổi nhận 409 CHANGE_WINDOW_CLOSED; mốc giờ đã kín nhận 409 SLOT_FULL; hết chuồng nhận 409 NO_CAPACITY; lịch không còn ở Chờ xác nhận hoặc Đã xác nhận nhận 409 INVALID_TRANSITION; thiếu trường bắt buộc của loại lịch hoặc slotStart không đúng mốc giờ đặt lịch nhận 400 VALIDATION_ERROR; lịch hoặc thú cưng của khách khác nhận 403 FORBIDDEN; không tìm thấy nhận 404 NOT_FOUND.")]
+    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateAppointmentRequest? request, CancellationToken ct)
+    {
+        if (request is null)
+            throw new BusinessException(ErrorCodes.ValidationError, "Dữ liệu yêu cầu không được để trống.");
+
+        var change = new AppointmentChange(
+            request.PetId!.Value,
+            request.SlotStart,
+            request.ServiceIds,
+            request.PlannedCheckIn,
+            request.PlannedCheckOut);
+
+        var status = await appointmentChangeService.ChangeAsync(User.ToCurrentUser(), id, change, ct);
+
+        return Ok(new AppointmentStatusResponse(status));
+    }
+}
