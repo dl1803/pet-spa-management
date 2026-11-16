@@ -2976,6 +2976,47 @@ var tests = new (string Name, Func<Task> Run)[]
               && typeof(UpdateAppointmentRequest).GetProperty("CageId") is null
               && typeof(UpdateAppointmentRequest).GetProperty("Status") is null,
             "The customer request must not carry staff, cage or status fields.");
+    }),
+    ("AppointmentChangeService.ResolveCancelTargetAsync returns the appointment of its owner without checking status or window", async () =>
+    {
+        var spa = OldSpaAppointment(AppointmentStatus.Received, TimeSpan.FromMinutes(5));
+        var spaFixture = new ChangeFixture(spa);
+        var hotel = OldHotelAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var hotelFixture = new ChangeFixture(hotel);
+
+        var spaTarget = await spaFixture.ChangeService.ResolveCancelTargetAsync(spaFixture.Customer, spa.AppointmentId);
+        var hotelTarget = await hotelFixture.ChangeService.ResolveCancelTargetAsync(hotelFixture.Customer, hotel.AppointmentId);
+
+        Check(ReferenceEquals(spaTarget.Appointment, spa) && spaTarget.OwnerUserId == spaFixture.OwnerUserId,
+            "The spa appointment must be returned for its owner even when it is past the window or not changeable.");
+        Check(ReferenceEquals(hotelTarget.Appointment, hotel) && hotelTarget.Appointment is HotelAppointment,
+            "The hotel appointment must be returned for its owner.");
+    }),
+    ("AppointmentChangeService.ResolveCancelTargetAsync rejects other customers, unknown appointments and non-customers", async () =>
+    {
+        var appointment = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var fixture = new ChangeFixture(appointment);
+        var otherCustomer = new CurrentUser(Guid.NewGuid(), UserRole.Customer);
+        var receptionist = new CurrentUser(fixture.OwnerUserId, UserRole.Staff);
+
+        Check(await FailureCodeAsync(() => fixture.ChangeService.ResolveCancelTargetAsync(otherCustomer, appointment.AppointmentId)) == ErrorCodes.Forbidden,
+            "Another customer's appointment must be rejected with FORBIDDEN.");
+        Check(await FailureCodeAsync(() => fixture.ChangeService.ResolveCancelTargetAsync(fixture.Customer, Guid.NewGuid())) == ErrorCodes.NotFound,
+            "An unknown appointment must be rejected with NOT_FOUND.");
+        Check(await FailureCodeAsync(() => fixture.ChangeService.ResolveCancelTargetAsync(receptionist, appointment.AppointmentId)) == ErrorCodes.Forbidden,
+            "A non-customer must be rejected with FORBIDDEN.");
+    }),
+    ("AppointmentChangeService.ResolveCancelTargetAsync does not read the window, lock or change anything", async () =>
+    {
+        var appointment = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var fixture = new ChangeFixture(appointment);
+
+        await fixture.ChangeService.ResolveCancelTargetAsync(fixture.Customer, appointment.AppointmentId);
+
+        Check(fixture.Changes.DeadlineReads == 0, "The window configuration must not be read at this step.");
+        Check(fixture.Guard.LockOrder.Count == 0 && fixture.Changes.SavedSpaServiceIds.Count == 0
+              && appointment.Status == AppointmentStatus.Confirmed,
+            "Nothing may be locked, saved or changed at this step.");
     })
 };
 

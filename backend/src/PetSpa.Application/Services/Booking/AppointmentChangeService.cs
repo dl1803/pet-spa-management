@@ -38,6 +38,10 @@ public sealed class AppointmentChangeService(
         throw new InvalidOperationException("Loại lịch hẹn không được hỗ trợ.");
     }
 
+    public Task<AppointmentChangeTarget> ResolveCancelTargetAsync(
+        CurrentUser user, Guid appointmentId, CancellationToken ct = default) =>
+        FindOwnedAsync(user, appointmentId, ct);
+
     private async Task<AppointmentStatus> ChangeSpaAsync(
         CurrentUser user, Guid appointmentId, AppointmentChange change, int deadlineMinutes, CancellationToken ct)
     {
