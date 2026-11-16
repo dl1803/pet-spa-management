@@ -1246,6 +1246,277 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(forConfirmedAgain.Repo.Added.Count == 1,
             "An out-of-shift staff must be saved when the manager confirms again with confirmOutOfShift = true.");
     }),
+    ("AssignmentService.AssignSpaStaffAsync runs inside the concurrency guard and locks the appointment row", async () =>
+    {
+        var slotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var busyUntil = slotStart.AddMinutes(135);
+        var appointment = new SpaAppointment
+        {
+            AppointmentId = Guid.NewGuid(),
+            Status = AppointmentStatus.Pending,
+            SlotStart = slotStart,
+            SlotEnd = slotStart.AddMinutes(120),
+            BusyUntil = busyUntil,
+            StaffRequired = 1,
+        };
+        var an = new SpaStaffCandidate(Guid.NewGuid(), "An");
+        var shifts = new[] { new StaffShiftWindow(an.StaffId, slotStart.AddHours(-1), busyUntil.AddHours(1)) };
+        var guard = new TestConcurrencyGuard();
+        var service = new AssignmentService(
+            new TestAssignmentRepo(appointment, [an], [], new Dictionary<Guid, int>()),
+            new TestScheduleRepo(15, false, shifts, []),
+            guard);
+
+        await service.AssignSpaStaffAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Manager), appointment.AppointmentId, [an.StaffId], false);
+
+        Check(guard.RunCalls == 1, "Assigning staff must run inside exactly one concurrency guard transaction.");
+        Check(guard.LockedAppointmentId == appointment.AppointmentId, "Assigning staff must lock the appointment row.");
+    }),
+    ("AssignmentService.ConfirmSpaAsync confirms a pending appointment that has full staff, recalculates the amount by the appointment size group and saves once inside the concurrency guard", async () =>
+    {
+        var slotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var bath = Guid.NewGuid();
+        var trim = Guid.NewGuid();
+        var appointment = new SpaAppointment
+        {
+            AppointmentId = Guid.NewGuid(),
+            Status = AppointmentStatus.Pending,
+            SizeGroup = SizeGroup.Large,
+            SlotStart = slotStart,
+            SlotEnd = slotStart.AddMinutes(120),
+            BusyUntil = slotStart.AddMinutes(135),
+            StaffRequired = 1,
+        };
+        var repo = new TestAssignmentRepo(appointment, [], [], new Dictionary<Guid, int>())
+        {
+            AmountInput = new SpaAmountInput(
+                Species.Dog,
+                [bath, trim],
+                [
+                    new ServicePricing { ServiceId = bath, Species = Species.Dog, SizeGroup = SizeGroup.Medium, Price = 150_000m },
+                    new ServicePricing { ServiceId = trim, Species = Species.Dog, SizeGroup = SizeGroup.Medium, Price = 120_000m },
+                    new ServicePricing { ServiceId = bath, Species = Species.Dog, SizeGroup = SizeGroup.Large, Price = 200_000m },
+                    new ServicePricing { ServiceId = trim, Species = Species.Dog, SizeGroup = SizeGroup.Large, Price = 160_000m },
+                ]),
+        };
+        repo.Added.Add(new AppointmentStaff
+        {
+            AppointmentId = appointment.AppointmentId,
+            StaffId = Guid.NewGuid(),
+            BusyFrom = slotStart,
+            BusyUntil = appointment.BusyUntil,
+            IsHolding = true,
+            AssignedAt = DateTimeOffset.UtcNow,
+        });
+        var guard = new TestConcurrencyGuard();
+        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, [], []), guard);
+
+        var result = await service.ConfirmSpaAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Manager), appointment.AppointmentId);
+
+        Check(result.Status == AppointmentStatus.Confirmed, "The returned status must be Confirmed.");
+        Check(appointment.Status == AppointmentStatus.Confirmed, "The appointment must be moved to Confirmed.");
+        Check(result.Amount == 360_000m, "The amount must be the sum of the services' prices for the appointment's size group.");
+        Check(guard.RunCalls == 1, "Confirming must run inside exactly one concurrency guard transaction.");
+        Check(guard.LockedAppointmentId == appointment.AppointmentId, "Confirming must lock the appointment row.");
+        Check(repo.SaveCalls == 1, "Confirming must save exactly once.");
+    }),
+    ("AssignmentService.ConfirmSpaAsync rejects non-manager, unknown appointment, wrong state and wrong assigned staff count without saving", async () =>
+    {
+        var slotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+
+        SpaAppointment SpaWith(AppointmentStatus status, short staffRequired) => new()
+        {
+            AppointmentId = Guid.NewGuid(),
+            Status = status,
+            SlotStart = slotStart,
+            SlotEnd = slotStart.AddMinutes(120),
+            BusyUntil = slotStart.AddMinutes(135),
+            StaffRequired = staffRequired,
+        };
+
+        (AssignmentService Service, TestAssignmentRepo Repo) Make(SpaAppointment target, int assignedHolding)
+        {
+            var repo = new TestAssignmentRepo(target, [], [], new Dictionary<Guid, int>());
+            for (var i = 0; i < assignedHolding; i++)
+            {
+                repo.Added.Add(new AppointmentStaff
+                {
+                    AppointmentId = target.AppointmentId,
+                    StaffId = Guid.NewGuid(),
+                    BusyFrom = target.SlotStart,
+                    BusyUntil = target.BusyUntil,
+                    IsHolding = true,
+                    AssignedAt = DateTimeOffset.UtcNow,
+                });
+            }
+
+            return (new AssignmentService(repo, new TestScheduleRepo(15, false, [], []), new TestConcurrencyGuard()), repo);
+        }
+
+        async Task<BusinessException?> ThrownAsync(Func<Task> action)
+        {
+            try
+            {
+                await action();
+                return null;
+            }
+            catch (BusinessException ex)
+            {
+                return ex;
+            }
+        }
+
+        var pending = SpaWith(AppointmentStatus.Pending, 1);
+        var forCustomer = Make(pending, 1);
+        var customerError = await ThrownAsync(() => forCustomer.Service.ConfirmSpaAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Customer), pending.AppointmentId));
+
+        var forUnknown = Make(pending, 1);
+        var unknownError = await ThrownAsync(() => forUnknown.Service.ConfirmSpaAsync(manager, Guid.NewGuid()));
+
+        var confirmed = SpaWith(AppointmentStatus.Confirmed, 1);
+        var forConfirmed = Make(confirmed, 1);
+        var confirmedError = await ThrownAsync(() => forConfirmed.Service.ConfirmSpaAsync(manager, confirmed.AppointmentId));
+
+        var noStaff = SpaWith(AppointmentStatus.Pending, 1);
+        var forNoStaff = Make(noStaff, 0);
+        var noStaffError = await ThrownAsync(() => forNoStaff.Service.ConfirmSpaAsync(manager, noStaff.AppointmentId));
+
+        var needsTwo = SpaWith(AppointmentStatus.Pending, 2);
+        var forShort = Make(needsTwo, 1);
+        var shortError = await ThrownAsync(() => forShort.Service.ConfirmSpaAsync(manager, needsTwo.AppointmentId));
+
+        Check(customerError?.Code == ErrorCodes.Forbidden, "A non-manager must be rejected with Forbidden.");
+        Check(unknownError?.Code == ErrorCodes.NotFound, "An unknown appointment must be rejected with NotFound.");
+        Check(confirmedError?.Code == ErrorCodes.InvalidTransition, "A non-pending appointment must be rejected with InvalidTransition.");
+        Check(noStaffError?.Code == ErrorCodes.StaffCountMismatch, "An appointment without assigned staff must be rejected with StaffCountMismatch.");
+        Check(shortError?.Code == ErrorCodes.StaffCountMismatch, "An appointment with too few assigned staff must be rejected with StaffCountMismatch.");
+        Check(noStaff.Status == AppointmentStatus.Pending && needsTwo.Status == AppointmentStatus.Pending,
+            "Rejected confirmations must keep the appointment Pending.");
+        Check(forCustomer.Repo.SaveCalls == 0
+                && forUnknown.Repo.SaveCalls == 0
+                && forConfirmed.Repo.SaveCalls == 0
+                && forNoStaff.Repo.SaveCalls == 0
+                && forShort.Repo.SaveCalls == 0,
+            "Rejected confirmations must not save anything.");
+    }),
+    ("AssignmentService.RejectSpaAsync cancels a pending appointment as StoreUnable, releases staff holds and saves once inside the concurrency guard", async () =>
+    {
+        var slotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var appointment = new SpaAppointment
+        {
+            AppointmentId = Guid.NewGuid(),
+            Status = AppointmentStatus.Pending,
+            SlotStart = slotStart,
+            SlotEnd = slotStart.AddMinutes(120),
+            BusyUntil = slotStart.AddMinutes(135),
+            StaffRequired = 2,
+        };
+        var repo = new TestAssignmentRepo(appointment, [], [], new Dictionary<Guid, int>());
+        for (var i = 0; i < 2; i++)
+        {
+            repo.Added.Add(new AppointmentStaff
+            {
+                AppointmentId = appointment.AppointmentId,
+                StaffId = Guid.NewGuid(),
+                BusyFrom = slotStart,
+                BusyUntil = appointment.BusyUntil,
+                IsHolding = true,
+                AssignedAt = DateTimeOffset.UtcNow,
+            });
+        }
+
+        var guard = new TestConcurrencyGuard();
+        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, [], []), guard);
+
+        await service.RejectSpaAsync(new CurrentUser(Guid.NewGuid(), UserRole.Manager), appointment.AppointmentId);
+
+        Check(appointment.Status == AppointmentStatus.Cancelled, "The appointment must be Cancelled.");
+        Check(appointment.CancelReason == CancelReason.StoreUnable, "The cancel reason must be StoreUnable.");
+        Check(appointment.CancelledAt is not null, "CancelledAt must be set.");
+        Check(repo.Added.Count == 2 && repo.Added.All(r => !r.IsHolding),
+            "Staff rows must be kept as history with IsHolding = false.");
+        Check(guard.RunCalls == 1, "Rejecting must run inside exactly one concurrency guard transaction.");
+        Check(guard.LockedAppointmentId == appointment.AppointmentId, "Rejecting must lock the appointment row.");
+        Check(repo.SaveCalls == 1, "Rejecting must save exactly once.");
+    }),
+    ("AssignmentService.RejectSpaAsync rejects non-manager, unknown appointment and non-pending appointment without saving or releasing", async () =>
+    {
+        var slotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+
+        SpaAppointment SpaWith(AppointmentStatus status) => new()
+        {
+            AppointmentId = Guid.NewGuid(),
+            Status = status,
+            SlotStart = slotStart,
+            SlotEnd = slotStart.AddMinutes(120),
+            BusyUntil = slotStart.AddMinutes(135),
+            StaffRequired = 1,
+        };
+
+        (AssignmentService Service, TestAssignmentRepo Repo) Make(SpaAppointment target)
+        {
+            var repo = new TestAssignmentRepo(target, [], [], new Dictionary<Guid, int>());
+            repo.Added.Add(new AppointmentStaff
+            {
+                AppointmentId = target.AppointmentId,
+                StaffId = Guid.NewGuid(),
+                BusyFrom = target.SlotStart,
+                BusyUntil = target.BusyUntil,
+                IsHolding = true,
+                AssignedAt = DateTimeOffset.UtcNow,
+            });
+
+            return (new AssignmentService(repo, new TestScheduleRepo(15, false, [], []), new TestConcurrencyGuard()), repo);
+        }
+
+        async Task<BusinessException?> ThrownAsync(Func<Task> action)
+        {
+            try
+            {
+                await action();
+                return null;
+            }
+            catch (BusinessException ex)
+            {
+                return ex;
+            }
+        }
+
+        var pending = SpaWith(AppointmentStatus.Pending);
+        var forCustomer = Make(pending);
+        var customerError = await ThrownAsync(() => forCustomer.Service.RejectSpaAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Customer), pending.AppointmentId));
+
+        var forUnknown = Make(pending);
+        var unknownError = await ThrownAsync(() => forUnknown.Service.RejectSpaAsync(manager, Guid.NewGuid()));
+
+        var confirmed = SpaWith(AppointmentStatus.Confirmed);
+        var forConfirmed = Make(confirmed);
+        var confirmedError = await ThrownAsync(() => forConfirmed.Service.RejectSpaAsync(manager, confirmed.AppointmentId));
+
+        var cancelled = SpaWith(AppointmentStatus.Cancelled);
+        var forCancelled = Make(cancelled);
+        var cancelledError = await ThrownAsync(() => forCancelled.Service.RejectSpaAsync(manager, cancelled.AppointmentId));
+
+        Check(customerError?.Code == ErrorCodes.Forbidden, "A non-manager must be rejected with Forbidden.");
+        Check(unknownError?.Code == ErrorCodes.NotFound, "An unknown appointment must be rejected with NotFound.");
+        Check(confirmedError?.Code == ErrorCodes.InvalidTransition, "A Confirmed appointment must be rejected with InvalidTransition.");
+        Check(cancelledError?.Code == ErrorCodes.InvalidTransition, "A Cancelled appointment must be rejected with InvalidTransition.");
+        Check(confirmed.Status == AppointmentStatus.Confirmed && confirmed.CancelReason is null,
+            "A rejected request must not change the appointment.");
+        Check(forConfirmed.Repo.Added.All(r => r.IsHolding) && forCancelled.Repo.Added.All(r => r.IsHolding),
+            "A rejected request must not release staff holds.");
+        Check(forCustomer.Repo.SaveCalls == 0
+                && forUnknown.Repo.SaveCalls == 0
+                && forConfirmed.Repo.SaveCalls == 0
+                && forCancelled.Repo.SaveCalls == 0,
+            "A rejected request must not save anything.");
+    }),
     ("HotelBookingService.HasCapacityAsync counts held stays per night in shop time zone for the pet's species and size group", async () =>
     {
         var ownerUserId = Guid.NewGuid();
@@ -2573,13 +2844,16 @@ sealed class TestConcurrencyGuard : IConcurrencyGuard
     public (Species Species, SizeGroup SizeGroup)? LockedHotelGroup { get; private set; }
     public Guid? LockedAppointmentId { get; private set; }
     public Guid? LockedPaymentId { get; private set; }
+    public int RunCalls { get; private set; }
     public Task<T> RunAsync<T>(Func<Task<T>> work, CancellationToken ct = default)
     {
+        RunCalls++;
         Events.Add("run");
         return work();
     }
     public Task RunAsync(Func<Task> work, CancellationToken ct = default)
     {
+        RunCalls++;
         Events.Add("run");
         return work();
     }
@@ -2703,6 +2977,32 @@ sealed class TestAssignmentRepo(
         if (staffAssignments.Count == 0) return Task.CompletedTask;
         return SetStaffAssignmentsAsync(staffAssignments[0].AppointmentId, staffAssignments, ct);
     }
+
+    public int SaveCalls { get; private set; }
+
+    public Task<int> CountActiveHoldingStaffAsync(Guid appointmentId, CancellationToken ct = default) =>
+        Task.FromResult(Added.Count(a => a.AppointmentId == appointmentId && a.IsHolding));
+
+    public Task ReleaseStaffHoldsAsync(Guid appointmentId, CancellationToken ct = default)
+    {
+        foreach (var row in Added.Where(a => a.AppointmentId == appointmentId))
+        {
+            row.IsHolding = false;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task SaveChangesAsync(CancellationToken ct = default)
+    {
+        SaveCalls++;
+        return Task.CompletedTask;
+    }
+
+    public SpaAmountInput? AmountInput { get; set; }
+
+    public Task<SpaAmountInput?> GetSpaAmountInputAsync(Guid appointmentId, CancellationToken ct = default) =>
+        Task.FromResult(AmountInput);
 }
 
 sealed class TestHotelBookingRepo(int activeCages, IReadOnlyList<HeldHotelStay> held) : IHotelBookingRepository

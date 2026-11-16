@@ -11,6 +11,8 @@ public sealed record SpaStaffSuggestionsResult(
     IReadOnlyList<SlotStaffSuggestion> Suggested,
     IReadOnlyList<SlotStaffSuggestion> Alternatives);
 
+public sealed record SpaConfirmResult(AppointmentStatus Status, decimal Amount);
+
 public sealed class AssignmentService(
     IAssignmentRepository assignments,
     ISpaScheduleRepository schedule,
@@ -108,6 +110,49 @@ public sealed class AssignmentService(
             }
 
             await assignments.SetStaffAssignmentsAsync(appointmentId, rows, ct);
+        }, ct);
+    }
+
+    public async Task<SpaConfirmResult> ConfirmSpaAsync(
+        CurrentUser user, Guid appointmentId, CancellationToken ct = default)
+    {
+        if (user.Role != UserRole.Manager) throw new BusinessException(ErrorCodes.Forbidden);
+
+        return await concurrency.RunAsync(async () =>
+        {
+            await concurrency.LockAppointmentAsync(appointmentId, ct);
+
+            var appointment = await assignments.FindSpaAppointmentAsync(appointmentId, ct)
+                ?? throw new BusinessException(ErrorCodes.NotFound);
+
+            var assignedCount = await assignments.CountActiveHoldingStaffAsync(appointmentId, ct);
+            appointment.ConfirmWithAssignedStaff(assignedCount);
+
+            var amountInput = await assignments.GetSpaAmountInputAsync(appointmentId, ct)
+                ?? throw new BusinessException(ErrorCodes.NotFound);
+            var amount = PricingService.SpaAmount(
+                amountInput.Species, appointment.SizeGroup, amountInput.ServiceIds, amountInput.Pricing);
+
+            await assignments.SaveChangesAsync(ct);
+
+            return new SpaConfirmResult(appointment.Status, amount);
+        }, ct);
+    }
+
+    public async Task RejectSpaAsync(CurrentUser user, Guid appointmentId, CancellationToken ct = default)
+    {
+        if (user.Role != UserRole.Manager) throw new BusinessException(ErrorCodes.Forbidden);
+
+        await concurrency.RunAsync(async () =>
+        {
+            await concurrency.LockAppointmentAsync(appointmentId, ct);
+
+            var appointment = await assignments.FindSpaAppointmentAsync(appointmentId, ct)
+                ?? throw new BusinessException(ErrorCodes.NotFound);
+
+            appointment.Reject();
+            await assignments.ReleaseStaffHoldsAsync(appointmentId, ct);
+            await assignments.SaveChangesAsync(ct);
         }, ct);
     }
 }
