@@ -12,6 +12,18 @@ public class HotelAppointment : Appointment
 
     protected override AppointmentLifecycle GetLifecycle() => AppointmentLifecycle.Hotel;
 
+    public override DateTimeOffset GetScheduledStart() => PlannedCheckIn;
+
+    public void Reschedule(Guid petId, SizeGroup sizeGroup, DateTimeOffset checkIn, DateTimeOffset checkOut)
+    {
+        BeginCustomerChange();
+
+        PetId = petId;
+        SizeGroup = sizeGroup;
+        PlannedCheckIn = checkIn;
+        PlannedCheckOut = checkOut;
+    }
+
     public override void ReturnToPending()
     {
         base.ReturnToPending();
