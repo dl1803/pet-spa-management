@@ -49,13 +49,21 @@ public sealed class SpaScheduleRepository(AppDbContext db) : ISpaScheduleReposit
     }
 
     public async Task<IReadOnlyList<HeldSpaBooking>> ListHeldSpaBookingsAsync(
-        DateTimeOffset rangeStart, DateTimeOffset rangeEnd, CancellationToken ct = default)
+        DateTimeOffset rangeStart,
+        DateTimeOffset rangeEnd,
+        Guid? excludeAppointmentId = null,
+        CancellationToken ct = default)
     {
         var start = rangeStart.ToUniversalTime();
         var end = rangeEnd.ToUniversalTime();
 
-        return await db.Set<SpaAppointment>().AsNoTracking()
-            .Where(a => HeldStatuses.Contains(a.Status) && a.SlotStart < end && a.BusyUntil > start)
+        var held = db.Set<SpaAppointment>().AsNoTracking()
+            .Where(a => HeldStatuses.Contains(a.Status) && a.SlotStart < end && a.BusyUntil > start);
+
+        if (excludeAppointmentId is { } excludedId)
+            held = held.Where(a => a.AppointmentId != excludedId);
+
+        return await held
             .OrderBy(a => a.SlotStart)
             .Select(a => new HeldSpaBooking(a.SlotStart, a.BusyUntil, a.StaffRequired))
             .ToListAsync(ct);
@@ -79,4 +87,3 @@ public sealed class SpaScheduleRepository(AppDbContext db) : ISpaScheduleReposit
         await db.SaveChangesAsync(ct);
     }
 }
-

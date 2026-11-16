@@ -2645,6 +2645,378 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(JsonSerializer.Serialize(VnpayIpnResponse.InvalidChecksum, web) == "{\"RspCode\":\"97\",\"Message\":\"Invalid Checksum\"}", "The invalid checksum response must use RspCode 97.");
         Check(JsonSerializer.Serialize(VnpayIpnResponse.Unprocessed, web) == "{\"RspCode\":\"99\",\"Message\":\"Unknown error\"}", "The unprocessed response must use RspCode 99.");
         return Task.CompletedTask;
+    }),
+    ("BookingService.PlanSpaSlotAsync computes the hold window and EnsureSpaSlotAvailableAsync forwards the excluded appointment", async () =>
+    {
+        var scenario = CreateSpaSlotScenario(slotIsHeld: false);
+        var selection = await scenario.Service.ResolveSpaSelectionAsync(scenario.User, scenario.PetId, [scenario.ServiceId]);
+        var plan = await scenario.Service.PlanSpaSlotAsync(selection, scenario.SlotStart);
+        var excludedId = Guid.NewGuid();
+
+        await scenario.Service.EnsureSpaSlotAvailableAsync(selection, plan, excludedId);
+
+        Check(plan.SlotStart == scenario.SlotStart, "The plan must keep the requested start in UTC.");
+        Check(plan.SlotEnd == scenario.SlotStart.AddMinutes(60), "SlotEnd must add the service duration.");
+        Check(plan.BusyUntil == scenario.SlotStart.AddMinutes(75), "BusyUntil must add the buffer after SlotEnd.");
+        Check(plan.BufferMinutes == 15 && plan.LocalTime == new TimeOnly(10, 0), "The plan must carry the buffer and the local time.");
+        Check(scenario.Schedule.LastExcludeAppointmentId == excludedId,
+            "The held bookings query must receive the excluded appointment id.");
+    }),
+    ("BookingService.EnsureSpaSlotAvailableAsync throws SLOT_FULL when the slot is already held", async () =>
+    {
+        var scenario = CreateSpaSlotScenario(slotIsHeld: true);
+        var selection = await scenario.Service.ResolveSpaSelectionAsync(scenario.User, scenario.PetId, [scenario.ServiceId]);
+        var plan = await scenario.Service.PlanSpaSlotAsync(selection, scenario.SlotStart);
+
+        var threw = false;
+        try
+        {
+            await scenario.Service.EnsureSpaSlotAvailableAsync(selection, plan, null);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.SlotFull)
+        {
+            threw = true;
+        }
+
+        Check(threw, "A held slot must be rejected with SLOT_FULL.");
+    }),
+    ("BookingService.PlanSpaSlotAsync rejects past slots and slots that are not a configured slot time", async () =>
+    {
+        var scenario = CreateSpaSlotScenario(slotIsHeld: false);
+        var selection = await scenario.Service.ResolveSpaSelectionAsync(scenario.User, scenario.PetId, [scenario.ServiceId]);
+
+        foreach (var invalidStart in new[] { DateTimeOffset.UtcNow.AddHours(-1), scenario.SlotStart.AddMinutes(30) })
+        {
+            var threw = false;
+            try
+            {
+                await scenario.Service.PlanSpaSlotAsync(selection, invalidStart);
+            }
+            catch (BusinessException ex) when (ex.Code == ErrorCodes.ValidationError)
+            {
+                threw = true;
+            }
+
+            Check(threw, "An invalid slot start must be rejected with VALIDATION_ERROR.");
+        }
+    }),
+    ("HotelBookingService.HasCapacityForGroupAsync forwards the excluded appointment and counts held nights", async () =>
+    {
+        var held = new[]
+        {
+            new HeldHotelStay(new DateTimeOffset(2026, 11, 11, 7, 0, 0, TimeSpan.Zero), new DateTimeOffset(2026, 11, 13, 5, 0, 0, TimeSpan.Zero)),
+        };
+        var repo = new TestHotelBookingRepo(1, held);
+        var service = new HotelBookingService(
+            new TestPetRepo(new Pet { PetId = Guid.NewGuid(), IsActive = true }, Guid.NewGuid()),
+            new TestStaffRoleReader(null),
+            repo,
+            new TestHotelCatalogRepo(),
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            new TestConcurrencyGuard());
+        var excludedId = Guid.NewGuid();
+
+        var capacity = await service.HasCapacityForGroupAsync(
+            Species.Dog, SizeGroup.Small,
+            new DateTimeOffset(2026, 11, 11, 7, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 11, 12, 5, 0, 0, TimeSpan.Zero),
+            excludedId);
+
+        Check(!capacity, "The only cage is held on the night of 11/11, so there must be no capacity.");
+        Check(repo.LastExcludeAppointmentId == excludedId, "The held stays query must receive the excluded appointment id.");
+    }),
+    ("HotelBookingService.NormalizeStay converts to UTC and rejects past or same-day stays", () =>
+    {
+        var service = new HotelBookingService(
+            new TestPetRepo(new Pet { PetId = Guid.NewGuid(), IsActive = true }, Guid.NewGuid()),
+            new TestStaffRoleReader(null),
+            new TestHotelBookingRepo(1, []),
+            new TestHotelCatalogRepo(),
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            new TestConcurrencyGuard());
+
+        var day = DateTimeOffset.UtcNow.AddDays(3);
+        var checkIn = new DateTimeOffset(day.Year, day.Month, day.Day, 10, 0, 0, TimeSpan.FromHours(7));
+        var normalized = service.NormalizeStay(checkIn, checkIn.AddDays(2));
+        Check(normalized.CheckIn.Offset == TimeSpan.Zero && normalized.CheckIn == checkIn,
+            "The check-in must be converted to UTC without changing the instant.");
+
+        var sameDayIn = new DateTimeOffset(day.Year, day.Month, day.Day, 8, 0, 0, TimeSpan.Zero);
+        foreach (var (invalidIn, invalidOut) in new[]
+        {
+            (DateTimeOffset.UtcNow.AddHours(-1), DateTimeOffset.UtcNow.AddDays(2)),
+            (sameDayIn, sameDayIn.AddHours(10)),
+        })
+        {
+            var threw = false;
+            try
+            {
+                service.NormalizeStay(invalidIn, invalidOut);
+            }
+            catch (BusinessException ex) when (ex.Code == ErrorCodes.ValidationError)
+            {
+                threw = true;
+            }
+
+            Check(threw, "A past check-in or a same-day check-out must be rejected with VALIDATION_ERROR.");
+        }
+
+        return Task.CompletedTask;
+    }),
+    ("AppointmentChangeService.ChangeAsync moves a confirmed spa appointment to Pending with the new schedule", async () =>
+    {
+        var appointment = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var fixture = new ChangeFixture(appointment);
+
+        var status = await fixture.ChangeService.ChangeAsync(fixture.Customer, appointment.AppointmentId, fixture.SpaChange);
+
+        Check(status == AppointmentStatus.Pending && appointment.Status == AppointmentStatus.Pending,
+            "A customer change of a confirmed appointment must return it to Pending.");
+        Check(appointment.PetId == fixture.Pet.PetId && appointment.SizeGroup == SizeGroup.Medium,
+            "The pet and size group must follow the new pet.");
+        Check(appointment.SlotStart == fixture.NewSlot
+              && appointment.SlotEnd == fixture.NewSlot.AddMinutes(60)
+              && appointment.BusyUntil == fixture.NewSlot.AddMinutes(75)
+              && appointment.StaffRequired == 1,
+            "The schedule must be recomputed from the new slot, duration and buffer.");
+        Check(fixture.Changes.SavedSpaServiceIds.Count == 1
+              && fixture.Changes.SavedSpaServiceIds[0].SequenceEqual(new[] { fixture.ServiceId }),
+            "The new service list must be saved once.");
+        Check(fixture.Schedule.LastExcludeAppointmentId == appointment.AppointmentId,
+            "The availability check must exclude the appointment being changed.");
+        Check(string.Join(",", fixture.Guard.LockOrder) == "lock-day,lock-appointment",
+            "The day lock must be taken before the appointment row lock.");
+        Check(fixture.Guard.LockedAppointmentId == appointment.AppointmentId, "The appointment row must be locked.");
+    }),
+    ("AppointmentChangeService.ChangeAsync enforces the configured change window against the current start", async () =>
+    {
+        foreach (var (deadline, startsInMinutes, shouldBeOpen) in new[] { (60, 30, false), (120, 90, false), (120, 150, true), (60, 60 * 24, true) })
+        {
+            var appointment = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromMinutes(startsInMinutes));
+            var fixture = new ChangeFixture(appointment, deadlineMinutes: deadline);
+
+            var code = await FailureCodeAsync(() =>
+                fixture.ChangeService.ChangeAsync(fixture.Customer, appointment.AppointmentId, fixture.SpaChange));
+
+            if (shouldBeOpen)
+            {
+                Check(code is null && appointment.Status == AppointmentStatus.Pending,
+                    $"With a {deadline}-minute window, a start {startsInMinutes} minutes away must be changeable.");
+            }
+            else
+            {
+                Check(code == ErrorCodes.ChangeWindowClosed,
+                    $"With a {deadline}-minute window, a start {startsInMinutes} minutes away must be rejected.");
+                Check(appointment.Status == AppointmentStatus.Confirmed && fixture.Changes.SavedSpaServiceIds.Count == 0
+                      && fixture.Guard.LockOrder.Count == 0,
+                    "A closed window must not lock, change or save anything.");
+            }
+        }
+    }),
+    ("AppointmentChangeService.ChangeAsync rejects other customers, unknown appointments and non-customers", async () =>
+    {
+        var appointment = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var fixture = new ChangeFixture(appointment);
+
+        var otherCustomer = new CurrentUser(Guid.NewGuid(), UserRole.Customer);
+        var manager = new CurrentUser(fixture.OwnerUserId, UserRole.Manager);
+
+        Check(await FailureCodeAsync(() => fixture.ChangeService.ChangeAsync(otherCustomer, appointment.AppointmentId, fixture.SpaChange)) == ErrorCodes.Forbidden,
+            "Another customer's appointment must be rejected with FORBIDDEN.");
+        Check(await FailureCodeAsync(() => fixture.ChangeService.ChangeAsync(fixture.Customer, Guid.NewGuid(), fixture.SpaChange)) == ErrorCodes.NotFound,
+            "An unknown appointment must be rejected with NOT_FOUND.");
+        Check(await FailureCodeAsync(() => fixture.ChangeService.ChangeAsync(manager, appointment.AppointmentId, fixture.SpaChange)) == ErrorCodes.Forbidden,
+            "A non-customer must be rejected with FORBIDDEN.");
+        Check(appointment.Status == AppointmentStatus.Confirmed && fixture.Changes.SavedSpaServiceIds.Count == 0
+              && fixture.Guard.LockOrder.Count == 0,
+            "Rejected requests must not lock, change or save anything.");
+    }),
+    ("AppointmentChangeService.ChangeAsync rejects statuses other than Pending and Confirmed", async () =>
+    {
+        var spa = OldSpaAppointment(AppointmentStatus.Received, TimeSpan.FromDays(5));
+        var spaFixture = new ChangeFixture(spa);
+        var hotel = OldHotelAppointment(AppointmentStatus.InStay, TimeSpan.FromDays(5));
+        var hotelFixture = new ChangeFixture(hotel);
+
+        Check(await FailureCodeAsync(() => spaFixture.ChangeService.ChangeAsync(spaFixture.Customer, spa.AppointmentId, spaFixture.SpaChange)) == ErrorCodes.InvalidTransition,
+            "A received spa appointment must be rejected with INVALID_TRANSITION.");
+        Check(await FailureCodeAsync(() => hotelFixture.ChangeService.ChangeAsync(hotelFixture.Customer, hotel.AppointmentId, hotelFixture.HotelChange)) == ErrorCodes.InvalidTransition,
+            "An in-stay appointment must be rejected with INVALID_TRANSITION.");
+        Check(spaFixture.Guard.LockOrder.Count == 0 && hotelFixture.Guard.LockOrder.Count == 0
+              && spaFixture.Changes.SavedSpaServiceIds.Count == 0 && hotelFixture.Changes.SavedHotelChanges == 0,
+            "Rejected statuses must not lock or save anything.");
+    }),
+    ("AppointmentChangeService.ChangeAsync requires the fields of the appointment type and the customer's own pet", async () =>
+    {
+        var spa = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var spaFixture = new ChangeFixture(spa);
+        var hotel = OldHotelAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var hotelFixture = new ChangeFixture(hotel);
+        var foreignPetSpa = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var foreignPetFixture = new ChangeFixture(foreignPetSpa, petBelongsToOther: true);
+
+        Check(await FailureCodeAsync(() => spaFixture.ChangeService.ChangeAsync(spaFixture.Customer, spa.AppointmentId,
+                spaFixture.SpaChange with { SlotStart = null })) == ErrorCodes.ValidationError,
+            "A spa change without slotStart must be rejected with VALIDATION_ERROR.");
+        Check(await FailureCodeAsync(() => spaFixture.ChangeService.ChangeAsync(spaFixture.Customer, spa.AppointmentId,
+                spaFixture.SpaChange with { ServiceIds = [] })) == ErrorCodes.ValidationError,
+            "A spa change without services must be rejected with VALIDATION_ERROR.");
+        Check(await FailureCodeAsync(() => hotelFixture.ChangeService.ChangeAsync(hotelFixture.Customer, hotel.AppointmentId,
+                hotelFixture.HotelChange with { PlannedCheckOut = null })) == ErrorCodes.ValidationError,
+            "A hotel change without plannedCheckOut must be rejected with VALIDATION_ERROR.");
+        Check(await FailureCodeAsync(() => foreignPetFixture.ChangeService.ChangeAsync(foreignPetFixture.Customer, foreignPetSpa.AppointmentId,
+                foreignPetFixture.SpaChange)) == ErrorCodes.Forbidden,
+            "Another customer's pet must be rejected with FORBIDDEN.");
+        Check(spaFixture.Guard.LockOrder.Count == 0 && hotelFixture.Guard.LockOrder.Count == 0
+              && foreignPetFixture.Guard.LockOrder.Count == 0,
+            "Invalid payloads and foreign pets must be rejected before any lock.");
+    }),
+    ("AppointmentChangeService.ChangeAsync maps a full slot to SLOT_FULL and leaves the appointment unchanged", async () =>
+    {
+        var appointment = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var oldStart = appointment.SlotStart;
+        var fixture = new ChangeFixture(appointment, slotIsHeld: true);
+
+        var code = await FailureCodeAsync(() =>
+            fixture.ChangeService.ChangeAsync(fixture.Customer, appointment.AppointmentId, fixture.SpaChange));
+
+        Check(code == ErrorCodes.SlotFull, "A held slot must be rejected with SLOT_FULL.");
+        Check(appointment.Status == AppointmentStatus.Confirmed && appointment.SlotStart == oldStart
+              && fixture.Changes.SavedSpaServiceIds.Count == 0,
+            "A rejected change must leave the appointment and storage untouched.");
+    }),
+    ("AppointmentChangeService.ChangeAsync re-checks status and window after the row lock", async () =>
+    {
+        var becomesReceived = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var statusFixture = new ChangeFixture(becomesReceived, beforeFindForUpdate: a => a.Status = AppointmentStatus.Received);
+
+        var movedCloser = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var windowFixture = new ChangeFixture(movedCloser, beforeFindForUpdate: a => ((SpaAppointment)a).SlotStart = DateTimeOffset.UtcNow.AddMinutes(10));
+
+        Check(await FailureCodeAsync(() => statusFixture.ChangeService.ChangeAsync(statusFixture.Customer, becomesReceived.AppointmentId, statusFixture.SpaChange)) == ErrorCodes.InvalidTransition,
+            "A status that changed before the lock must be rejected with INVALID_TRANSITION.");
+        Check(await FailureCodeAsync(() => windowFixture.ChangeService.ChangeAsync(windowFixture.Customer, movedCloser.AppointmentId, windowFixture.SpaChange)) == ErrorCodes.ChangeWindowClosed,
+            "A start that moved inside the window before the lock must be rejected with CHANGE_WINDOW_CLOSED.");
+        Check(statusFixture.Changes.SavedSpaServiceIds.Count == 0 && windowFixture.Changes.SavedSpaServiceIds.Count == 0,
+            "Nothing may be saved after a failed re-check.");
+    }),
+    ("AppointmentChangeService.ChangeAsync moves a confirmed hotel appointment to Pending and drops the cage", async () =>
+    {
+        var appointment = OldHotelAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var fixture = new ChangeFixture(appointment);
+
+        var status = await fixture.ChangeService.ChangeAsync(fixture.Customer, appointment.AppointmentId, fixture.HotelChange);
+
+        Check(status == AppointmentStatus.Pending && appointment.Status == AppointmentStatus.Pending,
+            "A customer change of a confirmed stay must return it to Pending.");
+        Check(appointment.CageId is null, "The assigned cage must be dropped.");
+        Check(appointment.PlannedCheckIn == fixture.NewSlot && appointment.PlannedCheckOut == fixture.NewCheckOut
+              && appointment.PetId == fixture.Pet.PetId && appointment.SizeGroup == SizeGroup.Medium,
+            "The stay and the pet must be replaced.");
+        Check(fixture.Guard.LockedHotelGroup == (Species.Dog, SizeGroup.Medium)
+              && string.Join(",", fixture.Guard.LockOrder) == "lock-hotel-group,lock-appointment",
+            "The hotel group lock must be taken for the new pet before the appointment row lock.");
+        Check(fixture.HotelRepo.LastExcludeAppointmentId == appointment.AppointmentId && fixture.Changes.SavedHotelChanges == 1,
+            "The capacity check must exclude the appointment being changed and the change must be saved once.");
+    }),
+    ("AppointmentChangeService.ChangeAsync maps a full hotel group to NO_CAPACITY", async () =>
+    {
+        var appointment = OldHotelAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var fixture = new ChangeFixture(appointment, hotelIsFull: true);
+
+        var code = await FailureCodeAsync(() =>
+            fixture.ChangeService.ChangeAsync(fixture.Customer, appointment.AppointmentId, fixture.HotelChange));
+
+        Check(code == ErrorCodes.NoCapacity, "A full group must be rejected with NO_CAPACITY.");
+        Check(appointment.Status == AppointmentStatus.Confirmed && appointment.CageId is not null
+              && fixture.Changes.SavedHotelChanges == 0,
+            "A rejected change must leave the stay untouched.");
+    }),
+    ("UpdateAppointmentRequestValidator requires petId and rejects invalid services and past starts", () =>
+    {
+        var validator = new UpdateAppointmentRequestValidator();
+        var future = DateTimeOffset.UtcNow.AddDays(2);
+
+        Check(validator.Validate(new UpdateAppointmentRequest(Guid.NewGuid(), future, [Guid.NewGuid()], null, null)).IsValid,
+            "A valid spa change must pass.");
+        Check(validator.Validate(new UpdateAppointmentRequest(Guid.NewGuid(), null, null, future, future.AddDays(1))).IsValid,
+            "A valid hotel change must pass.");
+
+        var missingPet = validator.Validate(new UpdateAppointmentRequest(null, future, [Guid.NewGuid()], null, null));
+        Check(!missingPet.IsValid && missingPet.Errors.Any(e => e.PropertyName == "PetId"), "A missing petId must fail.");
+
+        var emptyServices = validator.Validate(new UpdateAppointmentRequest(Guid.NewGuid(), future, [], null, null));
+        Check(!emptyServices.IsValid && emptyServices.Errors.Any(e => e.PropertyName == "ServiceIds"), "An empty serviceIds must fail.");
+
+        var emptyServiceId = validator.Validate(new UpdateAppointmentRequest(Guid.NewGuid(), future, [Guid.Empty], null, null));
+        Check(!emptyServiceId.IsValid && emptyServiceId.Errors.Any(e => e.PropertyName == "ServiceIds"), "An empty service id must fail.");
+
+        var pastSlot = validator.Validate(new UpdateAppointmentRequest(Guid.NewGuid(), DateTimeOffset.UtcNow.AddHours(-1), [Guid.NewGuid()], null, null));
+        Check(!pastSlot.IsValid && pastSlot.Errors.Any(e => e.PropertyName == "SlotStart"), "A past slotStart must fail.");
+
+        var pastCheckIn = validator.Validate(new UpdateAppointmentRequest(Guid.NewGuid(), null, null, DateTimeOffset.UtcNow.AddHours(-1), future));
+        Check(!pastCheckIn.IsValid && pastCheckIn.Errors.Any(e => e.PropertyName == "PlannedCheckIn"), "A past plannedCheckIn must fail.");
+
+        return Task.CompletedTask;
+    }),
+    ("AppointmentsController.Update rejects a null request and is a PUT restricted to the Customer policy", async () =>
+    {
+        var controller = new AppointmentsController(null!);
+        Check(await FailureCodeAsync(() => controller.Update(Guid.NewGuid(), null, CancellationToken.None)) == ErrorCodes.ValidationError,
+            "A null request must be rejected with VALIDATION_ERROR.");
+
+        var method = typeof(AppointmentsController).GetMethod(nameof(AppointmentsController.Update));
+        var put = method?.GetCustomAttributes(typeof(HttpPutAttribute), true).OfType<HttpPutAttribute>().FirstOrDefault();
+        var authorize = method?.GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AuthorizeAttribute), true)
+            .OfType<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>().FirstOrDefault();
+
+        Check(put?.Template == "{id}", "Update must be bound to PUT {id}.");
+        Check(authorize?.Policy == AuthorizationPolicies.Customer, "Update must require the Customer policy.");
+        Check(typeof(UpdateAppointmentRequest).GetProperty("StaffIds") is null
+              && typeof(UpdateAppointmentRequest).GetProperty("CageId") is null
+              && typeof(UpdateAppointmentRequest).GetProperty("Status") is null,
+            "The customer request must not carry staff, cage or status fields.");
+    }),
+    ("AppointmentChangeService.ResolveCancelTargetAsync returns the appointment of its owner without checking status or window", async () =>
+    {
+        var spa = OldSpaAppointment(AppointmentStatus.Received, TimeSpan.FromMinutes(5));
+        var spaFixture = new ChangeFixture(spa);
+        var hotel = OldHotelAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var hotelFixture = new ChangeFixture(hotel);
+
+        var spaTarget = await spaFixture.ChangeService.ResolveCancelTargetAsync(spaFixture.Customer, spa.AppointmentId);
+        var hotelTarget = await hotelFixture.ChangeService.ResolveCancelTargetAsync(hotelFixture.Customer, hotel.AppointmentId);
+
+        Check(ReferenceEquals(spaTarget.Appointment, spa) && spaTarget.OwnerUserId == spaFixture.OwnerUserId,
+            "The spa appointment must be returned for its owner even when it is past the window or not changeable.");
+        Check(ReferenceEquals(hotelTarget.Appointment, hotel) && hotelTarget.Appointment is HotelAppointment,
+            "The hotel appointment must be returned for its owner.");
+    }),
+    ("AppointmentChangeService.ResolveCancelTargetAsync rejects other customers, unknown appointments and non-customers", async () =>
+    {
+        var appointment = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var fixture = new ChangeFixture(appointment);
+        var otherCustomer = new CurrentUser(Guid.NewGuid(), UserRole.Customer);
+        var receptionist = new CurrentUser(fixture.OwnerUserId, UserRole.Staff);
+
+        Check(await FailureCodeAsync(() => fixture.ChangeService.ResolveCancelTargetAsync(otherCustomer, appointment.AppointmentId)) == ErrorCodes.Forbidden,
+            "Another customer's appointment must be rejected with FORBIDDEN.");
+        Check(await FailureCodeAsync(() => fixture.ChangeService.ResolveCancelTargetAsync(fixture.Customer, Guid.NewGuid())) == ErrorCodes.NotFound,
+            "An unknown appointment must be rejected with NOT_FOUND.");
+        Check(await FailureCodeAsync(() => fixture.ChangeService.ResolveCancelTargetAsync(receptionist, appointment.AppointmentId)) == ErrorCodes.Forbidden,
+            "A non-customer must be rejected with FORBIDDEN.");
+    }),
+    ("AppointmentChangeService.ResolveCancelTargetAsync does not read the window, lock or change anything", async () =>
+    {
+        var appointment = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var fixture = new ChangeFixture(appointment);
+
+        await fixture.ChangeService.ResolveCancelTargetAsync(fixture.Customer, appointment.AppointmentId);
+
+        Check(fixture.Changes.DeadlineReads == 0, "The window configuration must not be read at this step.");
+        Check(fixture.Guard.LockOrder.Count == 0 && fixture.Changes.SavedSpaServiceIds.Count == 0
+              && appointment.Status == AppointmentStatus.Confirmed,
+            "Nothing may be locked, saved or changed at this step.");
     })
 };
 
@@ -2665,6 +3037,79 @@ foreach (var (name, run) in tests)
 
 Console.WriteLine($"{tests.Length - failures} passed, {failures} failed.");
 return failures == 0 ? 0 : 1;
+
+static (BookingService Service, TestScheduleRepo Schedule, CurrentUser User, Guid PetId, Guid ServiceId, DateTimeOffset SlotStart)
+    CreateSpaSlotScenario(bool slotIsHeld)
+{
+    var ownerUserId = Guid.NewGuid();
+    var petId = Guid.NewGuid();
+    var serviceId = Guid.NewGuid();
+    var pet = new Pet { PetId = petId, CustomerId = Guid.NewGuid(), Species = Species.Dog, SizeGroup = SizeGroup.Small, IsActive = true };
+    var service = new Service { ServiceId = serviceId, Name = "Tắm", LatestStartTime = new TimeOnly(18, 0), IsActive = true };
+    var pricing = new ServicePricing { ServiceId = serviceId, Species = Species.Dog, SizeGroup = SizeGroup.Small, Price = 100000, DurationMinutes = 60, StaffRequired = 1 };
+    var futureDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2));
+    var slotStart = new DateTimeOffset(futureDate.ToDateTime(new TimeOnly(10, 0)), TimeSpan.Zero);
+    var shifts = new List<StaffShiftWindow> { new(Guid.NewGuid(), slotStart.AddHours(-1), slotStart.AddHours(4)) };
+    var held = new List<HeldSpaBooking>();
+    if (slotIsHeld) held.Add(new HeldSpaBooking(slotStart, slotStart.AddMinutes(75), 1));
+
+    var schedule = new TestScheduleRepo(15, false, shifts, held);
+    var bookingService = new BookingService(
+        new TestPetRepo(pet, ownerUserId),
+        new TestStaffRoleReader(null),
+        new TestCatalogRepo(new ServiceWithPricing(service, [pricing]), [new TimeOnly(10, 0)]),
+        schedule,
+        new TestConcurrencyGuard(),
+        new ShopTimeZone(TimeZoneInfo.Utc));
+
+    return (bookingService, schedule, new CurrentUser(ownerUserId, UserRole.Customer), petId, serviceId, slotStart);
+}
+
+static async Task<string?> FailureCodeAsync(Func<Task> action)
+{
+    try
+    {
+        await action();
+        return null;
+    }
+    catch (BusinessException ex)
+    {
+        return ex.Code;
+    }
+}
+
+static SpaAppointment OldSpaAppointment(AppointmentStatus status, TimeSpan startsIn)
+{
+    var start = DateTimeOffset.UtcNow.Add(startsIn);
+    return new SpaAppointment
+    {
+        AppointmentId = Guid.NewGuid(),
+        CustomerId = Guid.NewGuid(),
+        PetId = Guid.NewGuid(),
+        SizeGroup = SizeGroup.Small,
+        Status = status,
+        SlotStart = start,
+        SlotEnd = start.AddMinutes(30),
+        BusyUntil = start.AddMinutes(45),
+        StaffRequired = 1,
+    };
+}
+
+static HotelAppointment OldHotelAppointment(AppointmentStatus status, TimeSpan startsIn)
+{
+    var start = DateTimeOffset.UtcNow.Add(startsIn);
+    return new HotelAppointment
+    {
+        AppointmentId = Guid.NewGuid(),
+        CustomerId = Guid.NewGuid(),
+        PetId = Guid.NewGuid(),
+        SizeGroup = SizeGroup.Small,
+        Status = status,
+        PlannedCheckIn = start,
+        PlannedCheckOut = start.AddDays(1),
+        CageId = Guid.NewGuid(),
+    };
+}
 
 static async Task AssertRejectedAsync(IAsyncActionFilter filter, Dictionary<string, object?> arguments)
 {
@@ -2905,13 +3350,18 @@ sealed class TestScheduleRepo(
     IReadOnlyList<HeldSpaBooking> held) : ISpaScheduleRepository
 {
     public List<SpaAppointment> AddedAppointments { get; } = [];
+    public Guid? LastExcludeAppointmentId { get; private set; }
     public Task<int> GetBufferMinutesAsync(CancellationToken ct = default) => Task.FromResult(bufferMinutes);
     public Task<IReadOnlyList<StaffShiftWindow>> ListActiveSpaStaffShiftsAsync(
         DateTimeOffset rangeStart, DateTimeOffset rangeEnd, CancellationToken ct = default) =>
         Task.FromResult(shifts);
     public Task<IReadOnlyList<HeldSpaBooking>> ListHeldSpaBookingsAsync(
-        DateTimeOffset rangeStart, DateTimeOffset rangeEnd, CancellationToken ct = default) =>
-        Task.FromResult(held);
+        DateTimeOffset rangeStart, DateTimeOffset rangeEnd, Guid? excludeAppointmentId = null,
+        CancellationToken ct = default)
+    {
+        LastExcludeAppointmentId = excludeAppointmentId;
+        return Task.FromResult(held);
+    }
     public Task<bool> IsBookingLockedAsync(Guid customerId, CancellationToken ct = default) => Task.FromResult(isLocked);
     public Task AddSpaAppointmentAsync(
         SpaAppointment appointment, IReadOnlyList<Guid> serviceIds, CancellationToken ct = default)
@@ -2924,6 +3374,7 @@ sealed class TestScheduleRepo(
 sealed class TestConcurrencyGuard : IConcurrencyGuard
 {
     public List<string> Events { get; init; } = [];
+    public List<string> LockOrder { get; } = [];
     public bool LockedDay { get; private set; }
     public (Species Species, SizeGroup SizeGroup)? LockedHotelGroup { get; private set; }
     public Guid? LockedAppointmentId { get; private set; }
@@ -2943,16 +3394,19 @@ sealed class TestConcurrencyGuard : IConcurrencyGuard
     }
     public Task LockSpaDayAsync(DateOnly day, CancellationToken ct = default)
     {
+        LockOrder.Add("lock-day");
         LockedDay = true;
         return Task.CompletedTask;
     }
     public Task LockHotelGroupAsync(Species species, SizeGroup sizeGroup, CancellationToken ct = default)
     {
+        LockOrder.Add("lock-hotel-group");
         LockedHotelGroup = (species, sizeGroup);
         return Task.CompletedTask;
     }
     public Task LockAppointmentAsync(Guid appointmentId, CancellationToken ct = default)
     {
+        LockOrder.Add("lock-appointment");
         LockedAppointmentId = appointmentId;
         return Task.CompletedTask;
     }
@@ -3099,6 +3553,7 @@ sealed class TestHotelBookingRepo(int activeCages, IReadOnlyList<HeldHotelStay> 
 {
     public Species? LastSpecies { get; private set; }
     public SizeGroup? LastSizeGroup { get; private set; }
+    public Guid? LastExcludeAppointmentId { get; private set; }
 
     public Task<int> CountActiveCagesAsync(Species species, SizeGroup sizeGroup, CancellationToken ct = default)
     {
@@ -3109,8 +3564,11 @@ sealed class TestHotelBookingRepo(int activeCages, IReadOnlyList<HeldHotelStay> 
 
     public Task<IReadOnlyList<HeldHotelStay>> ListHeldHotelStaysAsync(
         Species species, SizeGroup sizeGroup, DateTimeOffset rangeStart, DateTimeOffset rangeEnd,
-        CancellationToken ct = default) =>
-        Task.FromResult(held);
+        Guid? excludeAppointmentId = null, CancellationToken ct = default)
+    {
+        LastExcludeAppointmentId = excludeAppointmentId;
+        return Task.FromResult(held);
+    }
 
     public List<HotelAppointment> AddedAppointments { get; } = [];
     public bool IsLocked { get; set; }
@@ -3123,6 +3581,125 @@ sealed class TestHotelBookingRepo(int activeCages, IReadOnlyList<HeldHotelStay> 
         AddedAppointments.Add(appointment);
         return Task.CompletedTask;
     }
+}
+
+sealed class TestAppointmentChangeRepo(
+    Appointment? appointment,
+    Guid? ownerUserId,
+    int deadlineMinutes,
+    Action<Appointment>? beforeFindForUpdate = null) : IAppointmentChangeRepository
+{
+    public int DeadlineReads { get; private set; }
+    public List<IReadOnlyList<Guid>> SavedSpaServiceIds { get; } = [];
+    public int SavedHotelChanges { get; private set; }
+
+    public Task<int> GetChangeCancelDeadlineMinutesAsync(CancellationToken ct = default)
+    {
+        DeadlineReads++;
+        return Task.FromResult(deadlineMinutes);
+    }
+
+    public Task<AppointmentChangeTarget?> FindTargetAsync(Guid appointmentId, CancellationToken ct = default) =>
+        Task.FromResult<AppointmentChangeTarget?>(
+            appointment is not null && appointment.AppointmentId == appointmentId
+                ? new AppointmentChangeTarget(appointment, ownerUserId)
+                : null);
+
+    public Task<Appointment?> FindForUpdateAsync(Guid appointmentId, CancellationToken ct = default)
+    {
+        if (appointment is null || appointment.AppointmentId != appointmentId)
+            return Task.FromResult<Appointment?>(null);
+
+        beforeFindForUpdate?.Invoke(appointment);
+        return Task.FromResult<Appointment?>(appointment);
+    }
+
+    public Task SaveSpaChangeAsync(
+        SpaAppointment changed, IReadOnlyList<Guid> serviceIds, CancellationToken ct = default)
+    {
+        SavedSpaServiceIds.Add(serviceIds);
+        return Task.CompletedTask;
+    }
+
+    public Task SaveHotelChangeAsync(HotelAppointment changed, CancellationToken ct = default)
+    {
+        SavedHotelChanges++;
+        return Task.CompletedTask;
+    }
+}
+
+sealed class ChangeFixture
+{
+    public ChangeFixture(
+        Appointment appointment,
+        int deadlineMinutes = 60,
+        bool slotIsHeld = false,
+        bool hotelIsFull = false,
+        bool petBelongsToOther = false,
+        Action<Appointment>? beforeFindForUpdate = null)
+    {
+        OwnerUserId = Guid.NewGuid();
+        Pet = new Pet
+        {
+            PetId = Guid.NewGuid(),
+            CustomerId = Guid.NewGuid(),
+            Species = Species.Dog,
+            SizeGroup = SizeGroup.Medium,
+            IsActive = true,
+        };
+        ServiceId = Guid.NewGuid();
+
+        var service = new Service { ServiceId = ServiceId, Name = "Tắm", LatestStartTime = new TimeOnly(18, 0), IsActive = true };
+        var pricing = new ServicePricing
+        {
+            ServiceId = ServiceId, Species = Species.Dog, SizeGroup = SizeGroup.Medium,
+            Price = 100000, DurationMinutes = 60, StaffRequired = 1,
+        };
+
+        var newDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3));
+        NewSlot = new DateTimeOffset(newDate.ToDateTime(new TimeOnly(10, 0)), TimeSpan.Zero);
+        NewCheckOut = NewSlot.AddDays(2);
+
+        var heldSpa = new List<HeldSpaBooking>();
+        if (slotIsHeld) heldSpa.Add(new HeldSpaBooking(NewSlot, NewSlot.AddMinutes(75), 1));
+        var shifts = new List<StaffShiftWindow> { new(Guid.NewGuid(), NewSlot.AddHours(-1), NewSlot.AddHours(4)) };
+        var heldStays = new List<HeldHotelStay>();
+        if (hotelIsFull) heldStays.Add(new HeldHotelStay(NewSlot, NewCheckOut));
+
+        Changes = new TestAppointmentChangeRepo(appointment, OwnerUserId, deadlineMinutes, beforeFindForUpdate);
+        Schedule = new TestScheduleRepo(15, false, shifts, heldSpa);
+        HotelRepo = new TestHotelBookingRepo(1, heldStays);
+        Guard = new TestConcurrencyGuard();
+
+        var petRepo = new TestPetRepo(Pet, petBelongsToOther ? Guid.NewGuid() : OwnerUserId);
+        var shopZone = new ShopTimeZone(TimeZoneInfo.Utc);
+        var bookingService = new BookingService(
+            petRepo,
+            new TestStaffRoleReader(null),
+            new TestCatalogRepo(new ServiceWithPricing(service, [pricing]), [new TimeOnly(10, 0)]),
+            Schedule,
+            Guard,
+            shopZone);
+        var hotelService = new HotelBookingService(
+            petRepo, new TestStaffRoleReader(null), HotelRepo, new TestHotelCatalogRepo(), shopZone, Guard);
+
+        ChangeService = new AppointmentChangeService(Changes, bookingService, hotelService, petRepo, Guard);
+    }
+
+    public Guid OwnerUserId { get; }
+    public Pet Pet { get; }
+    public Guid ServiceId { get; }
+    public DateTimeOffset NewSlot { get; }
+    public DateTimeOffset NewCheckOut { get; }
+    public TestAppointmentChangeRepo Changes { get; }
+    public TestScheduleRepo Schedule { get; }
+    public TestHotelBookingRepo HotelRepo { get; }
+    public TestConcurrencyGuard Guard { get; }
+    public AppointmentChangeService ChangeService { get; }
+
+    public CurrentUser Customer => new(OwnerUserId, UserRole.Customer);
+    public AppointmentChange SpaChange => new(Pet.PetId, NewSlot, [ServiceId], null, null);
+    public AppointmentChange HotelChange => new(Pet.PetId, null, null, NewSlot, NewCheckOut);
 }
 
 sealed class TestPaymentRepo(PaymentWithOwner? found, PaymentCallbackTarget? callbackTarget = null) : IPaymentRepository
@@ -3203,7 +3780,3 @@ sealed class CapturingLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
         Exception? exception, Func<TState, Exception?, string> formatter) =>
         Entries.Add((logLevel, formatter(state, exception)));
 }
-
-
-
-

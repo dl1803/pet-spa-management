@@ -13,6 +13,26 @@ public class SpaAppointment : Appointment
 
     protected override AppointmentLifecycle GetLifecycle() => AppointmentLifecycle.Spa;
 
+    public override DateTimeOffset GetScheduledStart() => SlotStart;
+
+    public void Reschedule(
+        Guid petId,
+        SizeGroup sizeGroup,
+        DateTimeOffset slotStart,
+        DateTimeOffset slotEnd,
+        DateTimeOffset busyUntil,
+        short staffRequired)
+    {
+        BeginCustomerChange();
+
+        PetId = petId;
+        SizeGroup = sizeGroup;
+        SlotStart = slotStart;
+        SlotEnd = slotEnd;
+        BusyUntil = busyUntil;
+        StaffRequired = staffRequired;
+    }
+
     public IReadOnlyList<AppointmentStaff> AssignStaff(IReadOnlyCollection<Guid>? staffIds)
     {
         if (staffIds is null || staffIds.Count == 0)

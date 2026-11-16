@@ -26,6 +26,14 @@ public abstract class Appointment
 
     public bool CanCancelWith(CancelReason reason) => GetLifecycle().CanCancel(Status, reason);
 
+    public abstract DateTimeOffset GetScheduledStart();
+
+    public void EnsureChangeableByCustomer()
+    {
+        if (Status is not (AppointmentStatus.Pending or AppointmentStatus.Confirmed))
+            throw new BusinessException(ErrorCodes.InvalidTransition);
+    }
+
     public void Confirm() => MoveTo(AppointmentStatus.Confirmed);
 
     public virtual void ReturnToPending() => MoveTo(AppointmentStatus.Pending);
@@ -47,6 +55,14 @@ public abstract class Appointment
         CancelReason = reason;
         CancelledAt = now;
         UpdatedAt = now;
+    }
+
+    protected void BeginCustomerChange()
+    {
+        EnsureChangeableByCustomer();
+
+        if (Status == AppointmentStatus.Confirmed) ReturnToPending();
+        else UpdatedAt = DateTimeOffset.UtcNow;
     }
 
     protected void MoveTo(AppointmentStatus next)
