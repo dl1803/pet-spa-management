@@ -1,4 +1,5 @@
 using PetSpa.Domain.Enums;
+using PetSpa.Domain.Exceptions;
 using PetSpa.Domain.StateMachine;
 
 namespace PetSpa.Domain.Entities;
@@ -28,6 +29,14 @@ public abstract class Appointment
     public void Confirm() => MoveTo(AppointmentStatus.Confirmed);
 
     public virtual void ReturnToPending() => MoveTo(AppointmentStatus.Pending);
+
+    public void Reject()
+    {
+        if (Status != AppointmentStatus.Pending)
+            throw new BusinessException(ErrorCodes.InvalidTransition);
+
+        Cancel(PetSpa.Domain.Enums.CancelReason.StoreUnable);
+    }
 
     public void Cancel(CancelReason reason)
     {

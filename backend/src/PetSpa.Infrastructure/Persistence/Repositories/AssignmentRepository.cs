@@ -111,4 +111,58 @@ public sealed class AssignmentRepository(AppDbContext db) : IAssignmentRepositor
         if (staffAssignments.Count == 0) return Task.CompletedTask;
         return SetStaffAssignmentsAsync(staffAssignments[0].AppointmentId, staffAssignments, ct);
     }
+
+    public Task<int> CountActiveHoldingStaffAsync(Guid appointmentId, CancellationToken ct = default) =>
+        (from assigned in db.Set<AppointmentStaff>().AsNoTracking()
+         join staff in db.Set<Staff>().AsNoTracking() on assigned.StaffId equals staff.StaffId
+         join user in db.Users.AsNoTracking() on staff.UserId equals user.Id
+         where assigned.AppointmentId == appointmentId
+             && assigned.IsHolding
+             && staff.StaffRole == StaffRole.SpaStaff
+             && user.IsActive
+         select assigned)
+        .CountAsync(ct);
+
+    public async Task ReleaseStaffHoldsAsync(Guid appointmentId, CancellationToken ct = default)
+    {
+        var holding = await db.Set<AppointmentStaff>()
+            .Where(a => a.AppointmentId == appointmentId && a.IsHolding)
+            .ToListAsync(ct);
+
+        foreach (var row in holding)
+        {
+            row.IsHolding = false;
+        }
+    }
+
+    public Task SaveChangesAsync(CancellationToken ct = default) => db.SaveChangesAsync(ct);
+
+    public Task UpdateSpaAppointmentAsync(SpaAppointment appointment, CancellationToken ct = default)
+    {
+        db.Set<SpaAppointment>().Update(appointment);
+        return db.SaveChangesAsync(ct);
+    }
+
+    public async Task<SpaAmountInput?> GetSpaAmountInputAsync(Guid appointmentId, CancellationToken ct = default)
+    {
+        var pet = await (
+            from a in db.Set<Appointment>().AsNoTracking()
+            join p in db.Set<Pet>().AsNoTracking() on a.PetId equals p.PetId
+            where a.AppointmentId == appointmentId
+            select new { p.Species })
+            .FirstOrDefaultAsync(ct);
+
+        if (pet is null) return null;
+
+        var serviceIds = await db.Set<AppointmentService>().AsNoTracking()
+            .Where(s => s.AppointmentId == appointmentId)
+            .Select(s => s.ServiceId)
+            .ToListAsync(ct);
+
+        var pricing = await db.Set<ServicePricing>().AsNoTracking()
+            .Where(p => serviceIds.Contains(p.ServiceId) && p.Species == pet.Species)
+            .ToListAsync(ct);
+
+        return new SpaAmountInput(pet.Species, serviceIds, pricing);
+    }
 }

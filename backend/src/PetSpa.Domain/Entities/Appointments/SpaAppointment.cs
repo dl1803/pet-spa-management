@@ -40,6 +40,16 @@ public class SpaAppointment : Appointment
             .ToList();
     }
 
+    public void ConfirmWithAssignedStaff(int assignedStaffCount)
+    {
+        GetLifecycle().EnsureTransition(Status, AppointmentStatus.Confirmed);
+
+        if (assignedStaffCount != StaffRequired)
+            throw new BusinessException(ErrorCodes.StaffCountMismatch);
+
+        Confirm();
+    }
+
     public void Receive() => MoveTo(AppointmentStatus.Received);
 
     public void Start() => MoveTo(AppointmentStatus.InProgress);
