@@ -40,5 +40,7 @@ public interface IAssignmentRepository
 
     Task SaveChangesAsync(CancellationToken ct = default);
 
+    Task UpdateSpaAppointmentAsync(SpaAppointment appointment, CancellationToken ct = default);
+
     Task<SpaAmountInput?> GetSpaAmountInputAsync(Guid appointmentId, CancellationToken ct = default);
 }

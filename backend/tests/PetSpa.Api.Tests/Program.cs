@@ -1403,6 +1403,90 @@ var tests = new (string Name, Func<Task> Run)[]
                 && forShort.Repo.SaveCalls == 0,
             "Rejected confirmations must not save anything.");
     }),
+    ("AssignmentService.ConfirmSpaAsync atomically assigns staff, validates shifts and confirms in one transaction", async () =>
+    {
+        var slotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var bath = Guid.NewGuid();
+        var appointment = new SpaAppointment
+        {
+            AppointmentId = Guid.NewGuid(),
+            Status = AppointmentStatus.Pending,
+            SizeGroup = SizeGroup.Small,
+            SlotStart = slotStart,
+            SlotEnd = slotStart.AddMinutes(60),
+            BusyUntil = slotStart.AddMinutes(75),
+            StaffRequired = 1,
+        };
+        var an = new SpaStaffCandidate(Guid.NewGuid(), "An");
+        var shifts = new[] { new StaffShiftWindow(an.StaffId, slotStart.AddHours(-1), slotStart.AddHours(2)) };
+        var repo = new TestAssignmentRepo(appointment, [an], [], new Dictionary<Guid, int>())
+        {
+            AmountInput = new SpaAmountInput(
+                Species.Dog,
+                [bath],
+                [new ServicePricing { ServiceId = bath, Species = Species.Dog, SizeGroup = SizeGroup.Small, Price = 100_000m }]),
+        };
+        var guard = new TestConcurrencyGuard();
+        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, shifts, []), guard);
+
+        var result = await service.ConfirmSpaAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Manager),
+            appointment.AppointmentId,
+            [an.StaffId],
+            false);
+
+        Check(result.Status == AppointmentStatus.Confirmed, "Appointment must be Confirmed.");
+        Check(result.Amount == 100_000m, "Amount must be 100_000.");
+        Check(repo.Added.Count == 1 && repo.Added[0].StaffId == an.StaffId && repo.Added[0].IsHolding,
+            "Staff assignment must be added and holding.");
+        Check(guard.RunCalls == 1, "Must run inside exactly one concurrency guard transaction.");
+        Check(guard.LockedAppointmentId == appointment.AppointmentId, "Must lock appointment row.");
+    }),
+    ("AssignmentService.ConfirmSpaAsync enforces shift and maps missing price to ValidationError", async () =>
+    {
+        var slotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var bath = Guid.NewGuid();
+        var appointment = new SpaAppointment
+        {
+            AppointmentId = Guid.NewGuid(),
+            Status = AppointmentStatus.Pending,
+            SizeGroup = SizeGroup.Small,
+            SlotStart = slotStart,
+            SlotEnd = slotStart.AddMinutes(60),
+            BusyUntil = slotStart.AddMinutes(75),
+            StaffRequired = 1,
+        };
+        var an = new SpaStaffCandidate(Guid.NewGuid(), "An");
+        var outOfShift = new[] { new StaffShiftWindow(an.StaffId, slotStart.AddHours(5), slotStart.AddHours(8)) };
+        var repo = new TestAssignmentRepo(appointment, [an], [], new Dictionary<Guid, int>())
+        {
+            AmountInput = new SpaAmountInput(Species.Dog, [bath], []),
+        };
+        var guard = new TestConcurrencyGuard();
+        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, outOfShift, []), guard);
+        var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+
+        async Task<BusinessException?> ThrownAsync(Func<Task> action)
+        {
+            try
+            {
+                await action();
+                return null;
+            }
+            catch (BusinessException ex)
+            {
+                return ex;
+            }
+        }
+
+        var shiftErr = await ThrownAsync(() =>
+            service.ConfirmSpaAsync(manager, appointment.AppointmentId, [an.StaffId], false));
+        Check(shiftErr?.Code == ErrorCodes.StaffOutOfShift, "Must reject out-of-shift staff with StaffOutOfShift.");
+
+        var priceErr = await ThrownAsync(() =>
+            service.ConfirmSpaAsync(manager, appointment.AppointmentId, [an.StaffId], true));
+        Check(priceErr?.Code == ErrorCodes.ValidationError, "Missing service price must map to ValidationError.");
+    }),
     ("AssignmentService.RejectSpaAsync cancels a pending appointment as StoreUnable, releases staff holds and saves once inside the concurrency guard", async () =>
     {
         var slotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
@@ -2994,6 +3078,12 @@ sealed class TestAssignmentRepo(
     }
 
     public Task SaveChangesAsync(CancellationToken ct = default)
+    {
+        SaveCalls++;
+        return Task.CompletedTask;
+    }
+
+    public Task UpdateSpaAppointmentAsync(SpaAppointment appointment, CancellationToken ct = default)
     {
         SaveCalls++;
         return Task.CompletedTask;

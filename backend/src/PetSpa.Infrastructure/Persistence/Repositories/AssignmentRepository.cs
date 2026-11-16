@@ -137,6 +137,12 @@ public sealed class AssignmentRepository(AppDbContext db) : IAssignmentRepositor
 
     public Task SaveChangesAsync(CancellationToken ct = default) => db.SaveChangesAsync(ct);
 
+    public Task UpdateSpaAppointmentAsync(SpaAppointment appointment, CancellationToken ct = default)
+    {
+        db.Set<SpaAppointment>().Update(appointment);
+        return db.SaveChangesAsync(ct);
+    }
+
     public async Task<SpaAmountInput?> GetSpaAmountInputAsync(Guid appointmentId, CancellationToken ct = default)
     {
         var pet = await (
