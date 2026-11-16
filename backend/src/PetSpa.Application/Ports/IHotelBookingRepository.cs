@@ -10,11 +10,14 @@ public interface IHotelBookingRepository
     Task<int> CountActiveCagesAsync(Species species, SizeGroup sizeGroup, CancellationToken ct = default);
 
     Task<IReadOnlyList<HeldHotelStay>> ListHeldHotelStaysAsync(
-        Species species, SizeGroup sizeGroup, DateTimeOffset rangeStart, DateTimeOffset rangeEnd,
+        Species species,
+        SizeGroup sizeGroup,
+        DateTimeOffset rangeStart,
+        DateTimeOffset rangeEnd,
+        Guid? excludeAppointmentId = null,
         CancellationToken ct = default);
 
     Task<bool> IsBookingLockedAsync(Guid customerId, CancellationToken ct = default);
 
     Task AddHotelAppointmentAsync(HotelAppointment appointment, CancellationToken ct = default);
 }
-

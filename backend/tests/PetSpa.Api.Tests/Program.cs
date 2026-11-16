@@ -2645,6 +2645,123 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(JsonSerializer.Serialize(VnpayIpnResponse.InvalidChecksum, web) == "{\"RspCode\":\"97\",\"Message\":\"Invalid Checksum\"}", "The invalid checksum response must use RspCode 97.");
         Check(JsonSerializer.Serialize(VnpayIpnResponse.Unprocessed, web) == "{\"RspCode\":\"99\",\"Message\":\"Unknown error\"}", "The unprocessed response must use RspCode 99.");
         return Task.CompletedTask;
+    }),
+    ("BookingService.PlanSpaSlotAsync computes the hold window and EnsureSpaSlotAvailableAsync forwards the excluded appointment", async () =>
+    {
+        var scenario = CreateSpaSlotScenario(slotIsHeld: false);
+        var selection = await scenario.Service.ResolveSpaSelectionAsync(scenario.User, scenario.PetId, [scenario.ServiceId]);
+        var plan = await scenario.Service.PlanSpaSlotAsync(selection, scenario.SlotStart);
+        var excludedId = Guid.NewGuid();
+
+        await scenario.Service.EnsureSpaSlotAvailableAsync(selection, plan, excludedId);
+
+        Check(plan.SlotStart == scenario.SlotStart, "The plan must keep the requested start in UTC.");
+        Check(plan.SlotEnd == scenario.SlotStart.AddMinutes(60), "SlotEnd must add the service duration.");
+        Check(plan.BusyUntil == scenario.SlotStart.AddMinutes(75), "BusyUntil must add the buffer after SlotEnd.");
+        Check(plan.BufferMinutes == 15 && plan.LocalTime == new TimeOnly(10, 0), "The plan must carry the buffer and the local time.");
+        Check(scenario.Schedule.LastExcludeAppointmentId == excludedId,
+            "The held bookings query must receive the excluded appointment id.");
+    }),
+    ("BookingService.EnsureSpaSlotAvailableAsync throws SLOT_FULL when the slot is already held", async () =>
+    {
+        var scenario = CreateSpaSlotScenario(slotIsHeld: true);
+        var selection = await scenario.Service.ResolveSpaSelectionAsync(scenario.User, scenario.PetId, [scenario.ServiceId]);
+        var plan = await scenario.Service.PlanSpaSlotAsync(selection, scenario.SlotStart);
+
+        var threw = false;
+        try
+        {
+            await scenario.Service.EnsureSpaSlotAvailableAsync(selection, plan, null);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.SlotFull)
+        {
+            threw = true;
+        }
+
+        Check(threw, "A held slot must be rejected with SLOT_FULL.");
+    }),
+    ("BookingService.PlanSpaSlotAsync rejects past slots and slots that are not a configured slot time", async () =>
+    {
+        var scenario = CreateSpaSlotScenario(slotIsHeld: false);
+        var selection = await scenario.Service.ResolveSpaSelectionAsync(scenario.User, scenario.PetId, [scenario.ServiceId]);
+
+        foreach (var invalidStart in new[] { DateTimeOffset.UtcNow.AddHours(-1), scenario.SlotStart.AddMinutes(30) })
+        {
+            var threw = false;
+            try
+            {
+                await scenario.Service.PlanSpaSlotAsync(selection, invalidStart);
+            }
+            catch (BusinessException ex) when (ex.Code == ErrorCodes.ValidationError)
+            {
+                threw = true;
+            }
+
+            Check(threw, "An invalid slot start must be rejected with VALIDATION_ERROR.");
+        }
+    }),
+    ("HotelBookingService.HasCapacityForGroupAsync forwards the excluded appointment and counts held nights", async () =>
+    {
+        var held = new[]
+        {
+            new HeldHotelStay(new DateTimeOffset(2026, 11, 11, 7, 0, 0, TimeSpan.Zero), new DateTimeOffset(2026, 11, 13, 5, 0, 0, TimeSpan.Zero)),
+        };
+        var repo = new TestHotelBookingRepo(1, held);
+        var service = new HotelBookingService(
+            new TestPetRepo(new Pet { PetId = Guid.NewGuid(), IsActive = true }, Guid.NewGuid()),
+            new TestStaffRoleReader(null),
+            repo,
+            new TestHotelCatalogRepo(),
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            new TestConcurrencyGuard());
+        var excludedId = Guid.NewGuid();
+
+        var capacity = await service.HasCapacityForGroupAsync(
+            Species.Dog, SizeGroup.Small,
+            new DateTimeOffset(2026, 11, 11, 7, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 11, 12, 5, 0, 0, TimeSpan.Zero),
+            excludedId);
+
+        Check(!capacity, "The only cage is held on the night of 11/11, so there must be no capacity.");
+        Check(repo.LastExcludeAppointmentId == excludedId, "The held stays query must receive the excluded appointment id.");
+    }),
+    ("HotelBookingService.NormalizeStay converts to UTC and rejects past or same-day stays", () =>
+    {
+        var service = new HotelBookingService(
+            new TestPetRepo(new Pet { PetId = Guid.NewGuid(), IsActive = true }, Guid.NewGuid()),
+            new TestStaffRoleReader(null),
+            new TestHotelBookingRepo(1, []),
+            new TestHotelCatalogRepo(),
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            new TestConcurrencyGuard());
+
+        var day = DateTimeOffset.UtcNow.AddDays(3);
+        var checkIn = new DateTimeOffset(day.Year, day.Month, day.Day, 10, 0, 0, TimeSpan.FromHours(7));
+        var normalized = service.NormalizeStay(checkIn, checkIn.AddDays(2));
+        Check(normalized.CheckIn.Offset == TimeSpan.Zero && normalized.CheckIn == checkIn,
+            "The check-in must be converted to UTC without changing the instant.");
+
+        var sameDayIn = new DateTimeOffset(day.Year, day.Month, day.Day, 8, 0, 0, TimeSpan.Zero);
+        foreach (var (invalidIn, invalidOut) in new[]
+        {
+            (DateTimeOffset.UtcNow.AddHours(-1), DateTimeOffset.UtcNow.AddDays(2)),
+            (sameDayIn, sameDayIn.AddHours(10)),
+        })
+        {
+            var threw = false;
+            try
+            {
+                service.NormalizeStay(invalidIn, invalidOut);
+            }
+            catch (BusinessException ex) when (ex.Code == ErrorCodes.ValidationError)
+            {
+                threw = true;
+            }
+
+            Check(threw, "A past check-in or a same-day check-out must be rejected with VALIDATION_ERROR.");
+        }
+
+        return Task.CompletedTask;
     })
 };
 
@@ -2665,6 +2782,33 @@ foreach (var (name, run) in tests)
 
 Console.WriteLine($"{tests.Length - failures} passed, {failures} failed.");
 return failures == 0 ? 0 : 1;
+
+static (BookingService Service, TestScheduleRepo Schedule, CurrentUser User, Guid PetId, Guid ServiceId, DateTimeOffset SlotStart)
+    CreateSpaSlotScenario(bool slotIsHeld)
+{
+    var ownerUserId = Guid.NewGuid();
+    var petId = Guid.NewGuid();
+    var serviceId = Guid.NewGuid();
+    var pet = new Pet { PetId = petId, CustomerId = Guid.NewGuid(), Species = Species.Dog, SizeGroup = SizeGroup.Small, IsActive = true };
+    var service = new Service { ServiceId = serviceId, Name = "Tắm", LatestStartTime = new TimeOnly(18, 0), IsActive = true };
+    var pricing = new ServicePricing { ServiceId = serviceId, Species = Species.Dog, SizeGroup = SizeGroup.Small, Price = 100000, DurationMinutes = 60, StaffRequired = 1 };
+    var futureDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2));
+    var slotStart = new DateTimeOffset(futureDate.ToDateTime(new TimeOnly(10, 0)), TimeSpan.Zero);
+    var shifts = new List<StaffShiftWindow> { new(Guid.NewGuid(), slotStart.AddHours(-1), slotStart.AddHours(4)) };
+    var held = new List<HeldSpaBooking>();
+    if (slotIsHeld) held.Add(new HeldSpaBooking(slotStart, slotStart.AddMinutes(75), 1));
+
+    var schedule = new TestScheduleRepo(15, false, shifts, held);
+    var bookingService = new BookingService(
+        new TestPetRepo(pet, ownerUserId),
+        new TestStaffRoleReader(null),
+        new TestCatalogRepo(new ServiceWithPricing(service, [pricing]), [new TimeOnly(10, 0)]),
+        schedule,
+        new TestConcurrencyGuard(),
+        new ShopTimeZone(TimeZoneInfo.Utc));
+
+    return (bookingService, schedule, new CurrentUser(ownerUserId, UserRole.Customer), petId, serviceId, slotStart);
+}
 
 static async Task AssertRejectedAsync(IAsyncActionFilter filter, Dictionary<string, object?> arguments)
 {
@@ -2905,13 +3049,18 @@ sealed class TestScheduleRepo(
     IReadOnlyList<HeldSpaBooking> held) : ISpaScheduleRepository
 {
     public List<SpaAppointment> AddedAppointments { get; } = [];
+    public Guid? LastExcludeAppointmentId { get; private set; }
     public Task<int> GetBufferMinutesAsync(CancellationToken ct = default) => Task.FromResult(bufferMinutes);
     public Task<IReadOnlyList<StaffShiftWindow>> ListActiveSpaStaffShiftsAsync(
         DateTimeOffset rangeStart, DateTimeOffset rangeEnd, CancellationToken ct = default) =>
         Task.FromResult(shifts);
     public Task<IReadOnlyList<HeldSpaBooking>> ListHeldSpaBookingsAsync(
-        DateTimeOffset rangeStart, DateTimeOffset rangeEnd, CancellationToken ct = default) =>
-        Task.FromResult(held);
+        DateTimeOffset rangeStart, DateTimeOffset rangeEnd, Guid? excludeAppointmentId = null,
+        CancellationToken ct = default)
+    {
+        LastExcludeAppointmentId = excludeAppointmentId;
+        return Task.FromResult(held);
+    }
     public Task<bool> IsBookingLockedAsync(Guid customerId, CancellationToken ct = default) => Task.FromResult(isLocked);
     public Task AddSpaAppointmentAsync(
         SpaAppointment appointment, IReadOnlyList<Guid> serviceIds, CancellationToken ct = default)
@@ -2924,6 +3073,7 @@ sealed class TestScheduleRepo(
 sealed class TestConcurrencyGuard : IConcurrencyGuard
 {
     public List<string> Events { get; init; } = [];
+    public List<string> LockOrder { get; } = [];
     public bool LockedDay { get; private set; }
     public (Species Species, SizeGroup SizeGroup)? LockedHotelGroup { get; private set; }
     public Guid? LockedAppointmentId { get; private set; }
@@ -2943,16 +3093,19 @@ sealed class TestConcurrencyGuard : IConcurrencyGuard
     }
     public Task LockSpaDayAsync(DateOnly day, CancellationToken ct = default)
     {
+        LockOrder.Add("lock-day");
         LockedDay = true;
         return Task.CompletedTask;
     }
     public Task LockHotelGroupAsync(Species species, SizeGroup sizeGroup, CancellationToken ct = default)
     {
+        LockOrder.Add("lock-hotel-group");
         LockedHotelGroup = (species, sizeGroup);
         return Task.CompletedTask;
     }
     public Task LockAppointmentAsync(Guid appointmentId, CancellationToken ct = default)
     {
+        LockOrder.Add("lock-appointment");
         LockedAppointmentId = appointmentId;
         return Task.CompletedTask;
     }
@@ -3099,6 +3252,7 @@ sealed class TestHotelBookingRepo(int activeCages, IReadOnlyList<HeldHotelStay> 
 {
     public Species? LastSpecies { get; private set; }
     public SizeGroup? LastSizeGroup { get; private set; }
+    public Guid? LastExcludeAppointmentId { get; private set; }
 
     public Task<int> CountActiveCagesAsync(Species species, SizeGroup sizeGroup, CancellationToken ct = default)
     {
@@ -3109,8 +3263,11 @@ sealed class TestHotelBookingRepo(int activeCages, IReadOnlyList<HeldHotelStay> 
 
     public Task<IReadOnlyList<HeldHotelStay>> ListHeldHotelStaysAsync(
         Species species, SizeGroup sizeGroup, DateTimeOffset rangeStart, DateTimeOffset rangeEnd,
-        CancellationToken ct = default) =>
-        Task.FromResult(held);
+        Guid? excludeAppointmentId = null, CancellationToken ct = default)
+    {
+        LastExcludeAppointmentId = excludeAppointmentId;
+        return Task.FromResult(held);
+    }
 
     public List<HotelAppointment> AddedAppointments { get; } = [];
     public bool IsLocked { get; set; }
@@ -3203,7 +3360,3 @@ sealed class CapturingLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
         Exception? exception, Func<TState, Exception?, string> formatter) =>
         Entries.Add((logLevel, formatter(state, exception)));
 }
-
-
-
-

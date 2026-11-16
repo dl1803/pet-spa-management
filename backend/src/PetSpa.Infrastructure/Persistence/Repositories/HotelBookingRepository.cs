@@ -19,15 +19,23 @@ public sealed class HotelBookingRepository(AppDbContext db) : IHotelBookingRepos
             .CountAsync(c => c.IsActive && c.Species == species && c.SizeGroup == sizeGroup, ct);
 
     public async Task<IReadOnlyList<HeldHotelStay>> ListHeldHotelStaysAsync(
-        Species species, SizeGroup sizeGroup, DateTimeOffset rangeStart, DateTimeOffset rangeEnd,
+        Species species,
+        SizeGroup sizeGroup,
+        DateTimeOffset rangeStart,
+        DateTimeOffset rangeEnd,
+        Guid? excludeAppointmentId = null,
         CancellationToken ct = default)
     {
         var start = rangeStart.ToUniversalTime();
         var end = rangeEnd.ToUniversalTime();
         var now = DateTimeOffset.UtcNow;
 
+        var stays = db.Set<HotelAppointment>().AsNoTracking();
+        if (excludeAppointmentId is { } excludedId)
+            stays = stays.Where(s => s.AppointmentId != excludedId);
+
         var query =
-            from stay in db.Set<HotelAppointment>().AsNoTracking()
+            from stay in stays
             join pet in db.Set<Pet>().AsNoTracking() on stay.PetId equals pet.PetId
             where pet.Species == species
                 && stay.SizeGroup == sizeGroup
@@ -58,4 +66,3 @@ public sealed class HotelBookingRepository(AppDbContext db) : IHotelBookingRepos
         await db.SaveChangesAsync(ct);
     }
 }
-
