@@ -1,5 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createSpaAppointment } from "@/lib/api/endpoints/appointments";
+import type { SpaBookingRequest } from "@/lib/api/types";
 import { mockCancelAppointment, mockGetAppointment } from "@/lib/mock-appointments";
+import { spaSlotKeys } from "@/lib/queries/spa-slots";
 
 export const appointmentKeys = {
   all: ["appointments"] as const,
@@ -25,3 +28,16 @@ export function useCancelAppointment() {
   });
 }
 
+// POST /appointments/spa. Tải lại mốc giờ và lịch hẹn cả khi lỗi, vì 409 SLOT_FULL nghĩa là mốc giờ đã thay đổi.
+// Không trả Promise để màn hình xử lý kết quả ngay, không chờ tải lại xong.
+export function useCreateSpaAppointment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (request: SpaBookingRequest) => createSpaAppointment(request),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: spaSlotKeys.all });
+      void queryClient.invalidateQueries({ queryKey: appointmentKeys.all });
+    },
+  });
+}
