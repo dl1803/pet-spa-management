@@ -42,6 +42,29 @@ public sealed class AppointmentChangeService(
         CurrentUser user, Guid appointmentId, CancellationToken ct = default) =>
         FindOwnedAsync(user, appointmentId, ct);
 
+    public async Task<AppointmentStatus> CancelAsync(
+        CurrentUser user, Guid appointmentId, CancellationToken ct = default)
+    {
+        var target = await ResolveCancelTargetAsync(user, appointmentId, ct);
+        EnsureCancellableByCustomer(target.Appointment);
+
+        return await concurrency.RunAsync(async () =>
+        {
+            await concurrency.LockAppointmentAsync(appointmentId, ct);
+
+            var current = await changes.FindForUpdateAsync(appointmentId, ct)
+                ?? throw new BusinessException(ErrorCodes.NotFound);
+
+            EnsureCancellableByCustomer(current);
+
+            current.Cancel(CancelReason.CustomerCancelled);
+
+            await changes.SaveCancellationAsync(current, ct);
+
+            return current.Status;
+        }, ct);
+    }
+
     private async Task<AppointmentStatus> ChangeSpaAsync(
         CurrentUser user, Guid appointmentId, AppointmentChange change, int deadlineMinutes, CancellationToken ct)
     {
@@ -123,6 +146,12 @@ public sealed class AppointmentChangeService(
     {
         appointment.EnsureChangeableByCustomer();
         ChangeWindow.EnsureOpen(appointment.GetScheduledStart(), DateTimeOffset.UtcNow, deadlineMinutes);
+    }
+
+    private static void EnsureCancellableByCustomer(Appointment appointment)
+    {
+        if (!appointment.CanCancelWith(CancelReason.CustomerCancelled))
+            throw new BusinessException(ErrorCodes.InvalidTransition);
     }
 
     private async Task<AppointmentChangeTarget> FindOwnedAsync(

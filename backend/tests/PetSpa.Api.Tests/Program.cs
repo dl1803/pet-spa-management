@@ -3017,6 +3017,92 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(fixture.Guard.LockOrder.Count == 0 && fixture.Changes.SavedSpaServiceIds.Count == 0
               && appointment.Status == AppointmentStatus.Confirmed,
             "Nothing may be locked, saved or changed at this step.");
+    }),
+    ("AppointmentChangeService.CancelAsync cancels a pending or confirmed appointment as CustomerCancelled", async () =>
+    {
+        foreach (var status in new[] { AppointmentStatus.Pending, AppointmentStatus.Confirmed })
+        {
+            var spa = OldSpaAppointment(status, TimeSpan.FromDays(5));
+            var spaFixture = new ChangeFixture(spa);
+            var hotel = OldHotelAppointment(status, TimeSpan.FromDays(5));
+            var hotelFixture = new ChangeFixture(hotel);
+            var cageId = hotel.CageId;
+
+            var spaResult = await spaFixture.ChangeService.CancelAsync(spaFixture.Customer, spa.AppointmentId);
+            var hotelResult = await hotelFixture.ChangeService.CancelAsync(hotelFixture.Customer, hotel.AppointmentId);
+
+            Check(spaResult == AppointmentStatus.Cancelled && spa.Status == AppointmentStatus.Cancelled
+                  && spa.CancelReason == CancelReason.CustomerCancelled && spa.CancelledAt is not null,
+                $"A {status} spa appointment must be cancelled with CustomerCancelled.");
+            Check(hotelResult == AppointmentStatus.Cancelled && hotel.Status == AppointmentStatus.Cancelled
+                  && hotel.CancelReason == CancelReason.CustomerCancelled && hotel.CancelledAt is not null,
+                $"A {status} hotel appointment must be cancelled with CustomerCancelled.");
+            Check(hotel.CageId == cageId,
+                "The cage assignment must stay as it is; leaving Confirmed releases the cage.");
+            Check(spaFixture.Changes.SavedCancellations.Count == 1
+                  && ReferenceEquals(spaFixture.Changes.SavedCancellations[0], spa)
+                  && hotelFixture.Changes.SavedCancellations.Count == 1
+                  && ReferenceEquals(hotelFixture.Changes.SavedCancellations[0], hotel),
+                "Each cancellation must be saved exactly once.");
+            Check(spaFixture.Guard.RunCalls == 1 && hotelFixture.Guard.RunCalls == 1
+                  && string.Join(",", spaFixture.Guard.LockOrder) == "lock-appointment"
+                  && string.Join(",", hotelFixture.Guard.LockOrder) == "lock-appointment",
+                "Cancelling must run in one transaction and take only the appointment row lock.");
+        }
+    }),
+    ("AppointmentChangeService.CancelAsync rejects statuses a customer may not cancel", async () =>
+    {
+        foreach (var status in new[] { AppointmentStatus.Received, AppointmentStatus.InProgress, AppointmentStatus.Completed, AppointmentStatus.Cancelled })
+        {
+            var spa = OldSpaAppointment(status, TimeSpan.FromDays(5));
+            var fixture = new ChangeFixture(spa);
+
+            Check(await FailureCodeAsync(() => fixture.ChangeService.CancelAsync(fixture.Customer, spa.AppointmentId)) == ErrorCodes.InvalidTransition,
+                $"A {status} spa appointment must be rejected with INVALID_TRANSITION.");
+            Check(spa.Status == status && spa.CancelReason is null && fixture.Changes.SavedCancellations.Count == 0
+                  && fixture.Guard.LockOrder.Count == 0 && fixture.Guard.RunCalls == 0,
+                "A rejected status must not lock, change or save anything.");
+        }
+
+        foreach (var status in new[] { AppointmentStatus.InStay, AppointmentStatus.Completed, AppointmentStatus.Cancelled })
+        {
+            var hotel = OldHotelAppointment(status, TimeSpan.FromDays(5));
+            var fixture = new ChangeFixture(hotel);
+
+            Check(await FailureCodeAsync(() => fixture.ChangeService.CancelAsync(fixture.Customer, hotel.AppointmentId)) == ErrorCodes.InvalidTransition,
+                $"A {status} hotel appointment must be rejected with INVALID_TRANSITION.");
+            Check(hotel.Status == status && hotel.CancelReason is null && fixture.Changes.SavedCancellations.Count == 0
+                  && fixture.Guard.LockOrder.Count == 0 && fixture.Guard.RunCalls == 0,
+                "A rejected status must not lock, change or save anything.");
+        }
+    }),
+    ("AppointmentChangeService.CancelAsync rejects other customers, unknown appointments and non-customers", async () =>
+    {
+        var appointment = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var fixture = new ChangeFixture(appointment);
+        var otherCustomer = new CurrentUser(Guid.NewGuid(), UserRole.Customer);
+        var manager = new CurrentUser(fixture.OwnerUserId, UserRole.Manager);
+
+        Check(await FailureCodeAsync(() => fixture.ChangeService.CancelAsync(otherCustomer, appointment.AppointmentId)) == ErrorCodes.Forbidden,
+            "Another customer's appointment must be rejected with FORBIDDEN.");
+        Check(await FailureCodeAsync(() => fixture.ChangeService.CancelAsync(fixture.Customer, Guid.NewGuid())) == ErrorCodes.NotFound,
+            "An unknown appointment must be rejected with NOT_FOUND.");
+        Check(await FailureCodeAsync(() => fixture.ChangeService.CancelAsync(manager, appointment.AppointmentId)) == ErrorCodes.Forbidden,
+            "A non-customer must be rejected with FORBIDDEN.");
+        Check(appointment.Status == AppointmentStatus.Confirmed && fixture.Changes.SavedCancellations.Count == 0
+              && fixture.Guard.LockOrder.Count == 0 && fixture.Guard.RunCalls == 0,
+            "Rejected requests must not lock, change or save anything.");
+    }),
+    ("AppointmentChangeService.CancelAsync re-checks the status after the row lock", async () =>
+    {
+        var becomesReceived = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var fixture = new ChangeFixture(becomesReceived, beforeFindForUpdate: a => a.Status = AppointmentStatus.Received);
+
+        Check(await FailureCodeAsync(() => fixture.ChangeService.CancelAsync(fixture.Customer, becomesReceived.AppointmentId)) == ErrorCodes.InvalidTransition,
+            "A status that changed before the lock must be rejected with INVALID_TRANSITION.");
+        Check(becomesReceived.Status == AppointmentStatus.Received && becomesReceived.CancelReason is null
+              && fixture.Changes.SavedCancellations.Count == 0,
+            "Nothing may be changed or saved after a failed re-check.");
     })
 };
 
@@ -3624,6 +3710,14 @@ sealed class TestAppointmentChangeRepo(
     public Task SaveHotelChangeAsync(HotelAppointment changed, CancellationToken ct = default)
     {
         SavedHotelChanges++;
+        return Task.CompletedTask;
+    }
+
+    public List<Appointment> SavedCancellations { get; } = [];
+
+    public Task SaveCancellationAsync(Appointment cancelled, CancellationToken ct = default)
+    {
+        SavedCancellations.Add(cancelled);
         return Task.CompletedTask;
     }
 }

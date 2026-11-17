@@ -16,4 +16,6 @@ public interface IAppointmentChangeRepository
         SpaAppointment appointment, IReadOnlyList<Guid> serviceIds, CancellationToken ct = default);
 
     Task SaveHotelChangeAsync(HotelAppointment appointment, CancellationToken ct = default);
+
+    Task SaveCancellationAsync(Appointment appointment, CancellationToken ct = default);
 }
