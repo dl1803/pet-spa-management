@@ -44,6 +44,9 @@ public sealed class AppointmentQueryService(IAppointmentQueryRepository appointm
         return detail;
     }
 
+    public Task<AppointmentType?> GetTypeAsync(Guid appointmentId, CancellationToken ct = default) =>
+        appointments.FindTypeAsync(appointmentId, ct);
+
     // Lễ tân, nhân viên spa xem lịch hẹn theo phạm vi riêng ở việc khác (ID 77).
     private static void EnsureCustomer(CurrentUser user)
     {

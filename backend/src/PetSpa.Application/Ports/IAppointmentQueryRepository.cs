@@ -35,5 +35,8 @@ public interface IAppointmentQueryRepository
 
     // Chi tiết một lịch hẹn theo id; null nếu không có. Lịch lưu trú trả hai danh sách rỗng.
     Task<AppointmentDetailData?> FindDetailAsync(Guid appointmentId, CancellationToken ct = default);
+
+    // Xác định nhanh loại lịch hẹn (Spa / Hotel) theo id; null nếu không tìm thấy.
+    Task<AppointmentType?> FindTypeAsync(Guid appointmentId, CancellationToken ct = default);
 }
 
