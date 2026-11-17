@@ -36,7 +36,10 @@ export function PendingView({ type, requestedId, onTypeChange, onSelect }: Pendi
   const all = data === undefined ? [] : sortPendingAppointments(data.items);
   const visible = filterPendingAppointments(all, type);
   const selectedId = resolveSelectedAppointmentId(visible, requestedId);
-  const selected = visible.find((appointment) => appointment.appointmentId === selectedId);
+  const selectedIndex = visible.findIndex((appointment) => appointment.appointmentId === selectedId);
+  const selected = visible[selectedIndex];
+  // Lịch kế tiếp theo thứ tự đang hiển thị, lịch cuối thì lùi về lịch liền trước (UI-Screens MW-04, mục Hành vi).
+  const nextId = (visible[selectedIndex + 1] ?? visible[selectedIndex - 1])?.appointmentId ?? null;
 
   function renderContent() {
     if (data === undefined) {
@@ -81,7 +84,15 @@ export function PendingView({ type, requestedId, onTypeChange, onSelect }: Pendi
           ) : (
             <PendingList appointments={visible} selectedId={selectedId} onSelect={onSelect} />
           )}
-          {selected && <PendingDetail key={selected.appointmentId} appointment={selected} />}
+          {selected && (
+            <PendingDetail
+              key={selected.appointmentId}
+              appointment={selected}
+              onProcessed={() => {
+                if (nextId !== null) onSelect(nextId);
+              }}
+            />
+          )}
         </div>
       </div>
     );
