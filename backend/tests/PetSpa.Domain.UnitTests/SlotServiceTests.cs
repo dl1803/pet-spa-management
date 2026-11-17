@@ -1,3 +1,4 @@
+using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
 using PetSpa.Domain.Services;
 using Xunit;
@@ -384,6 +385,102 @@ public class SlotServiceTests
     {
         Assert.Throws<ArgumentException>(() =>
             SlotService.AvailableCages(1, [], DayOf(10), DayOf(10).AddDays(daysAfterCheckIn)));
+    }
+
+    private static Cage CageOf(
+        string code,
+        Species species = Species.Dog,
+        SizeGroup sizeGroup = SizeGroup.Small,
+        bool isActive = true) => new()
+    {
+        CageId = Guid.NewGuid(),
+        Code = code,
+        Species = species,
+        SizeGroup = sizeGroup,
+        IsActive = isActive,
+    };
+
+    private static SlotCageStay CageStayOf(Cage cage, int checkInDay, int checkOutDay) =>
+        new(cage.CageId, DayOf(checkInDay), DayOf(checkOutDay));
+
+    [Fact]
+    public void SuggestCage_WhenSeveralCagesAreFree_ReturnsTheSmallestCode()
+    {
+        var b1 = CageOf("B1");
+        var a2 = CageOf("A2");
+
+        var result = SlotService.SuggestCage([b1, a2], [], Species.Dog, SizeGroup.Small, DayOf(10), DayOf(12));
+
+        Assert.Equal(a2.CageId, result?.CageId);
+    }
+
+    [Fact]
+    public void SuggestCage_IgnoresInactiveCagesAndCagesOfAnotherSpeciesOrSizeGroup()
+    {
+        var inactive = CageOf("A1", isActive: false);
+        var cat = CageOf("A2", Species.Cat);
+        var medium = CageOf("A3", sizeGroup: SizeGroup.Medium);
+        var match = CageOf("B1");
+
+        var result = SlotService.SuggestCage(
+            [inactive, cat, medium, match], [], Species.Dog, SizeGroup.Small, DayOf(10), DayOf(12));
+
+        Assert.Equal(match.CageId, result?.CageId);
+    }
+
+    [Fact]
+    public void SuggestCage_SkipsCageWithOverlappingStay()
+    {
+        var a1 = CageOf("A1");
+        var b1 = CageOf("B1");
+
+        var result = SlotService.SuggestCage(
+            [a1, b1], [CageStayOf(a1, 11, 13)], Species.Dog, SizeGroup.Small, DayOf(10), DayOf(12));
+
+        Assert.Equal(b1.CageId, result?.CageId);
+    }
+
+    [Fact]
+    public void SuggestCage_WhenOtherStaysTouchOnlyTheBoundaryDates_StillSuggestsTheCage()
+    {
+        var a1 = CageOf("A1");
+
+        var result = SlotService.SuggestCage(
+            [a1], [CageStayOf(a1, 8, 10), CageStayOf(a1, 12, 14)], Species.Dog, SizeGroup.Small, DayOf(10), DayOf(12));
+
+        Assert.Equal(a1.CageId, result?.CageId);
+    }
+
+    [Fact]
+    public void SuggestCage_StayOfAnotherCage_DoesNotBlockThisCage()
+    {
+        var a1 = CageOf("A1");
+        var b1 = CageOf("B1");
+
+        var result = SlotService.SuggestCage(
+            [a1, b1], [CageStayOf(b1, 10, 12)], Species.Dog, SizeGroup.Small, DayOf(10), DayOf(12));
+
+        Assert.Equal(a1.CageId, result?.CageId);
+    }
+
+    [Fact]
+    public void SuggestCage_WhenEveryMatchingCageIsOccupied_ReturnsNull()
+    {
+        var a1 = CageOf("A1");
+
+        var result = SlotService.SuggestCage(
+            [a1], [CageStayOf(a1, 9, 11)], Species.Dog, SizeGroup.Small, DayOf(10), DayOf(12));
+
+        Assert.Null(result);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void SuggestCage_WhenCheckOutNotAfterCheckIn_ThrowsArgumentException(int daysAfterCheckIn)
+    {
+        Assert.Throws<ArgumentException>(() =>
+            SlotService.SuggestCage([], [], Species.Dog, SizeGroup.Small, DayOf(10), DayOf(10).AddDays(daysAfterCheckIn)));
     }
 }
 

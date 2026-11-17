@@ -110,5 +110,11 @@ public sealed class AppointmentQueryRepository(AppDbContext db) : IAppointmentQu
             serviceRows.Select(r => new AppointmentServiceLine(r.ServiceId, r.Name, r.IsDone, r.DoneAt, r.Note)).ToList(),
             staffRows.Select(r => new AppointmentStaffLine(r.StaffId, r.FullName, r.IsHolding, r.AssignedAt)).ToList());
     }
+
+    public Task<AppointmentType?> FindTypeAsync(Guid appointmentId, CancellationToken ct = default) =>
+        db.Set<Appointment>().AsNoTracking()
+            .Where(a => a.AppointmentId == appointmentId)
+            .Select(a => (AppointmentType?)(a is SpaAppointment ? AppointmentType.Spa : AppointmentType.Hotel))
+            .FirstOrDefaultAsync(ct);
 }
 
