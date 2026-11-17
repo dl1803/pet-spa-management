@@ -77,6 +77,22 @@ public sealed class AppointmentChangeRepository(AppDbContext db) : IAppointmentC
         await db.SaveChangesAsync(ct);
     }
 
+    public async Task SaveCancellationAsync(Appointment appointment, CancellationToken ct = default)
+    {
+        EnsureTracked(appointment);
+
+        if (appointment is SpaAppointment)
+        {
+            var holding = await db.Set<AppointmentStaff>()
+                .Where(s => s.AppointmentId == appointment.AppointmentId && s.IsHolding)
+                .ToListAsync(ct);
+
+            foreach (var row in holding) row.IsHolding = false;
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
     private void EnsureTracked(Appointment appointment)
     {
         if (db.Entry(appointment).State == EntityState.Detached)
