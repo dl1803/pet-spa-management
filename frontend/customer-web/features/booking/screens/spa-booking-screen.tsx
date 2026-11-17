@@ -1,19 +1,20 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { PetAvatar } from "@/components/domain/pet-avatar";
 import { ServiceOption } from "@/components/domain/service-option";
 import { Stepper } from "@/components/domain/stepper";
+import { ErrorAlert } from "@/components/feedback/error-alert";
 import { FieldError } from "@/components/feedback/field-error";
 import { useToast } from "@/components/feedback/toast";
 import { Icon } from "@/components/icons";
-import { ButtonLink, LinkButton } from "@/components/ui/button";
+import { Button, ButtonLink, LinkButton } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ChoiceCard } from "@/components/ui/choice-card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import { SpaBookingReviewStep } from "@/features/booking/components/spa-booking-review-step";
 import { SpaBookingSlotStep } from "@/features/booking/components/spa-booking-slot-step";
 import { SpaBookingSummary } from "@/features/booking/components/spa-booking-summary";
@@ -34,23 +35,100 @@ import {
   type BookingStep,
   type SpaBookingFormValues,
 } from "@/features/booking/forms";
-import { MOCK_PETS, MOCK_SERVICES } from "@/features/booking/mock-data";
-import { mockCreateSpaAppointment, mockGetSpaSlots, SPA_SLOTS_QUERY_KEY } from "@/features/booking/mock-slots";
+import type { Pet, Service } from "@/lib/api/types";
 import { formatAppointmentCode, formatLongDate, formatShortDate, formatWeight } from "@/lib/format";
 import { SIZE_GROUP_LABELS, SPECIES_LABELS } from "@/lib/labels";
+import { useCreateSpaAppointment } from "@/lib/queries/appointments";
+import { usePets } from "@/lib/queries/pets";
+import { useServices } from "@/lib/queries/services";
+import { useSpaSlots } from "@/lib/queries/spa-slots";
 import { ROUTES, withQuery } from "@/lib/routes";
 import { getStoreDateKey } from "@/lib/time";
 
 const BOOKING_STEPS = ["Thú cưng & dịch vụ", "Chọn khung giờ", "Xác nhận"] as const;
 const SERVICE_ERROR_ID = "spa-booking-service-error";
 
-export function SpaBookingScreen() {
-  const pets = MOCK_PETS;
-  const services = MOCK_SERVICES;
+function SpaBookingHeader() {
+  return (
+    <div className="mb-6">
+      <h1>Đặt lịch spa</h1>
+      <p className="mt-1 text-muted">Bạn chọn bé, dịch vụ và giờ. Cửa hàng xếp nhân viên khi xác nhận.</p>
+    </div>
+  );
+}
 
+function SpaBookingSkeleton() {
+  return (
+    <div role="status" aria-busy="true">
+      <span className="sr-only">Đang tải thông tin đặt lịch…</span>
+      <div className="grid grid-cols-[minmax(0,1fr)_360px] items-start gap-6 max-[1180px]:grid-cols-1">
+        <div className="flex flex-col gap-4">
+          {[0, 1].map((index) => (
+            <Card key={index}>
+              <CardBody>
+                <Skeleton className="h-6 w-40 rounded-[10px]" />
+                <Skeleton className="mt-4 h-16 rounded-xl" />
+                <Skeleton className="mt-2 h-16 rounded-xl" />
+              </CardBody>
+            </Card>
+          ))}
+        </div>
+        <Card>
+          <CardBody>
+            <Skeleton className="h-6 w-32 rounded-[10px]" />
+            <Skeleton className="mt-4 h-24 rounded-xl" />
+          </CardBody>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// Hồ sơ thú cưng và danh mục dịch vụ phải có đủ trước khi dựng form để giá trị mặc định của form đúng.
+export function SpaBookingScreen() {
+  const petsQuery = usePets();
+  const servicesQuery = useServices();
+  const pets = petsQuery.data?.items;
+  const services = servicesQuery.data;
+  const loadError = petsQuery.error ?? servicesQuery.error;
+  const isRetrying = petsQuery.isFetching || servicesQuery.isFetching;
+
+  function handleRetry() {
+    if (petsQuery.isError) void petsQuery.refetch();
+    if (servicesQuery.isError) void servicesQuery.refetch();
+  }
+
+  if (pets === undefined || services === undefined) {
+    return (
+      <>
+        <SpaBookingHeader />
+        {loadError !== null ? (
+          <div>
+            <ErrorAlert error={loadError} />
+            <div className="mt-4">
+              <Button variant="secondary" onClick={handleRetry} disabled={isRetrying}>
+                Thử lại
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <SpaBookingSkeleton />
+        )}
+      </>
+    );
+  }
+
+  return <SpaBookingForm pets={pets} services={services} />;
+}
+
+type SpaBookingFormProps = {
+  pets: Pet[];
+  services: Service[];
+};
+
+function SpaBookingForm({ pets, services }: SpaBookingFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const queryClient = useQueryClient();
   const { showSuccess } = useToast();
   const [todayKey] = useState(() => getStoreDateKey(new Date()));
   const [isBookingLocked, setIsBookingLocked] = useState(false);
@@ -98,38 +176,13 @@ export function SpaBookingScreen() {
     }
   }, [isStepReachable, router, searchParams]);
 
-  const slotsQuery = useQuery({
-    queryKey: [...SPA_SLOTS_QUERY_KEY, { date, petId, serviceIds: selectedServiceIds }],
-    queryFn: () => mockGetSpaSlots({ date, petId, serviceIds: selectedServiceIds }),
-    enabled: currentStep >= 2 && hasStep1Data,
-  });
+  const slotsQuery = useSpaSlots(
+    currentStep >= 2 && hasStep1Data ? { date, petId, serviceIds: selectedServiceIds } : null,
+  );
   const slots = slotsQuery.data;
   const isSlotAvailable = slots?.slots.some((slot) => slot.time === slotTime && slot.status === "Available") ?? false;
 
-  const {
-    mutate,
-    isPending,
-    error: submitError,
-    reset: resetSubmit,
-  } = useMutation({
-    mutationFn: mockCreateSpaAppointment,
-    onSuccess: async (created) => {
-      showSuccess(`Đã gửi yêu cầu đặt lịch ${formatAppointmentCode(created.appointmentId)}`);
-      await queryClient.invalidateQueries({ queryKey: SPA_SLOTS_QUERY_KEY });
-      router.push(ROUTES.appointments);
-    },
-    onError: (failure) => {
-      if (isSlotFullError(failure)) {
-        setValue("slotTime", "");
-        clearErrors("slotTime");
-        void queryClient.invalidateQueries({ queryKey: SPA_SLOTS_QUERY_KEY });
-        const petIdParam = searchParams.get("petId");
-        router.replace(withQuery(ROUTES.spaBooking, { petId: petIdParam, step: 2 }));
-        return;
-      }
-      if (isBookingLockedError(failure)) setIsBookingLocked(true);
-    },
-  });
+  const { mutate, isPending, error: submitError, reset: resetSubmit } = useCreateSpaAppointment();
 
   const isSlotFull = submitError !== null && isSlotFullError(submitError);
   // Lỗi kín mốc và bị khóa có chỗ hiển thị riêng; lỗi còn lại hiện chung trên nút gửi.
@@ -138,30 +191,52 @@ export function SpaBookingScreen() {
 
   function goToStep(next: BookingStep, mode: "push" | "replace" = "push") {
     const petIdParam = searchParams.get("petId");
-    const href = withQuery(ROUTES.spaBooking, {
+    const target = withQuery(ROUTES.spaBooking, {
       petId: petIdParam,
-      step: next === 1 ? null : next,
+      step: next === 1 ? undefined : next,
     });
-    if (mode === "push") router.push(href);
-    else router.replace(href);
+    if (mode === "replace") {
+      router.replace(target);
+    } else {
+      router.push(target);
+    }
   }
 
   function handleContinue(values: SpaBookingFormValues) {
     if (currentStep === 1) {
-      resetSubmit();
+      if (values.serviceIds.length === 0) {
+        setError("serviceIds", { message: SERVICE_REQUIRED_MESSAGE });
+        return;
+      }
       goToStep(2);
       return;
     }
     if (currentStep === 2) {
-      if (!isSlotAvailable) {
-        setError("slotTime", { type: "required", message: SLOT_REQUIRED_MESSAGE });
+      if (!values.slotTime) {
+        setError("slotTime", { message: SLOT_REQUIRED_MESSAGE });
         return;
       }
       goToStep(3);
       return;
     }
     if (isPending) return;
-    mutate(toSpaBookingRequest(values));
+    mutate(toSpaBookingRequest(values), {
+      onSuccess: (created) => {
+        showSuccess(`Đã gửi yêu cầu đặt lịch ${formatAppointmentCode(created.appointmentId)}`);
+        router.push(ROUTES.appointments);
+      },
+      onError: (failure) => {
+        // Mốc vừa kín: về bước chọn giờ; mốc giờ được tải lại trong useCreateSpaAppointment.
+        if (isSlotFullError(failure)) {
+          setValue("slotTime", "");
+          clearErrors("slotTime");
+          const petIdParam = searchParams.get("petId");
+          router.replace(withQuery(ROUTES.spaBooking, { petId: petIdParam, step: 2 }));
+          return;
+        }
+        if (isBookingLockedError(failure)) setIsBookingLocked(true);
+      },
+    });
   }
 
   function handleBack() {
@@ -184,17 +259,10 @@ export function SpaBookingScreen() {
     resetSubmit();
   }
 
-  const header = (
-    <div className="mb-6">
-      <h1>Đặt lịch spa</h1>
-      <p className="mt-1 text-muted">Bạn chọn bé, dịch vụ và giờ. Cửa hàng xếp nhân viên khi xác nhận.</p>
-    </div>
-  );
-
   if (!pet) {
     return (
       <>
-        {header}
+        <SpaBookingHeader />
         <Card>
           <EmptyState
             icon="paw"
@@ -221,7 +289,7 @@ export function SpaBookingScreen() {
 
   return (
     <>
-      {header}
+      <SpaBookingHeader />
       <form onSubmit={handleSubmit(handleContinue)} noValidate>
         <Stepper steps={BOOKING_STEPS} current={currentStep} />
         <div className="grid grid-cols-[minmax(0,1fr)_360px] items-start gap-6 max-[1180px]:grid-cols-1">

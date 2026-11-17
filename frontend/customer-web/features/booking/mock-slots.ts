@@ -5,7 +5,7 @@ import type { SlotInfo, SlotStatus, SpaBookingCreated, SpaBookingRequest, SpaSlo
 import { buildStoreDateTime } from "@/lib/time";
 
 // Dữ liệu giả cho bước chọn khung giờ và gửi yêu cầu. Kết quả suy ra từ đầu vào để thử từng trạng thái.
-// Chờ nối API thật: GET /spa/slots, POST /appointments/spa.
+// Màn đặt lịch spa đã dùng API thật (lib/api/endpoints/appointments.ts); mock này còn phục vụ màn đổi lịch spa, chờ nối API đổi lịch.
 //
 // Mốc giờ theo ngày:
 //   Thứ bảy  -> 400 VALIDATION_ERROR (thử lỗi tải mốc giờ)
@@ -165,4 +165,3 @@ export async function mockCreateSpaAppointment(request: SpaBookingRequest): Prom
     estimatedAmount: totalPrice,
   };
 }
-
