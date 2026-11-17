@@ -8,9 +8,8 @@ export const spaSlotKeys = {
 
 // params là null khi chưa đủ dữ liệu để hỏi mốc giờ: không gọi API.
 export function useSpaSlots(params: GetSpaSlotsParams | null) {
-  const slotParams = params;
   return useQuery({
-    queryKey: spaSlotKeys.list(slotParams),
-    queryFn: slotParams === null ? skipToken : () => getSpaSlots(slotParams),
+    queryKey: spaSlotKeys.list(params),
+    queryFn: params === null ? skipToken : () => getSpaSlots(params),
   });
 }

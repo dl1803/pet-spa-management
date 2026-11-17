@@ -106,7 +106,7 @@ export function SpaBookingScreen() {
           <div>
             <ErrorAlert error={loadError} />
             <div className="mt-4">
-              <Button variant="secondary" onClick={handleRetry} disabled={isRetrying}>
+              <Button variant="secondary" onClick={handleRetry} loading={isRetrying}>
                 Thử lại
               </Button>
             </div>
@@ -164,24 +164,6 @@ function SpaBookingForm({ pets, services }: SpaBookingFormProps) {
   const selected = applicable.filter(({ service }) => serviceIds.includes(service.serviceId));
   const selectedServiceIds = selected.map(({ service }) => service.serviceId);
 
-  // Bước 2 cần thú cưng và ≥ 1 dịch vụ; bước 3 cần thêm mốc giờ. Thiếu thì về bước 1.
-  const hasStep1Data = pet !== undefined && selected.length > 0;
-  const isStepReachable = step === 1 || (hasStep1Data && (step === 2 || slotTime !== ""));
-  const currentStep: BookingStep = isStepReachable ? step : 1;
-
-  useEffect(() => {
-    if (!isStepReachable) {
-      const petIdParam = searchParams.get("petId");
-      router.replace(withQuery(ROUTES.spaBooking, { petId: petIdParam }));
-    }
-  }, [isStepReachable, router, searchParams]);
-
-  const slotsQuery = useSpaSlots(
-    currentStep >= 2 && hasStep1Data ? { date, petId, serviceIds: selectedServiceIds } : null,
-  );
-  const slots = slotsQuery.data;
-  const isSlotAvailable = slots?.slots.some((slot) => slot.time === slotTime && slot.status === "Available") ?? false;
-
   const { mutate, isPending, error: submitError, reset: resetSubmit } = useCreateSpaAppointment();
 
   const isSlotFull = submitError !== null && isSlotFullError(submitError);
@@ -189,10 +171,27 @@ function SpaBookingForm({ pets, services }: SpaBookingFormProps) {
   const generalError =
     submitError !== null && !isSlotFull && !isBookingLockedError(submitError) ? submitError : null;
 
+  // Bước 2 cần thú cưng và ≥ 1 dịch vụ; bước 3 cần thêm mốc giờ. Thiếu thì về bước 1.
+  // Khi gặp lỗi 409 SLOT_FULL, giữ isStepReachable để router.replace(..., step: 2) không bị kéo về bước 1.
+  const hasStep1Data = pet !== undefined && selected.length > 0;
+  const isStepReachable = step === 1 || (hasStep1Data && (step === 2 || slotTime !== "" || isSlotFull));
+  const currentStep: BookingStep = isStepReachable ? step : 1;
+
+  useEffect(() => {
+    if (!isStepReachable) {
+      router.replace(withQuery(ROUTES.spaBooking, { petId }));
+    }
+  }, [isStepReachable, petId, router]);
+
+  const slotsQuery = useSpaSlots(
+    currentStep >= 2 && hasStep1Data ? { date, petId, serviceIds: selectedServiceIds } : null,
+  );
+  const slots = slotsQuery.data;
+  const isSlotAvailable = slots?.slots.some((slot) => slot.time === slotTime && slot.status === "Available") ?? false;
+
   function goToStep(next: BookingStep, mode: "push" | "replace" = "push") {
-    const petIdParam = searchParams.get("petId");
     const target = withQuery(ROUTES.spaBooking, {
-      petId: petIdParam,
+      petId,
       step: next === 1 ? undefined : next,
     });
     if (mode === "replace") {
@@ -204,6 +203,7 @@ function SpaBookingForm({ pets, services }: SpaBookingFormProps) {
 
   function handleContinue(values: SpaBookingFormValues) {
     if (currentStep === 1) {
+      resetSubmit();
       if (values.serviceIds.length === 0) {
         setError("serviceIds", { message: SERVICE_REQUIRED_MESSAGE });
         return;
@@ -212,7 +212,7 @@ function SpaBookingForm({ pets, services }: SpaBookingFormProps) {
       return;
     }
     if (currentStep === 2) {
-      if (!values.slotTime) {
+      if (!isSlotAvailable) {
         setError("slotTime", { message: SLOT_REQUIRED_MESSAGE });
         return;
       }
@@ -230,8 +230,7 @@ function SpaBookingForm({ pets, services }: SpaBookingFormProps) {
         if (isSlotFullError(failure)) {
           setValue("slotTime", "");
           clearErrors("slotTime");
-          const petIdParam = searchParams.get("petId");
-          router.replace(withQuery(ROUTES.spaBooking, { petId: petIdParam, step: 2 }));
+          router.replace(withQuery(ROUTES.spaBooking, { petId, step: 2 }));
           return;
         }
         if (isBookingLockedError(failure)) setIsBookingLocked(true);
