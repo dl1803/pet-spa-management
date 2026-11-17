@@ -14,6 +14,7 @@ import { getPetTitle } from "../pet-summary";
 import { formatSlotRange } from "../spa-summary";
 import { formatStayMoment } from "../stay-summary";
 import { PetProfilePanel } from "./pet-profile-panel";
+import { SpaAssignment } from "./spa-assignment";
 
 function InfoCell({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
@@ -47,10 +48,16 @@ function getInfoCells(appointment: Appointment) {
   return cells;
 }
 
-// MW-04 vùng 3, 4 và hồ sơ thú cưng của lịch đang chọn. Chưa có vùng 5 – 8 (nhân viên, chuồng, xác nhận, từ chối):
-// các thao tác đó nối API ở bước riêng. Tên khách, SĐT, dịch vụ, số tiền chưa có trong API cho Quản lý (UI-Screens G-05)
-// nên không hiển thị.
-export function PendingDetail({ appointment }: { appointment: Appointment }) {
+// MW-04 vùng 3, 4 và hồ sơ thú cưng của lịch đang chọn; lịch spa có thêm vùng 5, 6 (nhân viên, xác nhận, từ chối) ở SpaAssignment.
+// Lịch lưu trú chưa có vùng 5 – 8 (chuồng, xác nhận, từ chối): nối API ở bước riêng. Tên khách, SĐT, dịch vụ, số tiền chưa có
+// trong API cho Quản lý (UI-Screens G-05) nên không hiển thị.
+type PendingDetailProps = {
+  appointment: Appointment;
+  // Gọi sau khi lịch spa được xác nhận hoặc từ chối thành công.
+  onProcessed: () => void;
+};
+
+export function PendingDetail({ appointment, onProcessed }: PendingDetailProps) {
   const titleId = `${useId()}-title`;
   const { data: pet, error, isPending, refetch } = usePet(appointment.petId);
   const petName = appointment.petName ?? "Thú cưng";
@@ -87,6 +94,7 @@ export function PendingDetail({ appointment }: { appointment: Appointment }) {
           )}
           <PetProfilePanel pet={pet} isPending={isPending} error={error} onRetry={() => void refetch()} />
         </CardBody>
+        {appointment.type === "Spa" && <SpaAssignment appointment={appointment} onProcessed={onProcessed} />}
       </Card>
     </section>
   );

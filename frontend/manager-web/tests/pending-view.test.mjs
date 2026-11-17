@@ -3,6 +3,7 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ToastProvider } from "../components/feedback/toast.tsx";
 import { PendingList } from "../features/pending/components/pending-list.tsx";
 import { PendingView } from "../features/pending/components/pending-view.tsx";
 import { ApiError } from "../lib/api/errors.ts";
@@ -35,17 +36,18 @@ function setError(client, queryKey, error) {
   query.setState({ ...query.state, status: "error", fetchStatus: "idle", error, errorUpdatedAt: Date.now() });
 }
 
-function renderView({ page, listError, pets = {}, petErrors = {}, type = "all", requestedId = null } = {}) {
+function renderView({ page, listError, pets = {}, petErrors = {}, suggestions = {}, type = "all", requestedId = null } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retryOnMount: false } } });
   if (page !== undefined) client.setQueryData(appointmentKeys.list(PENDING_PARAMS), page);
   if (listError !== undefined) setError(client, appointmentKeys.list(PENDING_PARAMS), listError);
   for (const [petId, pet] of Object.entries(pets)) client.setQueryData(petKeys.detail(petId), pet);
   for (const [petId, error] of Object.entries(petErrors)) setError(client, petKeys.detail(petId), error);
+  for (const [appointmentId, data] of Object.entries(suggestions)) client.setQueryData(appointmentKeys.suggestions(appointmentId), data);
   return renderToStaticMarkup(
     React.createElement(
       QueryClientProvider,
       { client },
-      React.createElement(PendingView, { type, requestedId, onTypeChange: noop, onSelect: noop }),
+      React.createElement(ToastProvider, null, React.createElement(PendingView, { type, requestedId, onTypeChange: noop, onSelect: noop })),
     ),
   );
 }
@@ -91,9 +93,30 @@ test("có dữ liệu: tiêu đề phụ, sắp theo giờ hẹn, lịch đầu 
   assert.ok(html.includes("Chờ xác nhận</span>"));
 });
 
-test("không hiển thị dữ liệu API chưa có và thao tác chưa nối API", () => {
+test("không hiển thị dữ liệu API chưa có", () => {
   const html = renderView({ page: pageOf([mochi]), pets: { "p-mochi": mochiPet } });
-  for (const text of ["Xác nhận lịch", "Từ chối", "Nhân viên spa phụ trách", "Tạm tính", "Dịch vụ", "có tài khoản", "khách vãng lai"]) {
+  for (const text of ["Tạm tính", "Dịch vụ", "có tài khoản", "khách vãng lai"]) {
+    assert.ok(!html.includes(text), text);
+  }
+});
+
+const mochiSuggestions = {
+  staffRequired: 1,
+  suggested: [{ staffId: "s-tam", fullName: "Lê Minh Tâm", recentAssignmentCount: 5 }],
+  alternatives: [{ staffId: "s-hanh", fullName: "Nguyễn Thị Hạnh", recentAssignmentCount: 6 }],
+};
+
+test("lịch spa đang chọn: hiện vùng nhân viên từ đề xuất thật và hai nút xác nhận, từ chối", () => {
+  const html = renderView({ page: pageOf([mochi]), pets: { "p-mochi": mochiPet }, suggestions: { [MOCHI_ID]: mochiSuggestions } });
+  assert.ok(html.includes("Nhân viên spa phụ trách, cần 1 người"));
+  assert.ok(html.includes("Lê Minh Tâm") && html.includes("Nguyễn Thị Hạnh"));
+  assert.ok(html.includes("Từ chối: cửa hàng không thể đáp ứng"));
+  assert.ok(html.includes("Xác nhận lịch hẹn"));
+});
+
+test("lịch lưu trú đang chọn: chưa có thao tác xác nhận, từ chối (nối ở bước riêng)", () => {
+  const html = renderView({ page: pageOf([may]), requestedId: MAY_ID });
+  for (const text of ["Xác nhận lịch", "Từ chối", "Nhân viên spa phụ trách", "Đang tải đề xuất nhân viên"]) {
     assert.ok(!html.includes(text), text);
   }
 });

@@ -53,16 +53,27 @@ type SpaConfirmMessageSource = {
   suggestions: SpaSuggestions;
 };
 
+// Câu toast sau khi xác nhận lịch spa thật: nêu nhân viên được phân công theo thứ tự đã chọn. Chưa nêu việc thông báo khách và nhân viên
+// vì thông báo chỉ có khi backend nối sự kiện lịch hẹn với Notifications.
+export function getSpaAssignedMessage(appointmentId: string, staffIds: string[], suggestions: SpaSuggestions): string {
+  const code = formatAppointmentCode(appointmentId);
+  const known = [...suggestions.suggested, ...suggestions.alternatives];
+  const names = staffIds.flatMap((staffId) => known.find((staff) => staff.staffId === staffId)?.fullName ?? []);
+  return names.length > 0 ? `Đã xác nhận ${code}, phân công ${formatNameList(names)}` : `Đã xác nhận ${code}`;
+}
+
+export function getSpaRejectedMessage(appointmentId: string): string {
+  return `Đã từ chối lịch hẹn ${formatAppointmentCode(appointmentId)}`;
+}
+
 // Câu toast sau khi xác nhận lịch spa, theo UI demo MW-04. Lịch khách đã đổi: backend tính lại số tiền khi xác nhận (BR-26),
 // nêu số tiền của lịch; web không tự tính lại. Còn lại: nêu nhân viên được phân công theo thứ tự đã chọn.
 export function getSpaConfirmMessage(
   { appointmentId, amount, pendingReason, suggestions }: SpaConfirmMessageSource,
   staffIds: string[],
 ): string {
-  const code = formatAppointmentCode(appointmentId);
-  if (pendingReason?.kind === "CustomerChanged") return `Đã xác nhận ${code} với số tiền ${formatMoney(amount)}`;
-
-  const known = [...suggestions.suggested, ...suggestions.alternatives];
-  const names = staffIds.flatMap((staffId) => known.find((staff) => staff.staffId === staffId)?.fullName ?? []);
-  return names.length > 0 ? `Đã xác nhận ${code}, phân công ${formatNameList(names)}` : `Đã xác nhận ${code}`;
+  if (pendingReason?.kind === "CustomerChanged") {
+    return `Đã xác nhận ${formatAppointmentCode(appointmentId)} với số tiền ${formatMoney(amount)}`;
+  }
+  return getSpaAssignedMessage(appointmentId, staffIds, suggestions);
 }
