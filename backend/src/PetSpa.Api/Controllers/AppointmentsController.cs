@@ -17,7 +17,8 @@ public sealed class AppointmentsController(
     AppointmentQueryService appointmentQueryService = null!,
     AssignmentService assignmentService = null!,
     HotelBookingService hotelBookingService = null!,
-    AppointmentChangeService appointmentChangeService = null!) : ControllerBase
+    AppointmentChangeService appointmentChangeService = null!,
+    HotelAssignmentService hotelAssignmentService = null!) : ControllerBase
 {
     [HttpPost("spa")]
     [Authorize(Policy = AuthorizationPolicies.CustomerOrReceptionist)]
@@ -76,12 +77,32 @@ public sealed class AppointmentsController(
 
     [HttpGet("{id}/suggestions")]
     [Authorize(Policy = AuthorizationPolicies.Manager)]
-    [EndpointSummary("Quản lý xem đề xuất nhân viên spa cho lịch Chờ xác nhận")]
-    [EndpointDescription("Chỉ quản lý. Nhân viên spa đang hoạt động, có ca làm phủ trọn khoảng giữ chỗ (gồm thời gian dọn dẹp), chưa có lịch trùng; xếp theo số lịch được phân công trong Suggest.LookbackDays ngày gần nhất tăng dần (không tính lịch đã hủy), bằng nhau xếp theo tên. suggested có staffRequired người đầu danh sách (ít hơn nếu không đủ nhân viên), alternatives là các nhân viên còn lại đạt điều kiện. Chỉ đề xuất, không ghi phân công. Không tìm thấy lịch spa trả 404 NOT_FOUND; lịch không ở Chờ xác nhận trả 409 INVALID_TRANSITION.")]
+    [EndpointSummary("Quản lý xem đề xuất nhân viên spa hoặc chuồng cho lịch Chờ xác nhận")]
+    [EndpointDescription("Chỉ quản lý. Lịch spa: nhân viên spa đang hoạt động, có ca làm phủ trọn khoảng giữ chỗ (gồm thời gian dọn dẹp), chưa có lịch trùng; xếp theo số lịch được phân công trong Suggest.LookbackDays ngày gần nhất tăng dần (không tính lịch đã hủy), bằng nhau xếp theo tên. suggested có staffRequired người đầu danh sách (ít hơn nếu không đủ nhân viên), alternatives là các nhân viên còn lại đạt điều kiện. Lịch lưu trú: cage là chuồng đang sử dụng, cùng loài và nhóm kích cỡ của lịch, không có lịch Đã xác nhận hoặc Đang lưu trú khác trùng đêm, lấy chuồng có mã nhỏ nhất; không còn chuồng phù hợp thì cage = null. Chỉ đề xuất, không ghi phân công hay gán chuồng. Không tìm thấy lịch trả 404 NOT_FOUND; lịch không ở Chờ xác nhận trả 409 INVALID_TRANSITION.")]
     public async Task<IActionResult> GetSuggestions(Guid id, CancellationToken ct)
     {
-        var result = await assignmentService.GetSpaSuggestionsAsync(User.ToCurrentUser(), id, ct);
+        var user = User.ToCurrentUser();
+
+        var hotel = await hotelAssignmentService.GetCageSuggestionAsync(user, id, ct);
+        if (hotel is not null) return Ok(HotelSuggestionsResponse.From(hotel));
+
+        var result = await assignmentService.GetSpaSuggestionsAsync(user, id, ct);
         return Ok(SpaSuggestionsResponse.From(result));
+    }
+
+    [HttpPost("{id}/confirm")]
+    [Authorize(Policy = AuthorizationPolicies.Manager)]
+    [EndpointSummary("Quản lý xác nhận lịch spa kèm nhân viên")]
+    [EndpointDescription("Chỉ quản lý. Lịch spa: staffIds đủ số nhân viên cần của lịch (staffRequired), tùy chọn confirmOutOfShift = true để xác nhận nhân viên chọn tay nằm ngoài ca làm. Chuyển lịch Chờ xác nhận sang Đã xác nhận; số tiền được tính lại phía máy chủ trong cùng giao dịch, không nhận từ client. Không tìm thấy lịch spa trả 404 NOT_FOUND; lịch không ở Chờ xác nhận trả 409 INVALID_TRANSITION; sai số nhân viên trả 409 STAFF_COUNT_MISMATCH; nhân viên trùng giờ trả 409 STAFF_CONFLICT; nhân viên ngoài ca mà chưa xác nhận lại trả 409 STAFF_OUT_OF_SHIFT; nhân viên không phải nhân viên spa đang hoạt động hoặc thiếu giá dịch vụ trả 400 VALIDATION_ERROR. Lịch lưu trú chưa xử lý ở route này.")]
+    public async Task<IActionResult> Confirm(Guid id, [FromBody] ConfirmAppointmentRequest? request, CancellationToken ct)
+    {
+        if (request is null)
+            throw new BusinessException(ErrorCodes.ValidationError, "Dữ liệu yêu cầu không được để trống.");
+
+        var result = await assignmentService.ConfirmSpaAsync(
+            User.ToCurrentUser(), id, request.StaffIds, request.ConfirmOutOfShift, ct);
+
+        return Ok(new AppointmentStatusResponse(result.Status));
     }
 
     [HttpGet("{id}")]
