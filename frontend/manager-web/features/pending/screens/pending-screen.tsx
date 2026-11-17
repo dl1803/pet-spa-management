@@ -1,7 +1,8 @@
 "use client";
 
 // MW-04 Xử lý lịch hẹn chờ xác nhận – UI-Screens.md. Màn đọc loại lịch và lịch đang chọn từ URL (?type=, ?appointmentId=),
-// phần giao diện và dữ liệu thật nằm ở PendingView. Vùng 5 – 8 (nhân viên, chuồng, xác nhận, từ chối) chưa có ở màn này.
+// phần giao diện và dữ liệu thật nằm ở PendingView. Lịch spa có vùng 5, 6 (nhân viên, xác nhận, từ chối) ở SpaAssignment;
+// lịch lưu trú chưa có vùng 5 – 8 (chuồng, xác nhận, từ chối).
 import { useRouter, useSearchParams } from "next/navigation";
 import { ROUTES, withQuery } from "@/lib/routes";
 import { PendingView } from "../components/pending-view";
