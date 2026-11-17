@@ -46,7 +46,9 @@ public sealed class AppointmentChangeService(
         CurrentUser user, Guid appointmentId, CancellationToken ct = default)
     {
         var target = await ResolveCancelTargetAsync(user, appointmentId, ct);
-        EnsureCancellableByCustomer(target.Appointment);
+
+        var deadlineMinutes = await changes.GetChangeCancelDeadlineMinutesAsync(ct);
+        EnsureCancellable(target.Appointment, deadlineMinutes);
 
         return await concurrency.RunAsync(async () =>
         {
@@ -55,7 +57,7 @@ public sealed class AppointmentChangeService(
             var current = await changes.FindForUpdateAsync(appointmentId, ct)
                 ?? throw new BusinessException(ErrorCodes.NotFound);
 
-            EnsureCancellableByCustomer(current);
+            EnsureCancellable(current, deadlineMinutes);
 
             current.Cancel(CancelReason.CustomerCancelled);
 
@@ -148,10 +150,12 @@ public sealed class AppointmentChangeService(
         ChangeWindow.EnsureOpen(appointment.GetScheduledStart(), DateTimeOffset.UtcNow, deadlineMinutes);
     }
 
-    private static void EnsureCancellableByCustomer(Appointment appointment)
+    private static void EnsureCancellable(Appointment appointment, int deadlineMinutes)
     {
         if (!appointment.CanCancelWith(CancelReason.CustomerCancelled))
             throw new BusinessException(ErrorCodes.InvalidTransition);
+
+        ChangeWindow.EnsureOpen(appointment.GetScheduledStart(), DateTimeOffset.UtcNow, deadlineMinutes);
     }
 
     private async Task<AppointmentChangeTarget> FindOwnedAsync(

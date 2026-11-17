@@ -114,4 +114,15 @@ public sealed class AppointmentsController(
 
         return Ok(new AppointmentStatusResponse(status));
     }
+
+    [HttpPost("{id}/cancel")]
+    [Authorize(Policy = AuthorizationPolicies.Customer)]
+    [EndpointSummary("Khách hàng hủy lịch hẹn của mình trong hạn tự hủy")]
+    [EndpointDescription("Chỉ khách hàng sở hữu lịch hẹn; không gửi body, lý do hủy do hệ thống đặt là CustomerCancelled. Hủy thành công trả status = Cancelled: lịch spa giải phóng nhân viên đã phân công, lịch lưu trú giải phóng chuồng. Quá hạn tự hủy nhận 409 CHANGE_WINDOW_CLOSED (liên hệ hotline); lịch không còn ở Chờ xác nhận hoặc Đã xác nhận nhận 409 INVALID_TRANSITION; lịch của khách khác nhận 403 FORBIDDEN; không tìm thấy nhận 404 NOT_FOUND.")]
+    public async Task<IActionResult> Cancel(Guid id, CancellationToken ct)
+    {
+        var status = await appointmentChangeService.CancelAsync(User.ToCurrentUser(), id, ct);
+
+        return Ok(new AppointmentStatusResponse(status));
+    }
 }
