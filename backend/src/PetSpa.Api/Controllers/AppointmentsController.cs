@@ -105,6 +105,16 @@ public sealed class AppointmentsController(
         return Ok(new AppointmentStatusResponse(result.Status));
     }
 
+    [HttpPost("{id}/reject")]
+    [Authorize(Policy = AuthorizationPolicies.Manager)]
+    [EndpointSummary("Quản lý từ chối lịch spa")]
+    [EndpointDescription("Chỉ quản lý. Chuyển lịch spa Chờ xác nhận sang Đã từ chối; giải phóng toàn bộ nhân viên đang giữ chỗ. Không tìm thấy lịch spa trả 404 NOT_FOUND; lịch không ở Chờ xác nhận trả 409 INVALID_TRANSITION.")]
+    public async Task<IActionResult> Reject(Guid id, CancellationToken ct)
+    {
+        await assignmentService.RejectSpaAsync(User.ToCurrentUser(), id, ct);
+        return NoContent();
+    }
+
     [HttpGet("{id}")]
     [Authorize(Policy = AuthorizationPolicies.Customer)]
     [EndpointSummary("Khách hàng xem chi tiết lịch hẹn của mình")]
