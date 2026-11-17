@@ -1,4 +1,5 @@
 using System.Globalization;
+using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
 
 namespace PetSpa.Domain.Services;
@@ -22,6 +23,8 @@ public sealed record SlotStaffSuggestions(
     IReadOnlyList<SlotStaffSuggestion> Alternatives);
 
 public sealed record SlotHeldStay(DateOnly CheckInDate, DateOnly CheckOutDate);
+
+public sealed record SlotCageStay(Guid CageId, DateOnly CheckInDate, DateOnly CheckOutDate);
 
 public static class SlotService
 {
@@ -141,6 +144,28 @@ public static class SlotService
         }
 
         return Math.Max(available, 0);
+    }
+
+    public static Cage? SuggestCage(
+        IReadOnlyList<Cage> cages,
+        IReadOnlyList<SlotCageStay> occupiedStays,
+        Species species,
+        SizeGroup sizeGroup,
+        DateOnly checkInDate,
+        DateOnly checkOutDate)
+    {
+        ArgumentNullException.ThrowIfNull(cages);
+        ArgumentNullException.ThrowIfNull(occupiedStays);
+
+        if (checkOutDate <= checkInDate)
+            throw new ArgumentException("Ngày trả phòng phải sau ngày nhận phòng ít nhất 1 đêm.");
+
+        return cages
+            .Where(c => c.IsActive && c.Species == species && c.SizeGroup == sizeGroup)
+            .Where(c => !occupiedStays.Any(s =>
+                s.CageId == c.CageId && s.CheckInDate < checkOutDate && checkInDate < s.CheckOutDate))
+            .OrderBy(c => c.Code, StringComparer.Ordinal)
+            .FirstOrDefault();
     }
 
     private static int PeakLoad(IReadOnlyList<SlotHeldBooking> held, DateTimeOffset from, DateTimeOffset to)
