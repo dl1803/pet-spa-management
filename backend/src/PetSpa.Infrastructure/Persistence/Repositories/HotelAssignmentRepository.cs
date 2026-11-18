@@ -1,11 +1,12 @@
 using Microsoft.EntityFrameworkCore;
+using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
 
 namespace PetSpa.Infrastructure.Persistence.Repositories;
 
-public sealed class HotelAssignmentRepository(AppDbContext db) : IHotelAssignmentRepository
+public sealed class HotelAssignmentRepository(AppDbContext db, ShopTimeZone shopTimeZone) : IHotelAssignmentRepository
 {
     private static readonly AppointmentStatus[] OccupyingStatuses =
     [
@@ -26,6 +27,9 @@ public sealed class HotelAssignmentRepository(AppDbContext db) : IHotelAssignmen
              stay.PlannedCheckOut))
         .FirstOrDefaultAsync(ct);
 
+    public Task<HotelAppointment?> FindAppointmentAsync(Guid appointmentId, CancellationToken ct = default) =>
+        db.Set<HotelAppointment>().FirstOrDefaultAsync(a => a.AppointmentId == appointmentId, ct);
+
     public async Task<IReadOnlyList<Cage>> ListCagesAsync(CancellationToken ct = default) =>
         await db.Set<Cage>().AsNoTracking().OrderBy(c => c.Code).ToListAsync(ct);
 
@@ -35,19 +39,21 @@ public sealed class HotelAssignmentRepository(AppDbContext db) : IHotelAssignmen
         var start = rangeStart.ToUniversalTime();
         var end = rangeEnd.ToUniversalTime();
         var now = DateTimeOffset.UtcNow;
+        var (today, _) = shopTimeZone.ToLocal(now);
+        var minOverdueCheckout = shopTimeZone.ToUtc(today.AddDays(1), TimeOnly.MinValue);
 
         return await db.Set<HotelAppointment>().AsNoTracking()
             .Where(s => s.CageId != null
                 && OccupyingStatuses.Contains(s.Status)
                 && s.PlannedCheckIn < end
                 && (s.Status == AppointmentStatus.InStay
-                    ? (s.PlannedCheckOut > start || now > start)
+                    ? (s.PlannedCheckOut > start || minOverdueCheckout > start)
                     : s.PlannedCheckOut > start))
             .Select(s => new CageStayWindow(
                 s.CageId!.Value,
                 s.PlannedCheckIn,
-                s.Status == AppointmentStatus.InStay && s.PlannedCheckOut < now
-                    ? now
+                s.Status == AppointmentStatus.InStay && s.PlannedCheckOut < minOverdueCheckout
+                    ? minOverdueCheckout
                     : s.PlannedCheckOut))
             .ToListAsync(ct);
     }
@@ -55,16 +61,14 @@ public sealed class HotelAssignmentRepository(AppDbContext db) : IHotelAssignmen
     public async Task<HotelAppointmentForAssignment?> FindHotelAppointmentAsync(
         Guid appointmentId, CancellationToken ct = default)
     {
-        var stay = await db.Set<HotelAppointment>()
-            .FirstOrDefaultAsync(a => a.AppointmentId == appointmentId, ct);
-        if (stay is null) return null;
+        var row = await (
+            from stay in db.Set<HotelAppointment>()
+            join pet in db.Set<Pet>().AsNoTracking() on stay.PetId equals pet.PetId
+            where stay.AppointmentId == appointmentId
+            select new { stay, pet.Species })
+            .FirstOrDefaultAsync(ct);
 
-        var species = await db.Set<Pet>().AsNoTracking()
-            .Where(p => p.PetId == stay.PetId)
-            .Select(p => p.Species)
-            .FirstAsync(ct);
-
-        return new HotelAppointmentForAssignment(stay, species);
+        return row is null ? null : new HotelAppointmentForAssignment(row.stay, row.Species);
     }
 
     public Task<Cage?> FindCageAsync(Guid cageId, CancellationToken ct = default) =>

@@ -50,8 +50,15 @@ public sealed class HotelAssignmentService(
     {
         if (user.Role != UserRole.Manager) throw new BusinessException(ErrorCodes.Forbidden);
 
+        var preCheck = await hotelAssignments.FindHotelAppointmentAsync(appointmentId, ct)
+            ?? throw new BusinessException(ErrorCodes.NotFound);
+
+        if (preCheck.Appointment.Status != AppointmentStatus.Pending)
+            throw new BusinessException(ErrorCodes.InvalidTransition);
+
         return await concurrency.RunAsync(async () =>
         {
+            await concurrency.LockHotelGroupAsync(preCheck.Species, preCheck.Appointment.SizeGroup, ct);
             await concurrency.LockAppointmentAsync(appointmentId, ct);
 
             var found = await hotelAssignments.FindHotelAppointmentAsync(appointmentId, ct)
@@ -94,11 +101,11 @@ public sealed class HotelAssignmentService(
         {
             await concurrency.LockAppointmentAsync(appointmentId, ct);
 
-            var found = await hotelAssignments.FindHotelAppointmentAsync(appointmentId, ct)
+            var appointment = await hotelAssignments.FindAppointmentAsync(appointmentId, ct)
                 ?? throw new BusinessException(ErrorCodes.NotFound);
 
-            found.Appointment.Reject();
-            await hotelAssignments.UpdateHotelAppointmentAsync(found.Appointment, ct);
+            appointment.Reject();
+            await hotelAssignments.UpdateHotelAppointmentAsync(appointment, ct);
         }, ct);
     }
 }

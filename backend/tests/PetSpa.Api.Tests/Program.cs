@@ -2001,7 +2001,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("HotelAssignmentService.GetCageSuggestionAsync considers an overdue InStay stay as occupying the cage today", async () =>
     {
         var today = DateTimeOffset.UtcNow.Date;
-        var checkIn = new DateTimeOffset(today.AddDays(-1), TimeSpan.Zero).AddHours(14);
+        var checkIn = new DateTimeOffset(today, TimeSpan.Zero).AddHours(14);
         var stay = new HotelStayForAssignment(
             Guid.NewGuid(), AppointmentStatus.Pending, Species.Dog, SizeGroup.Small, checkIn, checkIn.AddDays(3));
 
@@ -2022,7 +2022,8 @@ var tests = new (string Name, Func<Task> Run)[]
             IsActive = true,
         };
 
-        var overdueWindow = new CageStayWindow(overdueCage.CageId, checkIn.AddDays(-3), DateTimeOffset.UtcNow);
+        var tomorrow = today.AddDays(1);
+        var overdueWindow = new CageStayWindow(overdueCage.CageId, checkIn.AddDays(-3), new DateTimeOffset(tomorrow, TimeSpan.Zero));
 
         var service = new HotelAssignmentService(
             new TestHotelAssignmentRepo(stay, [overdueCage, freeCage], [overdueWindow]),
@@ -2034,6 +2035,46 @@ var tests = new (string Name, Func<Task> Run)[]
 
         Check(result?.Cage?.CageId == freeCage.CageId,
             "The overdue InStay cage A1 must be considered occupied today; free cage A2 must be suggested.");
+    }),
+    ("HotelAssignmentService.ConfirmHotelAsync rejects assigning a cage currently occupied by an overdue InStay stay today", async () =>
+    {
+        var today = DateTimeOffset.UtcNow.Date;
+        var checkIn = new DateTimeOffset(today, TimeSpan.Zero).AddHours(14);
+        var stay = new HotelAppointment
+        {
+            AppointmentId = Guid.NewGuid(),
+            Status = AppointmentStatus.Pending,
+            SizeGroup = SizeGroup.Small,
+            PlannedCheckIn = checkIn,
+            PlannedCheckOut = checkIn.AddDays(2),
+        };
+        var cage = new Cage
+        {
+            CageId = Guid.NewGuid(),
+            Code = "A1",
+            Species = Species.Dog,
+            SizeGroup = SizeGroup.Small,
+            IsActive = true,
+        };
+        var tomorrow = today.AddDays(1);
+        var overdueWindow = new CageStayWindow(cage.CageId, checkIn.AddDays(-3), new DateTimeOffset(tomorrow, TimeSpan.Zero));
+        var repo = new TestHotelAssignmentRepo(null, [cage], [overdueWindow]) { Appointment = stay };
+        var service = new HotelAssignmentService(repo, new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard());
+
+        string? errorCode = null;
+        try
+        {
+            await service.ConfirmHotelAsync(
+                new CurrentUser(Guid.NewGuid(), UserRole.Manager), stay.AppointmentId, cage.CageId);
+        }
+        catch (BusinessException ex)
+        {
+            errorCode = ex.Code;
+        }
+
+        Check(errorCode == ErrorCodes.CageConflict, "Confirming a cage with an overdue InStay pet must throw CAGE_CONFLICT.");
+        Check(stay.Status == AppointmentStatus.Pending && stay.CageId is null, "The stay must remain Pending without cage.");
+        Check(repo.SaveCalls == 0, "Nothing must be saved on conflict.");
     }),
     ("HotelAssignmentService.ConfirmHotelAsync assigns the chosen free cage, confirms the stay and saves once inside the concurrency guard", async () =>
     {
@@ -2066,7 +2107,10 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(stay.Status == AppointmentStatus.Confirmed, "The stay must be moved to Confirmed.");
         Check(stay.CageId == cage.CageId, "The chosen cage must be assigned to the stay.");
         Check(guard.RunCalls == 1, "Confirming must run inside exactly one concurrency guard transaction.");
+        Check(guard.LockedHotelGroup == (Species.Dog, SizeGroup.Small), "Confirming must lock the hotel group advisory lock.");
         Check(guard.LockedAppointmentId == stay.AppointmentId, "Confirming must lock the appointment row.");
+        Check(string.Join(",", guard.LockOrder) == "lock-hotel-group,lock-appointment",
+            "The hotel group lock must be taken before the appointment row lock.");
         Check(repo.SaveCalls == 1, "Confirming must save exactly once.");
     }),
     ("HotelAssignmentService.ConfirmHotelAsync rejects non-manager, unknown stay, unknown cage, wrong state, unsuitable cage and overlapping stay without saving", async () =>
@@ -2288,6 +2332,121 @@ var tests = new (string Name, Func<Task> Run)[]
             "A rejected request must not change the stay.");
         Check(forCustomerRepo.SaveCalls == 0 && forUnknownRepo.SaveCalls == 0 && forConfirmedRepo.SaveCalls == 0,
             "A rejected request must not save anything.");
+    }),
+    ("TC-10: Hai yêu cầu xác nhận đồng thời trên cùng một chuồng trống: đúng 1 yêu cầu thành công, yêu cầu còn lại nhận lỗi xung đột CAGE_CONFLICT", async () =>
+    {
+        var checkIn = new DateTimeOffset(2026, 11, 20, 2, 0, 0, TimeSpan.Zero);
+        var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+
+        var cage = new Cage
+        {
+            CageId = Guid.NewGuid(),
+            Code = "A1",
+            Species = Species.Dog,
+            SizeGroup = SizeGroup.Small,
+            IsActive = true,
+        };
+
+        var stay1 = new HotelAppointment
+        {
+            AppointmentId = Guid.NewGuid(),
+            Status = AppointmentStatus.Pending,
+            SizeGroup = SizeGroup.Small,
+            PlannedCheckIn = checkIn,
+            PlannedCheckOut = checkIn.AddDays(2),
+        };
+
+        var stay2 = new HotelAppointment
+        {
+            AppointmentId = Guid.NewGuid(),
+            Status = AppointmentStatus.Pending,
+            SizeGroup = SizeGroup.Small,
+            PlannedCheckIn = checkIn,
+            PlannedCheckOut = checkIn.AddDays(2),
+        };
+
+        var appointments = new Dictionary<Guid, HotelAppointment>
+        {
+            [stay1.AppointmentId] = stay1,
+            [stay2.AppointmentId] = stay2,
+        };
+
+        var repoLock = new object();
+        var sharedRepo = new ConcurrentTestHotelAssignmentRepo(appointments, [cage], repoLock);
+        var sharedGuard = new SimulatedAdvisoryConcurrencyGuard();
+        var service = new HotelAssignmentService(sharedRepo, new ShopTimeZone(TimeZoneInfo.Utc), sharedGuard);
+
+        async Task<(AppointmentStatus? Status, string? ErrorCode)> ExecAsync(Guid appointmentId)
+        {
+            try
+            {
+                var status = await service.ConfirmHotelAsync(manager, appointmentId, cage.CageId);
+                return (status, null);
+            }
+            catch (BusinessException ex)
+            {
+                return (null, ex.Code);
+            }
+        }
+
+        var results = await Task.WhenAll(
+            Task.Run(() => ExecAsync(stay1.AppointmentId)),
+            Task.Run(() => ExecAsync(stay2.AppointmentId)));
+
+        var successes = results.Count(r => r.Status == AppointmentStatus.Confirmed);
+        var conflicts = results.Count(r => r.ErrorCode == ErrorCodes.CageConflict);
+
+        Check(successes == 1, $"Exactly 1 request must succeed with Confirmed, but got {successes}.");
+        Check(conflicts == 1, $"Exactly 1 request must fail with CAGE_CONFLICT, but got {conflicts}.");
+
+        var confirmedStays = appointments.Values.Where(s => s.Status == AppointmentStatus.Confirmed).ToList();
+        Check(confirmedStays.Count == 1 && confirmedStays[0].CageId == cage.CageId,
+            "Exactly one stay must be confirmed and assigned to the cage.");
+    }),
+    ("HotelAssignmentService.ConfirmHotelAsync returns 404 NOT_FOUND when pet record is missing", async () =>
+    {
+        var checkIn = new DateTimeOffset(2026, 11, 20, 2, 0, 0, TimeSpan.Zero);
+        var stay = new HotelAppointment
+        {
+            AppointmentId = Guid.NewGuid(),
+            Status = AppointmentStatus.Pending,
+            SizeGroup = SizeGroup.Small,
+            PlannedCheckIn = checkIn,
+            PlannedCheckOut = checkIn.AddDays(2),
+        };
+        var repo = new MissingPetTestHotelAssignmentRepo(stay);
+        var service = new HotelAssignmentService(repo, new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard());
+
+        string? errorCode = null;
+        try
+        {
+            await service.ConfirmHotelAsync(new CurrentUser(Guid.NewGuid(), UserRole.Manager), stay.AppointmentId, Guid.NewGuid());
+        }
+        catch (BusinessException ex)
+        {
+            errorCode = ex.Code;
+        }
+
+        Check(errorCode == ErrorCodes.NotFound, "Missing pet record must result in NotFound, not 500 error.");
+    }),
+    ("HotelAssignmentService.RejectHotelAsync succeeds using FindAppointmentAsync even when pet record is missing", async () =>
+    {
+        var checkIn = new DateTimeOffset(2026, 11, 20, 2, 0, 0, TimeSpan.Zero);
+        var stay = new HotelAppointment
+        {
+            AppointmentId = Guid.NewGuid(),
+            Status = AppointmentStatus.Pending,
+            SizeGroup = SizeGroup.Small,
+            PlannedCheckIn = checkIn,
+            PlannedCheckOut = checkIn.AddDays(2),
+        };
+        var repo = new MissingPetTestHotelAssignmentRepo(stay);
+        var service = new HotelAssignmentService(repo, new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard());
+
+        await service.RejectHotelAsync(new CurrentUser(Guid.NewGuid(), UserRole.Manager), stay.AppointmentId);
+
+        Check(stay.Status == AppointmentStatus.Cancelled && stay.CancelReason == CancelReason.StoreUnable,
+            "Rejecting must succeed using FindAppointmentAsync even when pet species is not joined.");
     }),
     ("AppointmentsController.Reject rejects a pending hotel appointment and returns RejectAppointmentResponse", async () =>
     {
@@ -4566,6 +4725,9 @@ sealed class TestHotelAssignmentRepo(
         return Task.FromResult(found);
     }
 
+    public Task<HotelAppointment?> FindAppointmentAsync(Guid appointmentId, CancellationToken ct = default) =>
+        Task.FromResult(Appointment is not null && Appointment.AppointmentId == appointmentId ? Appointment : null);
+
     public Task<Cage?> FindCageAsync(Guid cageId, CancellationToken ct = default) =>
         Task.FromResult(cages.FirstOrDefault(c => c.CageId == cageId));
 
@@ -4574,6 +4736,146 @@ sealed class TestHotelAssignmentRepo(
         SaveCalls++;
         return Task.CompletedTask;
     }
+}
+
+sealed class ConcurrentTestHotelAssignmentRepo(
+    Dictionary<Guid, HotelAppointment> appointments,
+    IReadOnlyList<Cage> cages,
+    object syncRoot) : IHotelAssignmentRepository
+{
+    public Task<HotelStayForAssignment?> FindHotelStayAsync(Guid appointmentId, CancellationToken ct = default)
+    {
+        lock (syncRoot)
+        {
+            if (appointments.TryGetValue(appointmentId, out var stay))
+                return Task.FromResult<HotelStayForAssignment?>(new HotelStayForAssignment(
+                    stay.AppointmentId, stay.Status, Species.Dog, stay.SizeGroup, stay.PlannedCheckIn, stay.PlannedCheckOut));
+            return Task.FromResult<HotelStayForAssignment?>(null);
+        }
+    }
+
+    public Task<HotelAppointment?> FindAppointmentAsync(Guid appointmentId, CancellationToken ct = default)
+    {
+        lock (syncRoot)
+        {
+            appointments.TryGetValue(appointmentId, out var stay);
+            return Task.FromResult(stay);
+        }
+    }
+
+    public Task<HotelAppointmentForAssignment?> FindHotelAppointmentAsync(Guid appointmentId, CancellationToken ct = default)
+    {
+        lock (syncRoot)
+        {
+            if (appointments.TryGetValue(appointmentId, out var stay))
+                return Task.FromResult<HotelAppointmentForAssignment?>(new HotelAppointmentForAssignment(stay, Species.Dog));
+            return Task.FromResult<HotelAppointmentForAssignment?>(null);
+        }
+    }
+
+    public Task<IReadOnlyList<Cage>> ListCagesAsync(CancellationToken ct = default) => Task.FromResult(cages);
+
+    public Task<IReadOnlyList<CageStayWindow>> ListCageStayWindowsAsync(
+        DateTimeOffset rangeStart, DateTimeOffset rangeEnd, CancellationToken ct = default)
+    {
+        lock (syncRoot)
+        {
+            var windows = appointments.Values
+                .Where(s => s.CageId != null && (s.Status == AppointmentStatus.Confirmed || s.Status == AppointmentStatus.InStay))
+                .Select(s => new CageStayWindow(s.CageId!.Value, s.PlannedCheckIn, s.PlannedCheckOut))
+                .ToList();
+            return Task.FromResult<IReadOnlyList<CageStayWindow>>(windows);
+        }
+    }
+
+    public Task<Cage?> FindCageAsync(Guid cageId, CancellationToken ct = default) =>
+        Task.FromResult(cages.FirstOrDefault(c => c.CageId == cageId));
+
+    public Task UpdateHotelAppointmentAsync(HotelAppointment appointment, CancellationToken ct = default)
+    {
+        lock (syncRoot)
+        {
+            appointments[appointment.AppointmentId] = appointment;
+            return Task.CompletedTask;
+        }
+    }
+}
+
+sealed class SimulatedAdvisoryConcurrencyGuard : IConcurrencyGuard
+{
+    private readonly SemaphoreSlim _groupLock = new(1, 1);
+    private readonly AsyncLocal<LockState?> _state = new();
+
+    private sealed class LockState
+    {
+        public bool HoldsLock;
+    }
+
+    public async Task<T> RunAsync<T>(Func<Task<T>> work, CancellationToken ct = default)
+    {
+        var state = new LockState();
+        _state.Value = state;
+        try
+        {
+            return await work();
+        }
+        finally
+        {
+            if (state.HoldsLock)
+            {
+                state.HoldsLock = false;
+                _groupLock.Release();
+            }
+            _state.Value = null;
+        }
+    }
+
+    public async Task RunAsync(Func<Task> work, CancellationToken ct = default)
+    {
+        var state = new LockState();
+        _state.Value = state;
+        try
+        {
+            await work();
+        }
+        finally
+        {
+            if (state.HoldsLock)
+            {
+                state.HoldsLock = false;
+                _groupLock.Release();
+            }
+            _state.Value = null;
+        }
+    }
+
+    public Task LockSpaDayAsync(DateOnly day, CancellationToken ct = default) => Task.CompletedTask;
+
+    public async Task LockHotelGroupAsync(Species species, SizeGroup sizeGroup, CancellationToken ct = default)
+    {
+        await _groupLock.WaitAsync(ct);
+        if (_state.Value != null)
+            _state.Value.HoldsLock = true;
+    }
+
+    public Task LockAppointmentAsync(Guid appointmentId, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task LockPaymentAsync(Guid paymentId, CancellationToken ct = default) => Task.CompletedTask;
+}
+
+sealed class MissingPetTestHotelAssignmentRepo(HotelAppointment appointment) : IHotelAssignmentRepository
+{
+    public Task<HotelStayForAssignment?> FindHotelStayAsync(Guid appointmentId, CancellationToken ct = default) =>
+        Task.FromResult<HotelStayForAssignment?>(null);
+    public Task<HotelAppointment?> FindAppointmentAsync(Guid appointmentId, CancellationToken ct = default) =>
+        Task.FromResult<HotelAppointment?>(appointment.AppointmentId == appointmentId ? appointment : null);
+    public Task<HotelAppointmentForAssignment?> FindHotelAppointmentAsync(Guid appointmentId, CancellationToken ct = default) =>
+        Task.FromResult<HotelAppointmentForAssignment?>(null);
+    public Task<IReadOnlyList<Cage>> ListCagesAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<Cage>>([]);
+    public Task<IReadOnlyList<CageStayWindow>> ListCageStayWindowsAsync(DateTimeOffset start, DateTimeOffset end, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CageStayWindow>>([]);
+    public Task<Cage?> FindCageAsync(Guid cageId, CancellationToken ct = default) => Task.FromResult<Cage?>(null);
+    public Task UpdateHotelAppointmentAsync(HotelAppointment app, CancellationToken ct = default) => Task.CompletedTask;
 }
 
 sealed class TestAppointmentChangeRepo(

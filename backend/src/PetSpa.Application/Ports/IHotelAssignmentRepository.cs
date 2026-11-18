@@ -19,6 +19,8 @@ public interface IHotelAssignmentRepository
 {
     Task<HotelStayForAssignment?> FindHotelStayAsync(Guid appointmentId, CancellationToken ct = default);
 
+    Task<HotelAppointment?> FindAppointmentAsync(Guid appointmentId, CancellationToken ct = default);
+
     Task<IReadOnlyList<Cage>> ListCagesAsync(CancellationToken ct = default);
 
     Task<IReadOnlyList<CageStayWindow>> ListCageStayWindowsAsync(
