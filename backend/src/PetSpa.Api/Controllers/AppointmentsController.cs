@@ -110,7 +110,7 @@ public sealed class AppointmentsController(
     [HttpPost("{id}/confirm")]
     [Authorize(Policy = AuthorizationPolicies.Manager)]
     [EndpointSummary("Quản lý xác nhận lịch hẹn kèm nhân viên hoặc chuồng")]
-    [EndpointDescription("Chỉ quản lý. Lịch spa: staffIds đủ số nhân viên cần của lịch (staffRequired), tùy chọn confirmOutOfShift = true để xác nhận nhân viên chọn tay nằm ngoài ca làm. Chuyển lịch Chờ xác nhận sang Đã xác nhận; số tiền được tính lại phía máy chủ trong cùng giao dịch, không nhận từ client. Không tìm thấy lịch spa trả 404 NOT_FOUND; lịch không ở Chờ xác nhận trả 409 INVALID_TRANSITION; sai số nhân viên trả 409 STAFF_COUNT_MISMATCH; nhân viên trùng giờ trả 409 STAFF_CONFLICT; nhân viên ngoài ca mà chưa xác nhận lại trả 409 STAFF_OUT_OF_SHIFT; nhân viên không phải nhân viên spa đang hoạt động hoặc thiếu giá dịch vụ trả 400 VALIDATION_ERROR. Lịch lưu trú chưa xử lý ở route này.")]
+    [EndpointDescription("Chỉ quản lý. Lịch spa: staffIds đủ số nhân viên cần của lịch (staffRequired), tùy chọn confirmOutOfShift = true để xác nhận nhân viên chọn tay nằm ngoài ca làm. Chuyển lịch Chờ xác nhận sang Đã xác nhận; số tiền được tính lại phía máy chủ trong cùng giao dịch, không nhận từ client. Không tìm thấy lịch spa trả 404 NOT_FOUND; lịch không ở Chờ xác nhận trả 409 INVALID_TRANSITION; sai số nhân viên trả 409 STAFF_COUNT_MISMATCH; nhân viên trùng giờ trả 409 STAFF_CONFLICT; nhân viên ngoài ca mà chưa xác nhận lại trả 409 STAFF_OUT_OF_SHIFT; nhân viên không phải nhân viên spa đang hoạt động hoặc thiếu giá dịch vụ trả 400 VALIDATION_ERROR. Lịch lưu trú: cageId bắt buộc; chuyển lịch Chờ xác nhận sang Đã xác nhận và gán chuồng đang sử dụng, cùng loài và nhóm kích cỡ của lịch, không trùng đêm với lịch lưu trú Đã xác nhận hoặc Đang lưu trú khác. Không tìm thấy lịch hoặc chuồng trả 404 NOT_FOUND; chuồng không phù hợp hoặc trùng đêm trả 409 CAGE_CONFLICT; lịch không ở Chờ xác nhận trả 409 INVALID_TRANSITION; thiếu cageId trả 400 VALIDATION_ERROR.")]
     public async Task<IActionResult> Confirm(Guid id, [FromBody] ConfirmAppointmentRequest? request, CancellationToken ct)
     {
         if (request is null)
@@ -126,7 +126,10 @@ public sealed class AppointmentsController(
                 if (!request.CageId.HasValue)
                     throw new BusinessException(ErrorCodes.ValidationError, "Lịch lưu trú yêu cầu cageId.");
 
-                throw new BusinessException(ErrorCodes.ValidationError, "Xác nhận lịch lưu trú chưa được hỗ trợ tại phiên bản này.");
+                var status = await hotelAssignmentService.ConfirmHotelAsync(
+                    User.ToCurrentUser(), id, request.CageId.Value, ct);
+
+                return Ok(new AppointmentStatusResponse(status));
             }
 
             if (request.StaffIds is null || request.StaffIds.Count == 0)
@@ -142,7 +145,7 @@ public sealed class AppointmentsController(
     [HttpPost("{id}/reject")]
     [Authorize(Policy = AuthorizationPolicies.Manager)]
     [EndpointSummary("Quản lý từ chối lịch hẹn")]
-    [EndpointDescription("Chỉ quản lý. Chuyển lịch Chờ xác nhận sang Đã từ chối; giải phóng toàn bộ nhân viên đang giữ chỗ. Không tìm thấy lịch trả 404 NOT_FOUND; lịch không ở Chờ xác nhận trả 409 INVALID_TRANSITION.")]
+    [EndpointDescription("Chỉ quản lý. Chuyển lịch Chờ xác nhận sang Đã từ chối; giải phóng toàn bộ nhân viên đang giữ chỗ. Không tìm thấy lịch trả 404 NOT_FOUND; lịch không ở Chờ xác nhận trả 409 INVALID_TRANSITION. Lịch lưu trú: chuyển lịch Chờ xác nhận sang Đã hủy với lý do StoreUnable; lịch Chờ xác nhận chưa gán chuồng nên không có chuồng cần giải phóng.")]
     public async Task<IActionResult> Reject(Guid id, CancellationToken ct)
     {
         if (appointmentQueryService is not null)
@@ -152,7 +155,8 @@ public sealed class AppointmentsController(
 
             if (type == AppointmentType.Hotel)
             {
-                throw new BusinessException(ErrorCodes.ValidationError, "Từ chối lịch lưu trú chưa được hỗ trợ tại phiên bản này.");
+                await hotelAssignmentService.RejectHotelAsync(User.ToCurrentUser(), id, ct);
+                return Ok(new RejectAppointmentResponse(AppointmentStatus.Cancelled, CancelReason.StoreUnable));
             }
         }
 
