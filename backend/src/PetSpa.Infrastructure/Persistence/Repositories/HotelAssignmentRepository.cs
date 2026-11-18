@@ -51,5 +51,29 @@ public sealed class HotelAssignmentRepository(AppDbContext db) : IHotelAssignmen
                     : s.PlannedCheckOut))
             .ToListAsync(ct);
     }
+
+    public async Task<HotelAppointmentForAssignment?> FindHotelAppointmentAsync(
+        Guid appointmentId, CancellationToken ct = default)
+    {
+        var stay = await db.Set<HotelAppointment>()
+            .FirstOrDefaultAsync(a => a.AppointmentId == appointmentId, ct);
+        if (stay is null) return null;
+
+        var species = await db.Set<Pet>().AsNoTracking()
+            .Where(p => p.PetId == stay.PetId)
+            .Select(p => p.Species)
+            .FirstAsync(ct);
+
+        return new HotelAppointmentForAssignment(stay, species);
+    }
+
+    public Task<Cage?> FindCageAsync(Guid cageId, CancellationToken ct = default) =>
+        db.Set<Cage>().AsNoTracking().FirstOrDefaultAsync(c => c.CageId == cageId, ct);
+
+    public Task UpdateHotelAppointmentAsync(HotelAppointment appointment, CancellationToken ct = default)
+    {
+        db.Set<HotelAppointment>().Update(appointment);
+        return db.SaveChangesAsync(ct);
+    }
 }
 
