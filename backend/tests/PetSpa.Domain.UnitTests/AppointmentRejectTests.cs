@@ -35,5 +35,33 @@ public class AppointmentRejectTests
         Assert.Equal(status, spa.Status);
         Assert.Null(spa.CancelReason);
     }
+
+    [Fact]
+    public void Reject_HotelWhenPending_CancelsWithStoreUnable()
+    {
+        var stay = new HotelAppointment { Status = AppointmentStatus.Pending };
+
+        stay.Reject();
+
+        Assert.Equal(AppointmentStatus.Cancelled, stay.Status);
+        Assert.Equal(CancelReason.StoreUnable, stay.CancelReason);
+        Assert.NotNull(stay.CancelledAt);
+    }
+
+    [Theory]
+    [InlineData(AppointmentStatus.Confirmed)]
+    [InlineData(AppointmentStatus.InStay)]
+    [InlineData(AppointmentStatus.Completed)]
+    [InlineData(AppointmentStatus.Cancelled)]
+    public void Reject_HotelWhenNotPending_ThrowsInvalidTransitionAndKeepsStatus(AppointmentStatus status)
+    {
+        var stay = new HotelAppointment { Status = status };
+
+        var ex = Assert.Throws<BusinessException>(() => stay.Reject());
+
+        Assert.Equal(ErrorCodes.InvalidTransition, ex.Code);
+        Assert.Equal(status, stay.Status);
+        Assert.Null(stay.CancelReason);
+    }
 }
 
