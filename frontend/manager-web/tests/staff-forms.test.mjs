@@ -13,11 +13,11 @@ import {
   validateStaffRole,
 } from "../features/staff/forms.ts";
 import { STAFF_FILTERS, countStaff, filterStaff, getGivenName, parseStaffFilter } from "../features/staff/list.ts";
-import { MOCK_STAFF, buildMockStaff } from "../features/staff/mock-data.ts";
 import { formatPhone } from "../lib/format.ts";
 import { STAFF_ROLE_LABELS } from "../lib/labels.ts";
+import { MOCK_STAFF } from "./fixtures/staff.ts";
 
-test("dữ liệu mô phỏng khớp MW-08: 6 người, số trên chip và dòng tiêu đề", () => {
+test("dữ liệu mẫu khớp MW-08: 6 người, số trên chip và dòng tiêu đề", () => {
   assert.deepEqual(countStaff(MOCK_STAFF), { all: 6, spa: 4, receptionist: 2, inactive: 1, activeSpa: 3, activeReceptionist: 2 });
   assert.deepEqual(
     MOCK_STAFF.map((member) => [member.fullName, formatPhone(member.userName), STAFF_ROLE_LABELS[member.staffRole], member.isActive]),
@@ -103,9 +103,4 @@ test("yêu cầu sửa chỉ gồm fullName và staffRole; chưa chọn vai trò
   assert.deepEqual(update, { fullName: "Lê Minh Tâm", staffRole: "Receptionist" });
   assert.throws(() => toStaffUpdateRequest({ fullName: "A", phone: "", staffRole: "", password: "" }));
   assert.throws(() => toStaffCreateRequest({ fullName: "A", phone: "0944120678", staffRole: "", password: "x" }));
-});
-
-test("buildMockStaff tạo tài khoản đang hoạt động và không giữ mật khẩu", () => {
-  const created = buildMockStaff({ userName: "0944120678", fullName: "Huỳnh Gia Hân", staffRole: "SpaStaff", password: "bí mật" }, "id-moi");
-  assert.deepEqual(created, { staffId: "id-moi", userName: "0944120678", fullName: "Huỳnh Gia Hân", staffRole: "SpaStaff", isActive: true });
 });

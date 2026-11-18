@@ -4,7 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { DeactivateStaffDialog } from "../features/staff/components/deactivate-staff-dialog.tsx";
 import { StaffTable } from "../features/staff/components/staff-table.tsx";
-import { MOCK_STAFF } from "../features/staff/mock-data.ts";
+import { MOCK_STAFF } from "./fixtures/staff.ts";
 
 const noop = () => {};
 const count = (html, pattern) => (html.match(pattern) ?? []).length;
