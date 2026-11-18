@@ -83,16 +83,42 @@ public sealed class StaffRepository(
         var staff = await db.Set<Staff>().AsNoTracking().FirstOrDefaultAsync(s => s.StaffId == staffId, ct)
             ?? throw new BusinessException(ErrorCodes.NotFound);
 
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-
         var user = await db.Users.FirstAsync(u => u.Id == staff.UserId, ct);
         user.IsActive = false;
         await db.SaveChangesAsync(ct);
 
-        // Cùng DbContext nên lệnh thu hồi nằm trong giao dịch này: hoặc cả hai thành công, hoặc cả hai hoàn tác.
         await identity.RevokeAllAsync(staff.UserId, ct);
+    }
 
-        await transaction.CommitAsync(ct);
+    public async Task<IReadOnlyList<Guid>> ListConfirmedSpaAppointmentIdsAsync(
+        Guid staffId, CancellationToken ct = default)
+    {
+        var query =
+            from assigned in db.Set<AppointmentStaff>().AsNoTracking()
+            join appointment in db.Set<SpaAppointment>().AsNoTracking()
+                on assigned.AppointmentId equals appointment.AppointmentId
+            where assigned.StaffId == staffId && appointment.Status == AppointmentStatus.Confirmed
+            orderby appointment.AppointmentId
+            select appointment.AppointmentId;
+
+        return await query.ToListAsync(ct);
+    }
+
+    public async Task<StaffConfirmedSpaAssignment?> FindConfirmedSpaAssignmentAsync(
+        Guid staffId, Guid appointmentId, CancellationToken ct = default)
+    {
+        var row = await (
+            from assigned in db.Set<AppointmentStaff>().AsNoTracking()
+            join appointment in db.Set<SpaAppointment>().AsNoTracking()
+                on assigned.AppointmentId equals appointment.AppointmentId
+            join customer in db.Set<Customer>().AsNoTracking() on appointment.CustomerId equals customer.CustomerId
+            where assigned.StaffId == staffId
+                && assigned.AppointmentId == appointmentId
+                && appointment.Status == AppointmentStatus.Confirmed
+            select new { appointment.AppointmentId, customer.UserId })
+            .FirstOrDefaultAsync(ct);
+
+        return row is null ? null : new StaffConfirmedSpaAssignment(row.AppointmentId, row.UserId);
     }
 
     // Hai hàm dưới giống AccountRepository (ID 62); không sửa AccountRepository để tách dùng chung vì ngoài phạm vi ID 63.
