@@ -1,7 +1,9 @@
+using System.Text.Json.Serialization;
 using PetSpa.Domain.Enums;
 
 namespace PetSpa.Api.Dtos;
 
+[method: JsonConstructor]
 public sealed record ConfirmAppointmentRequest(
     List<Guid>? StaffIds = null,
     Guid? CageId = null,
