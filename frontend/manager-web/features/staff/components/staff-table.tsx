@@ -12,12 +12,14 @@ type StaffTableProps = {
   staff: Staff[];
   onEdit: (staff: Staff) => void;
   onDeactivate: (staff: Staff) => void;
+  // Đang chờ server vô hiệu hóa một tài khoản: khóa mọi nút Vô hiệu hóa để chống bấm đúp và nuốt thao tác.
+  isDeactivating?: boolean;
 };
 
 const headerClass = "px-4 py-3 text-left text-xs font-semibold text-muted";
 
 // MW-08 vùng 3 – Bảng nhân viên (UI-Screens.md). Không có cột Ngày tạo vì GET /staff chưa trả ngày tạo.
-export function StaffTable({ staff, onEdit, onDeactivate }: StaffTableProps) {
+export function StaffTable({ staff, onEdit, onDeactivate, isDeactivating = false }: StaffTableProps) {
   if (staff.length === 0) {
     return (
       <Card>
@@ -68,6 +70,7 @@ export function StaffTable({ staff, onEdit, onDeactivate }: StaffTableProps) {
                         variant="ghost"
                         size="sm"
                         aria-label={`Vô hiệu hóa tài khoản ${member.fullName}`}
+                        disabled={isDeactivating}
                         onClick={() => onDeactivate(member)}
                       >
                         Vô hiệu hóa
