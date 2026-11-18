@@ -34,6 +34,17 @@ test("bảng nhân viên: người đã vô hiệu hóa chỉ có nút Sửa và
   assert.ok(html.includes(">NH<") && html.includes(">ĐP<") && html.includes(">VL<"));
 });
 
+test("bảng nhân viên: khi đang vô hiệu hóa (isDeactivating), mọi nút Vô hiệu hóa bị khóa, nút Sửa vẫn dùng được", () => {
+  const busy = renderToStaticMarkup(React.createElement(StaffTable, { staff: MOCK_STAFF, onEdit: noop, onDeactivate: noop, isDeactivating: true }));
+  const deactivateButtons = busy.match(/<button[^>]*aria-label="Vô hiệu hóa tài khoản [^"]*"[^>]*>/g) ?? [];
+  assert.equal(deactivateButtons.length, 5);
+  assert.ok(deactivateButtons.every((button) => button.includes('disabled=""')));
+  const editButtons = busy.match(/<button[^>]*aria-label="Sửa nhân viên [^"]*"[^>]*>/g) ?? [];
+  assert.equal(editButtons.length, 6);
+  assert.ok(editButtons.every((button) => !button.includes('disabled=""')));
+  assert.ok(!renderTable(MOCK_STAFF).includes('disabled=""'), "mặc định không khóa nút nào");
+});
+
 test("bảng nhân viên rỗng hiện trạng thái rỗng, không có bảng", () => {
   const html = renderTable([]);
   assert.ok(html.includes("Chưa có nhân viên nào"));

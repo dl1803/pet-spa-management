@@ -24,9 +24,10 @@ import { StaffRoleField } from "./staff-role-field";
 type StaffFormProps = {
   // Có staff → sửa; không có → thêm mới.
   staff?: Staff;
-  // Có thể ném (hoặc từ chối Promise) ApiError: 409 DUPLICATE_CONTACT hiện dưới ô số điện thoại, lỗi khác hiện ở đầu form.
+  // Có thể ném (hoặc từ chối Promise) ApiError: khi tạo, 409 DUPLICATE_CONTACT hiện dưới ô số điện thoại; lỗi khác hiện ở đầu form.
+  // Form chờ Promise xong mới mở lại nút gửi; thành công thì nơi dùng tự đóng ngăn kéo.
   onCreate: (request: StaffCreateRequest) => void | Promise<void>;
-  onUpdate: (request: StaffUpdateRequest) => void;
+  onUpdate: (request: StaffUpdateRequest) => void | Promise<void>;
   onCancel: () => void;
 };
 
@@ -39,7 +40,7 @@ export function StaffForm({ staff, onCreate, onUpdate, onCancel }: StaffFormProp
     control,
     handleSubmit,
     setError,
-    formState: { errors },
+    formState: { errors, isSubmitting },
   } = useForm<StaffFormValues>({
     defaultValues: createStaffFormValues(staff),
     mode: "onTouched",
@@ -54,15 +55,13 @@ export function StaffForm({ staff, onCreate, onUpdate, onCancel }: StaffFormProp
 
   async function submit(values: StaffFormValues) {
     setSubmitError(null);
-    if (isEdit) {
-      onUpdate(toStaffUpdateRequest(values));
-      return;
-    }
     try {
-      await onCreate(toStaffCreateRequest(values));
+      if (isEdit) await onUpdate(toStaffUpdateRequest(values));
+      else await onCreate(toStaffCreateRequest(values));
     } catch (error) {
       // Lỗi gắn với một trường → setError; giữ nguyên dữ liệu đã nhập (Frontend-Conventions 4.1).
-      if (toApiError(error).code === "DUPLICATE_CONTACT") {
+      // Chỉ thao tác tạo có số điện thoại để trùng; sửa không đổi số điện thoại.
+      if (!isEdit && toApiError(error).code === "DUPLICATE_CONTACT") {
         setError("phone", { type: "server", message: FORM_MESSAGES.phoneDuplicate }, { shouldFocus: true });
       } else {
         setSubmitError(error);
@@ -132,8 +131,10 @@ export function StaffForm({ staff, onCreate, onUpdate, onCancel }: StaffFormProp
       </div>
 
       <div className="flex shrink-0 justify-end gap-2.5 border-t border-line px-6 py-4">
-        <Button variant="ghost" onClick={onCancel}>Hủy bỏ</Button>
-        <Button type="submit">{isEdit ? "Lưu thay đổi" : "Tạo tài khoản"}</Button>
+        <Button variant="ghost" onClick={onCancel} disabled={isSubmitting}>Hủy bỏ</Button>
+        <Button type="submit" disabled={isSubmitting} aria-busy={isSubmitting || undefined}>
+          {isSubmitting ? "Đang lưu…" : isEdit ? "Lưu thay đổi" : "Tạo tài khoản"}
+        </Button>
       </div>
     </form>
   );
