@@ -163,7 +163,7 @@ test("hàm dùng chung: formatLongDate, countNights, addDaysToDateKey, buildStor
   assert.equal(buildStoreDateTime("2026-11-06", "09:00"), "2026-11-06T09:00:00+07:00");
 });
 
-test("ReceptionAppointmentsTable: cấu trúc bảng, cột, nút Tiếp nhận và nội dung hiển thị", () => {
+test("ReceptionAppointmentsTable: cấu trúc bảng, cột, nút Tiếp nhận, Trả thú cưng và nội dung hiển thị", () => {
   const sortedRows = sortByTime(mockRows, DATE_KEY);
   const html = renderToStaticMarkup(React.createElement(ReceptionAppointmentsTable, { rows: sortedRows, dateKey: DATE_KEY }));
 
@@ -178,12 +178,16 @@ test("ReceptionAppointmentsTable: cấu trúc bảng, cột, nút Tiếp nhận 
   assert.equal(thMatches[5], "Trạng thái");
   assert.match(thMatches[6], /<span class="sr-only">Thao tác<\/span>/);
 
-  // Đúng 3 liên kết Tiếp nhận
-  assert.equal(countOccurrences(html, /Tiếp nhận<\/a>/g), 3);
+  // Đúng 4 liên kết Tiếp nhận: lịch Đã xác nhận của Bông, Cốm (lưu trú), Mít, Sushi
+  assert.equal(countOccurrences(html, /Tiếp nhận<\/a>/g), 4);
   assert.match(html, /href="\/tiep-nhan\?appointmentId=a1000000-0000-4000-8000-000000000001"/);
+  assert.match(html, /<a (?=[^>]*href="\/tiep-nhan\?appointmentId=a1000000-0000-4000-8000-000000000004")(?=[^>]*aria-label="Tiếp nhận Cốm")[^>]*>/);
 
-  // Không có liên kết tới /tiep-nhan ở Cốm (a1..04), Tuyết (a1..08), Nâu (a1..02), Mướp (a1..03), Mochi (a1..06)
-  assert.ok(!html.includes('href="/tiep-nhan?appointmentId=a1000000-0000-4000-8000-000000000004"'));
+  // Đúng 1 liên kết Trả thú cưng: Tuyết (a1..08) đang lưu trú và trả trong ngày
+  assert.equal(countOccurrences(html, /Trả thú cưng<\/a>/g), 1);
+  assert.match(html, /<a (?=[^>]*href="\/tra-thu-cung\?appointmentId=a1000000-0000-4000-8000-000000000008")(?=[^>]*aria-label="Trả thú cưng Tuyết")[^>]*>/);
+
+  // Không có liên kết tới /tiep-nhan ở Tuyết (a1..08), Nâu (a1..02), Mướp (a1..03), Mochi (a1..06)
   assert.ok(!html.includes('href="/tiep-nhan?appointmentId=a1000000-0000-4000-8000-000000000008"'));
   assert.ok(!html.includes('href="/tiep-nhan?appointmentId=a1000000-0000-4000-8000-000000000002"'));
   assert.ok(!html.includes('href="/tiep-nhan?appointmentId=a1000000-0000-4000-8000-000000000003"'));
@@ -191,7 +195,6 @@ test("ReceptionAppointmentsTable: cấu trúc bảng, cột, nút Tiếp nhận 
 
   // Không có chữ cấm
   assert.ok(!html.includes("Xem"));
-  assert.ok(!html.includes("Trả thú cưng"));
   assert.ok(!html.includes("Thu tiền"));
   assert.ok(!html.includes("Có tài khoản"));
   assert.ok(!html.includes("Khách vãng lai"));
