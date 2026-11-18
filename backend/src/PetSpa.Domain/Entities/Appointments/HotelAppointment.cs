@@ -1,4 +1,5 @@
 using PetSpa.Domain.Enums;
+using PetSpa.Domain.Exceptions;
 using PetSpa.Domain.StateMachine;
 
 namespace PetSpa.Domain.Entities;
@@ -28,6 +29,19 @@ public class HotelAppointment : Appointment
     {
         base.ReturnToPending();
         CageId = null;
+    }
+
+    public void AssignCage(Cage cage, Species petSpecies)
+    {
+        ArgumentNullException.ThrowIfNull(cage);
+
+        GetLifecycle().EnsureTransition(Status, AppointmentStatus.Confirmed);
+
+        if (!cage.IsActive || cage.Species != petSpecies || cage.SizeGroup != SizeGroup)
+            throw new BusinessException(ErrorCodes.CageConflict);
+
+        CageId = cage.CageId;
+        Confirm();
     }
 
     public void CheckIn() => MoveTo(AppointmentStatus.InStay);
