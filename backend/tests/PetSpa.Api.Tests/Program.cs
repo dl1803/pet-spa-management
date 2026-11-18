@@ -16,6 +16,8 @@ using PetSpa.Application.Security;
 using PetSpa.Application.Services.Assignment;
 using PetSpa.Application.Services;
 using PetSpa.Application.Services.Booking;
+using PetSpa.Application.Services.Notifications;
+using PetSpa.Application.Services.StaffManagement;
 using PetSpa.Application.Services.Payments;
 using PetSpa.Domain.Enums;
 using PetSpa.Infrastructure.Identity;
@@ -4127,6 +4129,179 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(ok?.Value is AppointmentStatusResponse { Status: AppointmentStatus.Cancelled }
               && appointment.Status == AppointmentStatus.Cancelled,
             "Cancel must return 200 with status = Cancelled for the owner.");
+    }),
+    ("StaffService.DeactivateAsync returns every Confirmed spa appointment of the staff to Pending, deletes all its staff rows and notifies account-owning customers after the transaction", async () =>
+    {
+        var staffId = Guid.NewGuid();
+        var otherStaffId = Guid.NewGuid();
+        var customerUserId = Guid.NewGuid();
+        var slotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var firstId = new Guid("00000000-0000-0000-0000-000000000001");
+        var secondId = new Guid("00000000-0000-0000-0000-000000000002");
+        var untouchedId = Guid.NewGuid();
+
+        SpaAppointment Confirmed(Guid id, short staffRequired) => new()
+        {
+            AppointmentId = id,
+            Status = AppointmentStatus.Confirmed,
+            SlotStart = slotStart,
+            SlotEnd = slotStart.AddMinutes(60),
+            BusyUntil = slotStart.AddMinutes(75),
+            StaffRequired = staffRequired,
+        };
+
+        AppointmentStaff Row(Guid appointmentId, Guid rowStaffId) => new()
+        {
+            AppointmentId = appointmentId,
+            StaffId = rowStaffId,
+            BusyFrom = slotStart,
+            BusyUntil = slotStart.AddMinutes(75),
+            IsHolding = true,
+            AssignedAt = DateTimeOffset.UtcNow,
+        };
+
+        var first = Confirmed(firstId, 2);
+        var second = Confirmed(secondId, 1);
+        var assignments = new TestAssignmentRepo(first, [], [], new Dictionary<Guid, int>());
+        assignments.Others.Add(second);
+        assignments.Added.AddRange(new[]
+        {
+            Row(firstId, staffId), Row(firstId, otherStaffId), Row(secondId, staffId), Row(untouchedId, otherStaffId),
+        });
+
+        var staffRepo = new TestStaffRepo(
+        [
+            new StaffConfirmedSpaAssignment(firstId, customerUserId),
+            new StaffConfirmedSpaAssignment(secondId, null),
+        ]);
+        var guard = new TrackingConcurrencyGuard();
+        var notificationRepo = new TestNotificationRepo(() => guard.InsideRun);
+        var zone = TimeZoneInfo.CreateCustomTimeZone("UTC+7", TimeSpan.FromHours(7), "UTC+7", "UTC+7");
+        var service = new StaffService(
+            staffRepo, assignments, guard, new NotificationService(notificationRepo), new ShopTimeZone(zone));
+
+        var returned = await service.DeactivateAsync(staffId);
+
+        Check(returned == 2, "Both Confirmed spa appointments of the staff must be counted.");
+        Check(first.Status == AppointmentStatus.Pending && second.Status == AppointmentStatus.Pending,
+            "Both appointments must return to Pending.");
+        Check(assignments.Added.Count == 1 && assignments.Added[0].AppointmentId == untouchedId,
+            "All staff rows of the returned appointments must be deleted and other appointments must stay untouched.");
+        Check(staffRepo.DeactivateCalls == 1, "The staff account must be deactivated exactly once.");
+        Check(guard.RunCalls == 1, "Everything must run inside one concurrency guard transaction.");
+        Check(guard.LockedAppointments.SequenceEqual(new[] { firstId, secondId }),
+            "Appointments must be locked one by one in the listed order.");
+        Check(notificationRepo.Created.Count == 1, "Only the customer who owns an account must be notified.");
+
+        var notice = notificationRepo.Created[0];
+        Check(notice.RecipientUserId == customerUserId
+              && notice.Type == NotificationType.StatusChanged
+              && notice.AppointmentId == firstId,
+            "The notice must be a StatusChanged notification of the first appointment for its customer account.");
+        Check(notice.Message.Contains("10:00 ngày 20/11/2026") && notice.Message.Contains("Chờ xác nhận"),
+            "The message must show the shop-local appointment time and the Pending status.");
+        Check(!notice.InsideTransaction, "Notifications must be created after the transaction has ended.");
+    }),
+    ("StaffService.DeactivateAsync skips an appointment that is no longer Confirmed or assigned to the staff once its row is locked", async () =>
+    {
+        var staffId = Guid.NewGuid();
+        var customerUserId = Guid.NewGuid();
+        var slotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var keptId = new Guid("00000000-0000-0000-0000-000000000001");
+        var staleId = new Guid("00000000-0000-0000-0000-000000000002");
+
+        SpaAppointment Confirmed(Guid id) => new()
+        {
+            AppointmentId = id,
+            Status = AppointmentStatus.Confirmed,
+            SlotStart = slotStart,
+            SlotEnd = slotStart.AddMinutes(60),
+            BusyUntil = slotStart.AddMinutes(75),
+            StaffRequired = 1,
+        };
+
+        AppointmentStaff Row(Guid appointmentId, Guid rowStaffId) => new()
+        {
+            AppointmentId = appointmentId,
+            StaffId = rowStaffId,
+            BusyFrom = slotStart,
+            BusyUntil = slotStart.AddMinutes(75),
+            IsHolding = true,
+            AssignedAt = DateTimeOffset.UtcNow,
+        };
+
+        var kept = Confirmed(keptId);
+        var stale = Confirmed(staleId);
+        var assignments = new TestAssignmentRepo(kept, [], [], new Dictionary<Guid, int>());
+        assignments.Others.Add(stale);
+        assignments.Added.AddRange(new[] { Row(keptId, staffId), Row(staleId, Guid.NewGuid()) });
+
+        var staffRepo = new TestStaffRepo(
+        [
+            new StaffConfirmedSpaAssignment(keptId, customerUserId),
+            new StaffConfirmedSpaAssignment(staleId, customerUserId),
+        ])
+        {
+            StillAssigned = id => id == keptId,
+        };
+        var guard = new TrackingConcurrencyGuard();
+        var notificationRepo = new TestNotificationRepo(() => guard.InsideRun);
+        var service = new StaffService(
+            staffRepo, assignments, guard, new NotificationService(notificationRepo), new ShopTimeZone(TimeZoneInfo.Utc));
+
+        var returned = await service.DeactivateAsync(staffId);
+
+        Check(returned == 1, "Only the appointment that still qualifies after locking must be counted.");
+        Check(kept.Status == AppointmentStatus.Pending, "The qualifying appointment must return to Pending.");
+        Check(stale.Status == AppointmentStatus.Confirmed, "A stale appointment must stay Confirmed.");
+        Check(assignments.Added.Count == 1 && assignments.Added[0].AppointmentId == staleId,
+            "A stale appointment must keep its staff rows.");
+        Check(guard.LockedAppointments.Count == 2, "Both listed appointments must be locked before being re-read.");
+        Check(notificationRepo.Created.Count == 1 && notificationRepo.Created[0].AppointmentId == keptId,
+            "Only the returned appointment must produce a notification.");
+    }),
+    ("StaffService.DeactivateAsync deactivates a staff member with no Confirmed spa appointment and returns 0 without notifications", async () =>
+    {
+        var assignments = new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>());
+        var staffRepo = new TestStaffRepo([]);
+        var guard = new TrackingConcurrencyGuard();
+        var notificationRepo = new TestNotificationRepo(() => guard.InsideRun);
+        var service = new StaffService(
+            staffRepo, assignments, guard, new NotificationService(notificationRepo), new ShopTimeZone(TimeZoneInfo.Utc));
+
+        var returned = await service.DeactivateAsync(Guid.NewGuid());
+
+        Check(returned == 0, "Nothing must be counted when the staff has no Confirmed spa appointment.");
+        Check(staffRepo.DeactivateCalls == 1, "The account must still be deactivated.");
+        Check(guard.RunCalls == 1 && guard.LockedAppointments.Count == 0, "No appointment must be locked.");
+        Check(notificationRepo.Created.Count == 0 && assignments.SaveCalls == 0,
+            "Nothing must be saved or notified.");
+    }),
+    ("StaffService.DeactivateAsync rejects an unknown staff member with NOT_FOUND before touching any appointment or notification", async () =>
+    {
+        var appointment = new SpaAppointment
+        {
+            AppointmentId = Guid.NewGuid(),
+            Status = AppointmentStatus.Confirmed,
+            SlotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero),
+            StaffRequired = 1,
+        };
+        var assignments = new TestAssignmentRepo(appointment, [], [], new Dictionary<Guid, int>());
+        var staffRepo = new TestStaffRepo([new StaffConfirmedSpaAssignment(appointment.AppointmentId, Guid.NewGuid())])
+        {
+            StaffExists = false,
+        };
+        var guard = new TrackingConcurrencyGuard();
+        var notificationRepo = new TestNotificationRepo(() => guard.InsideRun);
+        var service = new StaffService(
+            staffRepo, assignments, guard, new NotificationService(notificationRepo), new ShopTimeZone(TimeZoneInfo.Utc));
+
+        var code = await FailureCodeAsync(() => service.DeactivateAsync(Guid.NewGuid()));
+
+        Check(code == ErrorCodes.NotFound, "An unknown staff member must be rejected with NotFound.");
+        Check(appointment.Status == AppointmentStatus.Confirmed, "The appointment must not change.");
+        Check(guard.LockedAppointments.Count == 0 && assignments.SaveCalls == 0 && notificationRepo.Created.Count == 0,
+            "Nothing must be locked, saved or notified.");
     })
 };
 
@@ -4589,6 +4764,7 @@ sealed class TestAssignmentRepo(
     IReadOnlyDictionary<Guid, int> recentCounts) : IAssignmentRepository
 {
     public Guid? LastExcludeAppointmentId { get; private set; }
+    public List<SpaAppointment> Others { get; } = [];
 
     public Task<IReadOnlyList<SpaStaffCandidate>> ListActiveSpaStaffAsync(CancellationToken ct = default) =>
         Task.FromResult(staff);
@@ -4604,7 +4780,9 @@ sealed class TestAssignmentRepo(
     }
 
     public Task<SpaAppointment?> FindSpaAppointmentAsync(Guid appointmentId, CancellationToken ct = default) =>
-        Task.FromResult(appointment is not null && appointment.AppointmentId == appointmentId ? appointment : null);
+        Task.FromResult(appointment is not null && appointment.AppointmentId == appointmentId
+            ? appointment
+            : Others.FirstOrDefault(a => a.AppointmentId == appointmentId));
 
     public Task<int> GetSuggestLookbackDaysAsync(CancellationToken ct = default) => Task.FromResult(30);
 
@@ -4955,8 +5133,12 @@ sealed class ChangeFixture
         var service = new Service { ServiceId = ServiceId, Name = "Tắm", LatestStartTime = new TimeOnly(18, 0), IsActive = true };
         var pricing = new ServicePricing
         {
-            ServiceId = ServiceId, Species = Species.Dog, SizeGroup = SizeGroup.Medium,
-            Price = 100000, DurationMinutes = 60, StaffRequired = 1,
+            ServiceId = ServiceId,
+            Species = Species.Dog,
+            SizeGroup = SizeGroup.Medium,
+            Price = 100000,
+            DurationMinutes = 60,
+            StaffRequired = 1,
         };
 
         var newDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3));
@@ -5082,4 +5264,107 @@ sealed class CapturingLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
         Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state,
         Exception? exception, Func<TState, Exception?, string> formatter) =>
         Entries.Add((logLevel, formatter(state, exception)));
+}
+
+sealed class TrackingConcurrencyGuard : IConcurrencyGuard
+{
+    public bool InsideRun { get; private set; }
+    public int RunCalls { get; private set; }
+    public List<Guid> LockedAppointments { get; } = [];
+
+    public async Task<T> RunAsync<T>(Func<Task<T>> work, CancellationToken ct = default)
+    {
+        RunCalls++;
+        InsideRun = true;
+        try
+        {
+            return await work();
+        }
+        finally
+        {
+            InsideRun = false;
+        }
+    }
+
+    public Task RunAsync(Func<Task> work, CancellationToken ct = default) =>
+        RunAsync<object?>(async () =>
+        {
+            await work();
+            return null;
+        }, ct);
+
+    public Task LockSpaDayAsync(DateOnly day, CancellationToken ct = default) => throw new NotSupportedException();
+
+    public Task LockHotelGroupAsync(Species species, SizeGroup sizeGroup, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
+    public Task LockAppointmentAsync(Guid appointmentId, CancellationToken ct = default)
+    {
+        if (!InsideRun) throw new InvalidOperationException("Khóa lịch chỉ dùng được bên trong RunAsync.");
+        LockedAppointments.Add(appointmentId);
+        return Task.CompletedTask;
+    }
+
+    public Task LockPaymentAsync(Guid paymentId, CancellationToken ct = default) => throw new NotSupportedException();
+}
+
+sealed class TestStaffRepo(IReadOnlyList<StaffConfirmedSpaAssignment> confirmed) : IStaffRepository
+{
+    public bool StaffExists { get; init; } = true;
+    public Func<Guid, bool> StillAssigned { get; init; } = _ => true;
+    public int DeactivateCalls { get; private set; }
+
+    public Task<Guid> CreateAsync(
+        string phone, string fullName, StaffRole staffRole, string password, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
+    public Task<PagedResult<StaffSummary>> ListAsync(int page, int pageSize, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
+    public Task UpdateAsync(Guid staffId, string fullName, StaffRole staffRole, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
+    public Task DeactivateAsync(Guid staffId, CancellationToken ct = default)
+    {
+        DeactivateCalls++;
+        if (!StaffExists) throw new BusinessException(ErrorCodes.NotFound);
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<Guid>> ListConfirmedSpaAppointmentIdsAsync(Guid staffId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<Guid>>(confirmed.Select(x => x.AppointmentId).ToList());
+
+    public Task<StaffConfirmedSpaAssignment?> FindConfirmedSpaAssignmentAsync(
+        Guid staffId, Guid appointmentId, CancellationToken ct = default) =>
+        Task.FromResult<StaffConfirmedSpaAssignment?>(
+            StillAssigned(appointmentId) ? confirmed.FirstOrDefault(x => x.AppointmentId == appointmentId) : null);
+}
+
+sealed record CreatedNotification(
+    Guid RecipientUserId, NotificationType Type, Guid? AppointmentId, string Message, bool InsideTransaction);
+
+sealed class TestNotificationRepo(Func<bool> insideTransaction) : INotificationRepository
+{
+    public List<CreatedNotification> Created { get; } = [];
+
+    public Task<Guid> AddAsync(
+        Guid recipientUserId, NotificationType type, Guid? appointmentId, string message,
+        CancellationToken ct = default)
+    {
+        Created.Add(new CreatedNotification(recipientUserId, type, appointmentId, message, insideTransaction()));
+        return Task.FromResult(Guid.NewGuid());
+    }
+
+    public Task<PagedResult<Notification>> ListByRecipientAsync(
+        Guid recipientUserId, int page, int pageSize, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
+    public Task<int> CountUnreadAsync(Guid recipientUserId, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
+    public Task<Guid?> FindRecipientUserIdAsync(Guid notificationId, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
+    public Task MarkReadAsync(Guid notificationId, CancellationToken ct = default) =>
+        throw new NotSupportedException();
 }
