@@ -20,6 +20,7 @@ export const CHECK_OUT_QUERY_KEY = ["check-out"] as const;
 export const CHECK_OUT_LIST_QUERY_KEY = [...CHECK_OUT_QUERY_KEY, "in-stay"] as const;
 
 export const NOT_CHECK_OUT_STEP_MESSAGE = "Lịch này không còn ở bước trả thú cưng.";
+export const STAY_UNPAID_LOCK_REASON = "Cần thu tiền lưu trú trước khi hoàn tất.";
 export const LATE_FEE_LOCK_REASON = "Cần thu phí trả muộn trước khi hoàn tất.";
 
 export function canCheckOut(appointment: AppointmentDetail) {
@@ -32,8 +33,10 @@ export function findPayment(payments: Payment[], kind: PaymentKind): Payment | n
 
 export type CheckOutGate = { ready: true } | { ready: false; reason: string };
 
-// Khóa nút xác nhận khi đã có khoản phí trả muộn nhưng chưa thanh toán.
+// Khóa nút xác nhận khi tiền lưu trú hoặc phí trả muộn chưa thanh toán.
 export function getCheckOutGate(payments: Payment[]): CheckOutGate {
+  const stay = findPayment(payments, "Stay");
+  if (stay !== null && stay.status !== "Paid") return { ready: false, reason: STAY_UNPAID_LOCK_REASON };
   const lateFee = findPayment(payments, "LateFee");
   if (lateFee !== null && lateFee.status !== "Paid") return { ready: false, reason: LATE_FEE_LOCK_REASON };
   return { ready: true };

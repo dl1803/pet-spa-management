@@ -218,4 +218,12 @@ test("ReceptionAppointmentsTable: cấu trúc bảng, cột, nút Tiếp nhận,
   const emptyHtml = renderToStaticMarkup(React.createElement(ReceptionAppointmentsTable, { rows: [], dateKey: DATE_KEY }));
   assert.match(emptyHtml, /<thead\b/);
   assert.ok(!emptyHtml.includes("<td"));
+
+  // Lịch lưu trú Confirmed rơi vào ngày trả (không phải ngày nhận) không hiện nút Tiếp nhận hay Trả thú cưng
+  const tuyetRow = mockRows.find((r) => r.appointment.petName === "Tuyết");
+  const confirmedCheckOutDay = { ...tuyetRow, appointment: { ...tuyetRow.appointment, status: "Confirmed" } };
+  const checkOutDayHtml = renderToStaticMarkup(
+    React.createElement(ReceptionAppointmentsTable, { rows: [confirmedCheckOutDay], dateKey: DATE_KEY }),
+  );
+  assert.doesNotMatch(checkOutDayHtml, /Tiếp nhận<\/a>|Trả thú cưng<\/a>/);
 });

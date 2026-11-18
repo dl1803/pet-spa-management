@@ -12,6 +12,7 @@ import {
   isNotFoundError,
   LATE_FEE_LOCK_REASON,
   selectTodayReturns,
+  STAY_UNPAID_LOCK_REASON,
 } from "../features/reception-check-out/check-out.ts";
 import { createMockCheckOutEntries, MOCK_CHECK_OUT_IDS } from "../features/reception-check-out/mock-data.ts";
 import {
@@ -51,11 +52,15 @@ test("describeLateness: trễ là cảnh báo không nêu số tiền; đúng gi
   assert.equal(describeLateness(-0).body, "Đón đúng giờ trả dự kiến.");
 });
 
-test("getCheckOutGate: chỉ khóa khi có phí trả muộn chưa thanh toán", () => {
+test("getCheckOutGate: khóa khi tiền lưu trú hoặc phí trả muộn chưa thanh toán", () => {
   const stay = { kind: "Stay", status: "Paid" };
+  const unpaidStay = { kind: "Stay", status: "Unpaid" };
   assert.deepEqual(getCheckOutGate([stay]), { ready: true });
   assert.deepEqual(getCheckOutGate([stay, { kind: "LateFee", status: "Paid" }]), { ready: true });
   assert.deepEqual(getCheckOutGate([stay, { kind: "LateFee", status: "Unpaid" }]), { ready: false, reason: LATE_FEE_LOCK_REASON });
+  assert.deepEqual(getCheckOutGate([unpaidStay]), { ready: false, reason: STAY_UNPAID_LOCK_REASON });
+  assert.deepEqual(getCheckOutGate([unpaidStay, { kind: "LateFee", status: "Unpaid" }]), { ready: false, reason: STAY_UNPAID_LOCK_REASON });
+  assert.equal(STAY_UNPAID_LOCK_REASON, "Cần thu tiền lưu trú trước khi hoàn tất.");
   assert.equal(LATE_FEE_LOCK_REASON, "Cần thu phí trả muộn trước khi hoàn tất.");
 });
 

@@ -34,11 +34,9 @@ export function CagesScreen() {
   const [filters, setFilters] = useState<CageFilters>(DEFAULT_CAGE_FILTERS);
   const cagesQuery = useQuery({ queryKey: CAGES_QUERY_KEY, queryFn: mockListCages });
   const cages = cagesQuery.data;
-  // Chỉ cần danh sách lịch Đang lưu trú để tìm lịch cho nút Trả thú cưng, nên tải sau khi đã có danh sách chuồng.
   const inStayQuery = useQuery({
     queryKey: [...CAGES_QUERY_KEY, "in-stay"],
     queryFn: mockListInStayRefs,
-    enabled: cages !== undefined,
   });
 
   if (cages === undefined) {

@@ -53,6 +53,15 @@ test("CheckOutPaymentsCard chưa có phí trả muộn: tiền lưu trú đã th
   assert.doesNotMatch(html, /Thu phí trả muộn|<a /);
 });
 
+test("CheckOutPaymentsCard tiền lưu trú chưa thanh toán: hiện Chưa thanh toán và nút Thu tiền lưu trú", () => {
+  const { payments, appointment } = dataOf(ids.tuyet);
+  const unpaidStay = [{ ...payments[0], status: "Unpaid", method: null, receivedAmount: null, paidAt: null }];
+  const html = render(h(CheckOutPaymentsCard, { payments: unpaidStay, appointmentId: appointment.appointmentId }));
+  assert.match(html, /420\.000đ/);
+  assert.match(html, /Chưa thanh toán/);
+  assert.match(html, /<a [^>]*href="\/thanh-toan\?appointmentId=a1000000-0000-4000-8000-000000000008"[^>]*>.*Thu tiền lưu trú<\/a>/);
+});
+
 test("CheckOutPaymentsCard phí trả muộn chưa thanh toán: số tiền, huy hiệu Chưa thanh toán và nút Thu phí trả muộn", () => {
   const { payments, appointment } = dataOf(ids.mun);
   const unpaid = [...payments, { paymentId: "x", appointmentId: appointment.appointmentId, kind: "LateFee", amount: 50000, status: "Unpaid", method: null, receivedAmount: null, paidAt: null }];

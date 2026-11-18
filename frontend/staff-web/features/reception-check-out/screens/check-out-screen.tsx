@@ -132,6 +132,8 @@ function CheckOutWorkspace({ data }: { data: CheckOutData }) {
     mutationFn: () => mockCheckOut(appointmentId),
     onSuccess: () => {
       showSuccess(cage !== null ? `Đã trả ${pet.name} cho khách. Chuồng ${cage.code} đã trống.` : `Đã trả ${pet.name} cho khách`);
+      void queryClient.invalidateQueries({ queryKey: ["cages"] });
+      void queryClient.invalidateQueries({ queryKey: CHECK_OUT_QUERY_KEY });
       router.push(ROUTES.cages);
     },
     // Tải lại các khoản thanh toán: lần xác nhận bị từ chối vì phí trả muộn chưa thu là lúc khoản phí này xuất hiện.

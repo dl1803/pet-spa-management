@@ -51,7 +51,7 @@ export function ReceptionAppointmentsTable({ rows, dateKey }: { rows: ReceptionA
             const time = getRowTime(appointment, dateKey);
             const event = getHotelEvent(appointment, dateKey);
             const nights = type === "Hotel" && plannedCheckIn && plannedCheckOut ? countNights(plannedCheckIn, plannedCheckOut) : undefined;
-            const canCheckIn = status === "Confirmed";
+            const canCheckIn = (type === "Spa" && status === "Confirmed") || (type === "Hotel" && status === "Confirmed" && event === "checkIn");
             const canCheckOut = type === "Hotel" && status === "InStay" && event === "checkOut";
             return (
               <tr key={appointmentId} className="border-t border-line-soft align-middle hover:bg-[#F8FBFB]">

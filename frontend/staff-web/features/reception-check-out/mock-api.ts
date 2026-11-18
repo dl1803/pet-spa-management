@@ -69,6 +69,10 @@ export async function mockCheckOut(appointmentId: string, now: Date = new Date()
   if (!canCheckOut(appointment)) {
     throw conflict("INVALID_TRANSITION", "Lịch hẹn đã thay đổi trạng thái, vui lòng tải lại.");
   }
+  const stay = entry.payments.find((payment) => payment.kind === "Stay");
+  if (stay && stay.status !== "Paid") {
+    throw conflict("PAYMENT_NOT_DUE", "Tiền lưu trú chưa được thanh toán.");
+  }
   let lateFee = entry.payments.find((payment) => payment.kind === "LateFee");
   if (!lateFee) {
     const amount = calculateMockLateFee(appointment.plannedCheckOut ?? "", now);

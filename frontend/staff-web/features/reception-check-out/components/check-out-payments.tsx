@@ -36,6 +36,12 @@ export function CheckOutPaymentsCard({ payments, appointmentId }: CheckOutPaymen
       <CardBody>
         <div className="flex flex-col gap-4">
           {stay !== null && <PaymentRow title="Tiền lưu trú" note={stay.status === "Paid" ? describePaid(stay) : null} payment={stay} />}
+          {stay !== null && stay.status !== "Paid" && (
+            <ButtonLink variant="secondary" block href={withQuery(ROUTES.payments, { appointmentId })}>
+              <Icon name="wallet" />
+              Thu tiền lưu trú
+            </ButtonLink>
+          )}
           <PaymentRow
             title="Phí trả muộn"
             note={lateFee === null ? "Không phát sinh" : lateFee.status === "Paid" ? describePaid(lateFee) : null}
