@@ -1,14 +1,22 @@
 import type { IconName } from "@/components/icons";
 import { toApiError } from "@/lib/api/errors";
-import type { AppointmentDetail, CostConfirmation, Pet, SizeGroup, WeightCheck } from "@/lib/api/types";
-import { formatMoney } from "@/lib/format";
-import { SIZE_GROUP_LABELS } from "@/lib/labels";
+import type { AppointmentDetail, CostConfirmation, Payment, Pet, SizeGroup, WeightCheck } from "@/lib/api/types";
+import { formatMoney, formatShortDate } from "@/lib/format";
+import { PAYMENT_METHOD_LABELS, SIZE_GROUP_LABELS } from "@/lib/labels";
+import { countNights } from "@/lib/time";
 import { formatKg, formatWeightDifference } from "@/features/reception-check-in/weight";
+
+// Đơn giá lưu trú mỗi đêm của nhóm kích cỡ đang áp dụng, chỉ để giải thích công thức (số tiền thu là payment.amount).
+export type StayRate = { pricePerNight: number; foodPerNight: number };
+
+// Khoản tiền lưu trú (kind = Stay) của lịch lưu trú; null với lịch spa.
+export type StayCharge = { payment: Payment; rate: StayRate };
 
 export type CheckInData = {
   appointment: AppointmentDetail;
   pet: Pet;
   cageCode: string | null;
+  stay: StayCharge | null;
 };
 
 export const CHECK_IN_QUERY_KEY = ["check-in"] as const;
@@ -89,4 +97,41 @@ export function isCostConfirmationPendingError(error: unknown) {
 
 export function isNotFoundError(error: unknown) {
   return toApiError(error).status === 404;
+}
+
+export const WEIGHT_STEP_LOCK_REASON = "Cần đối chiếu cân nặng trước.";
+export const COST_PENDING_LOCK_REASON = "Đang chờ khách xác nhận chi phí mới.";
+export const STAY_UNPAID_LOCK_REASON = "Cần thu tiền lưu trú trước khi tiếp nhận.";
+
+export type HotelCheckInGate = { ready: true } | { ready: false; reason: string };
+
+// Điều kiện bật nút "Xác nhận tiếp nhận" của lịch lưu trú; lý do hiển thị là điều kiện đầu tiên chưa đạt.
+export function getHotelCheckInGate(data: CheckInData): HotelCheckInGate {
+  const panel = getCheckInPanel(data.appointment);
+  if (panel.kind === "unavailable") return { ready: false, reason: NOT_CHECK_IN_STEP_MESSAGE };
+  if (panel.kind === "pending") return { ready: false, reason: COST_PENDING_LOCK_REASON };
+  if (panel.kind === "form") return { ready: false, reason: WEIGHT_STEP_LOCK_REASON };
+  if (data.stay?.payment.status !== "Paid") return { ready: false, reason: STAY_UNPAID_LOCK_REASON };
+  return { ready: true };
+}
+
+// "2 đêm × (100.000đ + 25.000đ)"; null khi lịch chưa có đủ mốc nhận và trả dự kiến.
+export function describeStayFormula(appointment: AppointmentDetail, stay: StayCharge): string | null {
+  if (!appointment.plannedCheckIn || !appointment.plannedCheckOut) return null;
+  const nights = countNights(appointment.plannedCheckIn, appointment.plannedCheckOut);
+  const { pricePerNight, foodPerNight } = stay.rate;
+  return `${nights} đêm × (${formatMoney(pricePerNight)} + ${formatMoney(foodPerNight)})`;
+}
+
+// "08/11, tiền mặt"; null khi khoản chưa có ngày thu lẫn phương thức.
+export function describeStayPaid(payment: Payment): string | null {
+  const parts: string[] = [];
+  if (payment.paidAt) parts.push(formatShortDate(payment.paidAt));
+  if (payment.method) parts.push(PAYMENT_METHOD_LABELS[payment.method].toLocaleLowerCase("vi-VN"));
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
+export function isPaymentNotDueError(error: unknown) {
+  const { status, code } = toApiError(error);
+  return status === 409 && code === "PAYMENT_NOT_DUE";
 }

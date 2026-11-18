@@ -1,4 +1,5 @@
 import { ApiError } from "@/lib/api/errors";
+import { countNights } from "@/lib/time";
 import type {
   ActualWeightRequest,
   CheckInResult,
@@ -79,6 +80,15 @@ function evaluate(entry: MockCheckInEntry, actualKg: number, now: Date): WeightC
   return { result: "OK" };
 }
 
+// Tiền lưu trú và đơn giá theo nhóm kích cỡ mới (backend tính lại phía server); lịch spa không có khoản này.
+function syncStay(entry: MockCheckInEntry, sizeGroup: SizeGroup) {
+  const { appointment, stay } = entry.data;
+  const rate = entry.rule.hotelRates?.[sizeGroup];
+  if (!stay || !rate || !appointment.plannedCheckIn || !appointment.plannedCheckOut) return;
+  stay.rate = rate;
+  stay.payment.amount = countNights(appointment.plannedCheckIn, appointment.plannedCheckOut) * (rate.pricePerNight + rate.foodPerNight);
+}
+
 function applyWeightCheck(entry: MockCheckInEntry, actualKg: number, weightCheck: WeightCheck) {
   const { appointment, pet } = entry.data;
   appointment.actualWeightKg = actualKg;
@@ -97,6 +107,7 @@ function applyWeightCheck(entry: MockCheckInEntry, actualKg: number, weightCheck
   if (weightCheck.result === "PRICE_DECREASED" && weightCheck.newSizeGroup) {
     pet.sizeGroup = weightCheck.newSizeGroup;
     appointment.sizeGroup = weightCheck.newSizeGroup;
+    syncStay(entry, weightCheck.newSizeGroup);
   }
 }
 
@@ -175,10 +186,30 @@ export async function mockRespondCostConfirmation(
     pet.weightKg = pending.actualWeightKg;
     pet.sizeGroup = pending.newSizeGroup;
     appointment.sizeGroup = pending.newSizeGroup;
+    syncStay(entry, pending.newSizeGroup);
   } else {
     appointment.status = "Cancelled";
     appointment.cancelReason = "CostNotConfirmed";
     appointment.cancelledAt = new Date().toISOString();
   }
   return { status: appointment.status };
+}
+
+// Tiếp nhận lịch lưu trú: yêu cầu đã đối chiếu cân nặng, không còn chờ xác nhận chi phí và đã thu tiền lưu trú.
+export async function mockCheckInHotel(appointmentId: string): Promise<CheckInResult> {
+  await wait();
+  const entry = findEntry(appointmentId);
+  expireIfDue(entry, new Date());
+  const { appointment, stay } = entry.data;
+  if (appointment.type !== "Hotel" || appointment.status !== "Confirmed" || appointment.actualWeightKg == null) {
+    throw conflict("INVALID_TRANSITION", "Lịch hẹn đã thay đổi trạng thái, vui lòng tải lại.");
+  }
+  if (appointment.pendingCostConfirmation != null) {
+    throw conflict("COST_CONFIRMATION_PENDING", "Đang chờ khách xác nhận chi phí mới.");
+  }
+  if (stay?.payment.status !== "Paid") {
+    throw conflict("PAYMENT_NOT_DUE", "Tiền lưu trú chưa được thanh toán.");
+  }
+  appointment.status = "InStay";
+  return { status: "InStay" };
 }

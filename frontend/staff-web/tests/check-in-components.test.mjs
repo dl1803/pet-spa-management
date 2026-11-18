@@ -6,6 +6,7 @@ import { CheckInHeader } from "../features/reception-check-in/components/check-i
 import { CheckInSummary } from "../features/reception-check-in/components/check-in-summary.tsx";
 import { CostConfirmationNotice } from "../features/reception-check-in/components/cost-confirmation-notice.tsx";
 import { CostResponseDialog } from "../features/reception-check-in/components/cost-response-dialog.tsx";
+import { HotelCageStep, HotelStayPaymentStep } from "../features/reception-check-in/components/hotel-stay-steps.tsx";
 import { HotelWeightStep } from "../features/reception-check-in/components/hotel-weight-step.tsx";
 import { WeightField } from "../features/reception-check-in/components/weight-field.tsx";
 import { WeightOutcomeNotice } from "../features/reception-check-in/components/weight-outcome-notice.tsx";
@@ -127,5 +128,49 @@ test("WeightOutcomeNotice: tiêu đề và nội dung theo thông báo", () => {
   assert.match(html, /data-tone="neutral"/);
   assert.match(html, /Cân nặng giảm, xuống nhóm Nhỏ/);
   assert.match(html, /Hồ sơ cập nhật 2,9 kg\./);
+});
+
+
+test("HotelStayPaymentStep chưa thu: tiền, công thức, ghi chú và nút Thu tiền mở màn Thanh toán đúng lịch", () => {
+  const { appointment, stay } = dataOf(MOCK_CHECK_IN_IDS.hotelCom);
+  const html = render(h(HotelStayPaymentStep, { stay, appointment, canCollect: true, isHighlighted: false }));
+  assert.match(html, /Thu tiền lưu trú: 250\.000đ/);
+  assert.match(html, /2 đêm × \(100\.000đ \+ 25\.000đ\)\. Thu tại quầy trước khi bé vào chuồng\./);
+  assert.match(html, /<a [^>]*href="\/thanh-toan\?appointmentId=a1000000-0000-4000-8000-000000000004"[^>]*>Thu tiền<\/a>/);
+  assert.doesNotMatch(html, /data-highlighted/);
+  assert.doesNotMatch(html, /Đã thanh toán/);
+});
+
+test("HotelStayPaymentStep chưa thu và chưa được thu: nút Thu tiền bị vô hiệu, không có liên kết", () => {
+  const { appointment, stay } = dataOf(MOCK_CHECK_IN_IDS.hotelCom);
+  const html = render(h(HotelStayPaymentStep, { stay, appointment, canCollect: false, isHighlighted: false }));
+  assert.match(html, /<button [^>]*disabled=""[^>]*>Thu tiền<\/button>/);
+  assert.doesNotMatch(html, /<a /);
+});
+
+test("HotelStayPaymentStep tô đậm khi tiếp nhận bị từ chối vì chưa thu tiền", () => {
+  const { appointment, stay } = dataOf(MOCK_CHECK_IN_IDS.hotelCom);
+  const html = render(h(HotelStayPaymentStep, { stay, appointment, canCollect: true, isHighlighted: true }));
+  assert.match(html, /data-highlighted="true"/);
+  assert.match(html, /border-lagoon ring-2/);
+});
+
+test("HotelStayPaymentStep đã thu: dòng xanh, ngày và phương thức, huy hiệu Đã thanh toán, không còn nút Thu tiền", () => {
+  const { appointment, stay } = dataOf(MOCK_CHECK_IN_IDS.hotelGau);
+  const html = render(h(HotelStayPaymentStep, { stay, appointment, canCollect: true, isHighlighted: false }));
+  assert.match(html, /Đã thu tiền lưu trú: 240\.000đ/);
+  assert.match(html, /08\/11, tiền mặt/);
+  assert.match(html, /Đã thanh toán/);
+  assert.match(html, /bg-success-50/);
+  assert.doesNotMatch(html, /Thu tiền<\/(a|button)>/);
+});
+
+test("HotelCageStep: tên chuồng và mô tả kết quả; không có chuồng thì bỏ mã chuồng", () => {
+  const html = render(h(HotelCageStep, { petName: "Cốm", cageCode: "C1" }));
+  assert.match(html, /Đưa bé vào chuồng C1/);
+  assert.match(html, /Lịch chuyển sang Đang lưu trú, chuồng C1 hiển thị đang chứa Cốm\./);
+  const withoutCage = render(h(HotelCageStep, { petName: "Cốm", cageCode: null }));
+  assert.match(withoutCage, /Đưa bé vào chuồng</);
+  assert.match(withoutCage, /Lịch chuyển sang Đang lưu trú\./);
 });
 

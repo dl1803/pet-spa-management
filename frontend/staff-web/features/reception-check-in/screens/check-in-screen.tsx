@@ -18,6 +18,7 @@ import { CheckInHeader } from "@/features/reception-check-in/components/check-in
 import { CheckInSummary } from "@/features/reception-check-in/components/check-in-summary";
 import { CostConfirmationNotice } from "@/features/reception-check-in/components/cost-confirmation-notice";
 import { CostResponseDialog } from "@/features/reception-check-in/components/cost-response-dialog";
+import { HotelCageStep, HotelStayPaymentStep } from "@/features/reception-check-in/components/hotel-stay-steps";
 import { HotelWeightStep } from "@/features/reception-check-in/components/hotel-weight-step";
 import { WeightField } from "@/features/reception-check-in/components/weight-field";
 import { WeightOutcomeNotice } from "@/features/reception-check-in/components/weight-outcome-notice";
@@ -25,14 +26,17 @@ import {
   CHECK_IN_QUERY_KEY,
   describeWeightOutcome,
   getCheckInPanel,
+  getHotelCheckInGate,
   isConflictError,
   isCostConfirmationPendingError,
   isNotFoundError,
+  isPaymentNotDueError,
   NOT_CHECK_IN_STEP_MESSAGE,
   type CheckInData,
   type WeightOutcome,
 } from "@/features/reception-check-in/check-in";
 import {
+  mockCheckInHotel,
   mockCheckInSpa,
   mockCheckWeight,
   mockGetCheckInData,
@@ -52,6 +56,7 @@ import { ROUTES } from "@/lib/routes";
 import { buildStoreDateTime, getStoreDateKey } from "@/lib/time";
 
 const TITLE = "Tiếp nhận thú cưng";
+const HOTEL_LOCK_REASON_ID = "hotel-check-in-lock-reason";
 
 export function CheckInScreen() {
   const searchParams = useSearchParams();
@@ -217,6 +222,19 @@ function CheckInCard({ data, reload }: CheckInCardProps) {
     },
   });
 
+  const checkInMutation = useMutation({
+    mutationFn: () => mockCheckInHotel(appointmentId),
+    onSuccess: () => {
+      showSuccess(
+        data.cageCode !== null ? `Đã tiếp nhận ${pet.name}. Chuồng ${data.cageCode} đang chứa ${pet.name}` : `Đã tiếp nhận ${pet.name}`,
+      );
+      reloadAppointment();
+    },
+    onError: (error) => {
+      if (isConflictError(error)) reloadAppointment();
+    },
+  });
+
   function onSubmit(values: WeightFormValues) {
     const request = toActualWeightRequest(values);
     if (request === null || weightMutation.isPending) return;
@@ -232,6 +250,7 @@ function CheckInCard({ data, reload }: CheckInCardProps) {
   const respondError = !isDialogOpen ? respondMutation.error : null;
   const backLabel = isSpa ? "Quay lại lịch hẹn" : "Quay lại";
   const outcomeNotice = outcome !== null ? describeWeightOutcome(outcome, isSpa) : null;
+  const gate = isSpa || panel.kind === "unavailable" ? null : getHotelCheckInGate(data);
 
   return (
     <>
@@ -290,6 +309,18 @@ function CheckInCard({ data, reload }: CheckInCardProps) {
                 <HotelWeightStep mode="recorded" actualWeightKg={panel.actualWeightKg} outcome={outcome} />
               )}
 
+              {!isSpa && panel.kind !== "unavailable" && data.stay !== null && (
+                <>
+                  <HotelStayPaymentStep
+                    stay={data.stay}
+                    appointment={appointment}
+                    canCollect={panel.kind === "recorded"}
+                    isHighlighted={isPaymentNotDueError(checkInMutation.error)}
+                  />
+                  <HotelCageStep petName={pet.name} cageCode={data.cageCode} />
+                </>
+              )}
+
               {panel.kind === "unavailable" && (
                 <Alert tone="neutral" icon="note">
                   {NOT_CHECK_IN_STEP_MESSAGE}
@@ -298,6 +329,7 @@ function CheckInCard({ data, reload }: CheckInCardProps) {
 
               <ErrorAlert error={weightError} />
               <ErrorAlert error={respondError} />
+              <ErrorAlert error={checkInMutation.error} />
             </div>
           </CardBody>
           <CardFooter>
@@ -311,12 +343,38 @@ function CheckInCard({ data, reload }: CheckInCardProps) {
                 </Button>
               </div>
             )}
-            {panel.kind === "pending" && (
+            {panel.kind === "pending" && isSpa && (
               <div className="ml-auto">
                 <Button variant="secondary" onClick={openDialog}>
                   <Icon name="phone" />
                   Ghi nhận phản hồi của khách
                 </Button>
+              </div>
+            )}
+            {gate !== null && (
+              <div className="ml-auto flex flex-col items-end gap-1.5 max-[640px]:w-full max-[640px]:items-stretch">
+                <div className="flex flex-wrap justify-end gap-2.5">
+                  {panel.kind === "pending" && (
+                    <Button variant="secondary" onClick={openDialog}>
+                      <Icon name="phone" />
+                      Ghi nhận phản hồi của khách
+                    </Button>
+                  )}
+                  <Button
+                    loading={checkInMutation.isPending}
+                    disabled={!gate.ready}
+                    aria-describedby={gate.ready ? undefined : HOTEL_LOCK_REASON_ID}
+                    onClick={() => checkInMutation.mutate()}
+                  >
+                    Xác nhận tiếp nhận
+                  </Button>
+                </div>
+                {!gate.ready && (
+                  <p id={HOTEL_LOCK_REASON_ID} className="flex items-start gap-1.5 text-xs text-muted">
+                    <Icon name="lock" className="mt-px size-3.5 shrink-0" />
+                    {gate.reason}
+                  </p>
+                )}
               </div>
             )}
             {panel.kind === "recorded" && isSpa && (
