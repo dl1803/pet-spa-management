@@ -157,6 +157,22 @@ export type StaffUpdateRequest = {
   staffRole: StaffRole;
 };
 
+export type StaffPage = {
+  page: number;
+  pageSize: number;
+  total: number;
+  items: Staff[];
+};
+
+export type StaffCreated = {
+  staffId: string;
+};
+
+export type DeactivateResult = {
+  // Số lịch spa Đã xác nhận có nhân viên đó đã quay về Chờ xác nhận (BR-27); 0 với lễ tân hoặc khi không có lịch nào.
+  returnedToPending: number;
+};
+
 export type PaymentKind = "Spa" | "Stay" | "LateFee";
 export type PaymentStatus = "Unpaid" | "Paid";
 export type PaymentMethod = "Cash" | "BankQR" | "Online";
