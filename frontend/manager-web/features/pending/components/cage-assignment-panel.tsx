@@ -15,6 +15,8 @@ type CageAssignmentPanelProps = {
   choices: CageChoice[];
   selectedCageId: string;
   onSelectedCageIdChange: (cageId: string) => void;
+  // false: chỉ có chuồng hệ thống đề xuất, không có chuồng khác để chọn nên bỏ câu mời chọn chuồng khác.
+  hasAlternatives?: boolean;
 };
 
 // MW-04 vùng 8 – Chuồng (UI-Screens.md). Chuồng đã qua bộ lọc loài, nhóm, giờ trả của thú cưng đang ở (buildCageChoices);
@@ -26,6 +28,7 @@ export function CageAssignmentPanel({
   choices,
   selectedCageId,
   onSelectedCageIdChange,
+  hasAlternatives = true,
 }: CageAssignmentPanelProps) {
   const id = useId();
   const titleId = `${id}-title`;
@@ -35,7 +38,7 @@ export function CageAssignmentPanel({
       <h3 id={titleId} className="mb-2">Chuồng</h3>
       <p className="mb-3 text-xs text-muted">
         Chuồng phù hợp {SPECIES_LABELS[species].toLocaleLowerCase("vi-VN")} nhóm {SIZE_GROUP_LABELS[sizeGroup]}, trống trong cả {nights} đêm.
-        Bạn có thể chọn chuồng khác phù hợp.
+        {hasAlternatives && " Bạn có thể chọn chuồng khác phù hợp."}
       </p>
       <div role="radiogroup" aria-labelledby={titleId} className="grid grid-cols-2 gap-2.5 max-[640px]:grid-cols-1">
         {choices.map((choice) => (
