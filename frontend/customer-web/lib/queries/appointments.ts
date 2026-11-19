@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { skipToken, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createSpaAppointment, getAppointment, listAppointments } from "@/lib/api/endpoints/appointments";
 import type { Appointment, AppointmentStatus, SpaBookingRequest } from "@/lib/api/types";
 import { mockCancelAppointment } from "@/lib/mock-appointments";
@@ -41,11 +41,12 @@ export function useAppointments(filter: AppointmentListFilter = {}) {
   });
 }
 
-// GET /appointments/{appointmentId}.
-export function useAppointment(appointmentId: string) {
+// GET /appointments/{appointmentId}. appointmentId là null thì không tải (dùng cho thẻ lịch không cần chi tiết).
+export function useAppointment(appointmentId: string | null) {
+  const id = appointmentId;
   return useQuery({
-    queryKey: appointmentKeys.detail(appointmentId),
-    queryFn: () => getAppointment(appointmentId),
+    queryKey: appointmentKeys.detail(id ?? ""),
+    queryFn: id === null ? skipToken : () => getAppointment(id),
   });
 }
 
