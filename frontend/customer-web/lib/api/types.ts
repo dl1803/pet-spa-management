@@ -190,6 +190,13 @@ export type AppointmentDetail = Appointment & {
   staff?: AppointmentStaffItem[];
 };
 
+export type AppointmentPage = {
+  items: Appointment[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
 // staffIds, cageId, confirmOutOfShift chỉ dành cho quản lý nên không khai báo ở web khách hàng.
 export type UpdateAppointmentRequest = {
   petId?: string;

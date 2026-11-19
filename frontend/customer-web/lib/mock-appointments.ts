@@ -3,13 +3,12 @@ import type { AppointmentDetail, StatusResult } from "@/lib/api/types";
 import { CHANGE_WINDOW_CLOSED_MESSAGE, canSelfChangeOrCancel } from "@/lib/appointments";
 import { MOCK_APPOINTMENTS } from "@/lib/mock-data";
 
-// Dữ liệu giả cho chi tiết, hủy và đổi lịch hẹn, đóng vai server.
-// Chờ nối API thật: GET /appointments/{appointmentId}, POST /appointments/{appointmentId}/cancel, PUT /appointments/{appointmentId}.
+// Dữ liệu giả cho hủy và đổi lịch hẹn, đóng vai server.
+// Chờ nối API thật: POST /appointments/{appointmentId}/cancel, PUT /appointments/{appointmentId}.
 // Lịch hẹn giữ trong bộ nhớ trình duyệt; tải lại trang thì trở về dữ liệu ban đầu.
 //
-// Mở chi tiết:
-//   FOREIGN_APPOINTMENT_ID -> 403 FORBIDDEN · mã không tồn tại -> 404 NOT_FOUND.
 // Hủy hoặc đổi lịch:
+//   FOREIGN_APPOINTMENT_ID -> 403 FORBIDDEN · mã không tồn tại -> 404 NOT_FOUND.
 //   WINDOW_CLOSED_APPOINTMENT_ID -> 409 CHANGE_WINDOW_CLOSED (mô phỏng quá thời hạn tự đổi/hủy, không gắn với số giờ cụ thể)
 //   Lịch không ở Chờ xác nhận / Đã xác nhận -> 409 INVALID_TRANSITION.
 //   Lịch còn lại -> thành công: hủy thì sang Đã hủy; đổi thì về Chờ xác nhận và bỏ phân công.
@@ -80,14 +79,6 @@ function invalidTransition() {
     title: "Trạng thái không hợp lệ",
     detail: "Lịch hẹn đã thay đổi trạng thái, vui lòng tải lại trang.",
   });
-}
-
-export async function mockGetAppointment(appointmentId: string): Promise<AppointmentDetail> {
-  await wait();
-  if (appointmentId === FOREIGN_APPOINTMENT_ID) throw forbidden();
-  const appointment = appointments.find((item) => item.appointmentId === appointmentId);
-  if (!appointment) throw notFound();
-  return { ...appointment };
 }
 
 export function getMockAppointmentForChange(appointmentId: string): AppointmentDetail {

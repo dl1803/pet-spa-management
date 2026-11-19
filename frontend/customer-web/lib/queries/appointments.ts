@@ -1,20 +1,51 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createSpaAppointment } from "@/lib/api/endpoints/appointments";
-import type { SpaBookingRequest } from "@/lib/api/types";
-import { mockCancelAppointment, mockGetAppointment } from "@/lib/mock-appointments";
+import { createSpaAppointment, getAppointment, listAppointments } from "@/lib/api/endpoints/appointments";
+import type { Appointment, AppointmentStatus, SpaBookingRequest } from "@/lib/api/types";
+import { mockCancelAppointment } from "@/lib/mock-appointments";
 import { spaSlotKeys } from "@/lib/queries/spa-slots";
+
+// pageSize lớn nhất backend nhận (ListAppointmentsQueryValidator: 1 đến 100).
+const APPOINTMENTS_FETCH_PAGE_SIZE = 100;
+
+export type AppointmentListFilter = {
+  status?: AppointmentStatus;
+  petId?: string;
+};
 
 export const appointmentKeys = {
   all: ["appointments"] as const,
+  list: (filter: AppointmentListFilter) => ["appointments", "list", filter] as const,
   detail: (appointmentId: string) => ["appointments", "detail", appointmentId] as const,
   payments: (appointmentId: string) => ["appointments", "detail", appointmentId, "payments"] as const,
 };
 
-// Chờ nối API thật: getAppointment (GET /appointments/{appointmentId}).
+// Tải lần lượt mọi trang rồi gộp. Gộp theo appointmentId để lịch mới tạo giữa hai lần tải không làm trùng dòng.
+async function fetchAllAppointments(filter: AppointmentListFilter): Promise<Appointment[]> {
+  const byId = new Map<string, Appointment>();
+  for (let page = 1; ; page += 1) {
+    const result = await listAppointments({ ...filter, page, pageSize: APPOINTMENTS_FETCH_PAGE_SIZE });
+    for (const item of result.items) {
+      byId.set(item.appointmentId, item);
+    }
+    if (result.items.length === 0 || page * APPOINTMENTS_FETCH_PAGE_SIZE >= result.total) break;
+  }
+  return [...byId.values()];
+}
+
+// GET /appointments. Tải đủ các trang để lọc theo nhóm trạng thái, sắp xếp theo giờ hẹn và chia trang ở web
+// (UI-Screens G-06: API chỉ lọc một status mỗi lần và sắp theo ngày tạo).
+export function useAppointments(filter: AppointmentListFilter = {}) {
+  return useQuery({
+    queryKey: appointmentKeys.list(filter),
+    queryFn: () => fetchAllAppointments(filter),
+  });
+}
+
+// GET /appointments/{appointmentId}.
 export function useAppointment(appointmentId: string) {
   return useQuery({
     queryKey: appointmentKeys.detail(appointmentId),
-    queryFn: () => mockGetAppointment(appointmentId),
+    queryFn: () => getAppointment(appointmentId),
   });
 }
 
