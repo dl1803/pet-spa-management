@@ -35,18 +35,28 @@ public sealed class BookingService(
     ShopTimeZone shopTimeZone)
 {
     public async Task<SpaSelection> ResolveSpaSelectionAsync(
-        CurrentUser user, Guid petId, IReadOnlyCollection<Guid> serviceIds, CancellationToken ct = default)
+        CurrentUser user,
+        Guid petId,
+        IReadOnlyCollection<Guid> serviceIds,
+        CancellationToken ct = default,
+        Guid? managedCustomerId = null)
     {
         var requestedIds = serviceIds.Distinct().ToList();
         if (requestedIds.Count == 0)
             throw new BusinessException(ErrorCodes.ValidationError, "Phải chọn ít nhất một dịch vụ.");
 
-        var isCustomer = await IsCustomerActorAsync(user, ct);
+        if (managedCustomerId is not null && user.Role != UserRole.Manager)
+            throw new BusinessException(ErrorCodes.Forbidden);
+
+        var isCustomer = managedCustomerId is null && await IsCustomerActorAsync(user, ct);
 
         var found = await pets.FindWithOwnerAsync(petId, ct)
             ?? throw new BusinessException(ErrorCodes.NotFound);
 
         if (isCustomer) OwnershipGuard.EnsureOwner(user, found.OwnerUserId);
+
+        if (managedCustomerId is { } customerId && found.Pet.CustomerId != customerId)
+            throw new BusinessException(ErrorCodes.ValidationError, "Thú cưng không thuộc khách hàng của lịch hẹn.");
 
         if (!found.Pet.IsActive) throw new BusinessException(ErrorCodes.NotFound);
 

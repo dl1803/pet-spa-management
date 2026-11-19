@@ -77,6 +77,13 @@ public sealed class AppointmentChangeRepository(AppDbContext db) : IAppointmentC
         await db.SaveChangesAsync(ct);
     }
 
+    public async Task<IReadOnlyList<Guid>> ListHoldingStaffIdsAsync(Guid appointmentId, CancellationToken ct = default) =>
+        await db.Set<AppointmentStaff>().AsNoTracking()
+            .Where(s => s.AppointmentId == appointmentId && s.IsHolding)
+            .OrderBy(s => s.StaffId)
+            .Select(s => s.StaffId)
+            .ToListAsync(ct);
+
     public async Task SaveCancellationAsync(Appointment appointment, CancellationToken ct = default)
     {
         EnsureTracked(appointment);

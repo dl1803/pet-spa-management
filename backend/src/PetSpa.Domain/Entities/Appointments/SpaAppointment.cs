@@ -33,6 +33,49 @@ public class SpaAppointment : Appointment
         StaffRequired = staffRequired;
     }
 
+    public void RescheduleByManager(
+        Guid petId,
+        SizeGroup sizeGroup,
+        DateTimeOffset slotStart,
+        DateTimeOffset slotEnd,
+        DateTimeOffset busyUntil,
+        short staffRequired)
+    {
+        BeginManagerChange();
+
+        PetId = petId;
+        SizeGroup = sizeGroup;
+        SlotStart = slotStart;
+        SlotEnd = slotEnd;
+        BusyUntil = busyUntil;
+        StaffRequired = staffRequired;
+    }
+
+    public IReadOnlyList<AppointmentStaff> ReassignStaff(IReadOnlyCollection<Guid> staffIds)
+    {
+        if (Status != AppointmentStatus.Confirmed)
+            throw new BusinessException(ErrorCodes.InvalidTransition);
+
+        var distinctIds = staffIds.Distinct().ToList();
+        if (distinctIds.Count != StaffRequired)
+            throw new BusinessException(ErrorCodes.StaffCountMismatch);
+
+        var now = DateTimeOffset.UtcNow;
+        UpdatedAt = now;
+
+        return distinctIds
+            .Select(staffId => new AppointmentStaff
+            {
+                AppointmentId = AppointmentId,
+                StaffId = staffId,
+                BusyFrom = SlotStart,
+                BusyUntil = BusyUntil,
+                IsHolding = true,
+                AssignedAt = now,
+            })
+            .ToList();
+    }
+
     public IReadOnlyList<AppointmentStaff> AssignStaff(IReadOnlyCollection<Guid>? staffIds)
     {
         if (staffIds is null || staffIds.Count == 0)

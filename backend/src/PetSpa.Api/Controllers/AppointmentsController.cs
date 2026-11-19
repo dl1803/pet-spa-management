@@ -19,7 +19,8 @@ public sealed class AppointmentsController(
     AssignmentService assignmentService = null!,
     HotelBookingService hotelBookingService = null!,
     AppointmentChangeService appointmentChangeService = null!,
-    HotelAssignmentService hotelAssignmentService = null!) : ControllerBase
+    HotelAssignmentService hotelAssignmentService = null!,
+    AppointmentInterventionService appointmentInterventionService = null!) : ControllerBase
 {
     [HttpPost("spa")]
     [Authorize(Policy = AuthorizationPolicies.CustomerOrReceptionist)]
@@ -175,13 +176,32 @@ public sealed class AppointmentsController(
     }
 
     [HttpPut("{id}")]
-    [Authorize(Policy = AuthorizationPolicies.Customer)]
-    [EndpointSummary("Khách hàng đổi lịch hẹn của mình trong hạn tự đổi")]
-    [EndpointDescription("Chỉ khách hàng sở hữu lịch hẹn. Lịch spa gửi petId, slotStart, serviceIds; lịch lưu trú gửi petId, plannedCheckIn, plannedCheckOut; trường của loại lịch khác không được dùng; staffIds, cageId, confirmOutOfShift bị bỏ qua. Đổi thành công trả status = Pending: lịch Đã xác nhận quay về Chờ xác nhận, phân công nhân viên hoặc chuồng bị bỏ để quản lý duyệt lại. Quá hạn tự đổi nhận 409 CHANGE_WINDOW_CLOSED; mốc giờ đã kín nhận 409 SLOT_FULL; hết chuồng nhận 409 NO_CAPACITY; lịch không còn ở Chờ xác nhận hoặc Đã xác nhận nhận 409 INVALID_TRANSITION; thiếu trường bắt buộc của loại lịch hoặc slotStart không đúng mốc giờ đặt lịch nhận 400 VALIDATION_ERROR; lịch hoặc thú cưng của khách khác nhận 403 FORBIDDEN; không tìm thấy nhận 404 NOT_FOUND.")]
+    [Authorize(Policy = AuthorizationPolicies.CustomerOrManager)]
+    [EndpointSummary("Khách hàng đổi lịch hẹn của mình trong hạn tự đổi; quản lý đổi lịch hẹn khi can thiệp")]
+    [EndpointDescription("Khách hàng: chỉ lịch hẹn của mình. Lịch spa gửi petId, slotStart, serviceIds; lịch lưu trú gửi petId, plannedCheckIn, plannedCheckOut; trường của loại lịch khác không được dùng; staffIds, cageId, confirmOutOfShift bị bỏ qua. Đổi thành công trả status = Pending: lịch Đã xác nhận quay về Chờ xác nhận, phân công nhân viên hoặc chuồng bị bỏ để quản lý duyệt lại. Quá hạn tự đổi nhận 409 CHANGE_WINDOW_CLOSED; mốc giờ đã kín nhận 409 SLOT_FULL; hết chuồng nhận 409 NO_CAPACITY; lịch không còn ở Chờ xác nhận hoặc Đã xác nhận nhận 409 INVALID_TRANSITION; thiếu trường bắt buộc của loại lịch hoặc slotStart không đúng mốc giờ đặt lịch nhận 400 VALIDATION_ERROR; lịch hoặc thú cưng của khách khác nhận 403 FORBIDDEN; không tìm thấy nhận 404 NOT_FOUND. Quản lý: đổi lịch Chờ xác nhận hoặc Đã xác nhận của bất kỳ khách nào, không bị giới hạn hạn tự đổi, trạng thái được giữ nguyên; thú cưng mới phải thuộc khách của lịch. Lịch spa Đã xác nhận có thể gửi staffIds (đủ số nhân viên cần) và confirmOutOfShift, nếu không gửi thì giữ nhân viên hiện tại; lịch lưu trú Đã xác nhận có thể gửi cageId, nếu không gửi thì giữ chuồng hiện tại. Nhân viên trùng giờ nhận 409 STAFF_CONFLICT; nhân viên ngoài ca mà chưa xác nhận lại nhận 409 STAFF_OUT_OF_SHIFT; sai số nhân viên nhận 409 STAFF_COUNT_MISMATCH; chuồng không phù hợp hoặc trùng đêm nhận 409 CAGE_CONFLICT; gửi staffIds hoặc cageId cho lịch Chờ xác nhận nhận 400 VALIDATION_ERROR.")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateAppointmentRequest? request, CancellationToken ct)
     {
         if (request is null)
             throw new BusinessException(ErrorCodes.ValidationError, "Dữ liệu yêu cầu không được để trống.");
+
+        var user = User.ToCurrentUser();
+
+        if (user.Role == UserRole.Manager)
+        {
+            var managerChange = new ManagerAppointmentChange(
+                request.PetId!.Value,
+                request.SlotStart,
+                request.ServiceIds,
+                request.PlannedCheckIn,
+                request.PlannedCheckOut,
+                request.StaffIds,
+                request.CageId,
+                request.ConfirmOutOfShift);
+
+            var managerStatus = await appointmentInterventionService.RescheduleAsync(user, id, managerChange, ct);
+
+            return Ok(new AppointmentStatusResponse(managerStatus));
+        }
 
         var change = new AppointmentChange(
             request.PetId!.Value,
@@ -190,7 +210,7 @@ public sealed class AppointmentsController(
             request.PlannedCheckIn,
             request.PlannedCheckOut);
 
-        var status = await appointmentChangeService.ChangeAsync(User.ToCurrentUser(), id, change, ct);
+        var status = await appointmentChangeService.ChangeAsync(user, id, change, ct);
 
         return Ok(new AppointmentStatusResponse(status));
     }

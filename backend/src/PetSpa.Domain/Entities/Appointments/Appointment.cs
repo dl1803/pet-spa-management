@@ -34,6 +34,12 @@ public abstract class Appointment
             throw new BusinessException(ErrorCodes.InvalidTransition);
     }
 
+    public void EnsureChangeableByManager()
+    {
+        if (Status is not (AppointmentStatus.Pending or AppointmentStatus.Confirmed))
+            throw new BusinessException(ErrorCodes.InvalidTransition);
+    }
+
     public void Confirm() => MoveTo(AppointmentStatus.Confirmed);
 
     public virtual void ReturnToPending() => MoveTo(AppointmentStatus.Pending);
@@ -63,6 +69,12 @@ public abstract class Appointment
 
         if (Status == AppointmentStatus.Confirmed) ReturnToPending();
         else UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    protected void BeginManagerChange()
+    {
+        EnsureChangeableByManager();
+        UpdatedAt = DateTimeOffset.UtcNow;
     }
 
     protected void MoveTo(AppointmentStatus next)

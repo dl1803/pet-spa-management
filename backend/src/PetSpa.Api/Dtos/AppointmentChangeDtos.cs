@@ -7,6 +7,11 @@ public sealed record UpdateAppointmentRequest(
     DateTimeOffset? SlotStart,
     List<Guid>? ServiceIds,
     DateTimeOffset? PlannedCheckIn,
-    DateTimeOffset? PlannedCheckOut);
+    DateTimeOffset? PlannedCheckOut,
+    List<Guid>? StaffIds = null,
+    Guid? CageId = null,
+    bool ConfirmOutOfShift = false);
 
 public sealed record AppointmentStatusResponse(AppointmentStatus Status);
+
+public sealed record CancelAppointmentRequest(CancelReason? Reason);

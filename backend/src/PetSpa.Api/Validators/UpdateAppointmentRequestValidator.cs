@@ -24,5 +24,16 @@ public sealed class UpdateAppointmentRequestValidator : AbstractValidator<Update
         RuleFor(x => x.PlannedCheckIn)
             .Must(d => d is null || d.Value > DateTimeOffset.UtcNow)
             .WithMessage("Không thể đặt lịch ở thời điểm trong quá khứ.");
+
+        RuleFor(x => x.StaffIds)
+            .Must(ids => ids is null || ids.Count is >= 1 and <= 2)
+            .WithMessage("staffIds phải gồm từ 1 đến 2 mã nhân viên.")
+            .Must(ids => ids is null || ids.All(id => id != Guid.Empty))
+            .WithMessage("staffIds chứa mã nhân viên không hợp lệ.");
+
+        RuleFor(x => x.CageId)
+            .NotEqual(Guid.Empty)
+            .When(x => x.CageId.HasValue)
+            .WithMessage("cageId không hợp lệ.");
     }
 }

@@ -11,7 +11,11 @@ public sealed record HotelStayForAssignment(
     DateTimeOffset PlannedCheckIn,
     DateTimeOffset PlannedCheckOut);
 
-public sealed record CageStayWindow(Guid CageId, DateTimeOffset PlannedCheckIn, DateTimeOffset PlannedCheckOut);
+public sealed record CageStayWindow(
+    Guid CageId,
+    DateTimeOffset PlannedCheckIn,
+    DateTimeOffset PlannedCheckOut,
+    Guid? AppointmentId = null);
 
 public sealed record HotelAppointmentForAssignment(HotelAppointment Appointment, Species Species);
 
