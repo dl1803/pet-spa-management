@@ -7,6 +7,7 @@ import { spaSlotKeys } from "@/lib/queries/spa-slots";
 export const appointmentKeys = {
   all: ["appointments"] as const,
   detail: (appointmentId: string) => ["appointments", "detail", appointmentId] as const,
+  payments: (appointmentId: string) => ["appointments", "detail", appointmentId, "payments"] as const,
 };
 
 // Chờ nối API thật: getAppointment (GET /appointments/{appointmentId}).

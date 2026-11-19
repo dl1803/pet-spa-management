@@ -214,6 +214,17 @@ export type Payment = {
   paidAt?: string | null;
 };
 
+export type Gateway = "VNPAY" | "MoMo";
+
+export type OnlinePaymentRequest = {
+  gateway: Gateway;
+};
+
+export type OnlinePaymentCreated = {
+  paymentUrl: string;
+  txnRef: string;
+};
+
 export type NotificationType =
   | "BookingReceived"
   | "ConfirmedAssigned"

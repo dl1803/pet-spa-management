@@ -19,6 +19,10 @@ export const ROUTES = {
 export const WINDOW_CLOSED_PARAM = "window";
 export const WINDOW_CLOSED_VALUE = "closed";
 
+// Tham số báo vừa quay về từ cổng thanh toán: chi tiết lịch hẹn đọc kết quả thanh toán khi có tham số này.
+export const PAYMENT_RETURN_PARAM = "payment";
+export const PAYMENT_RETURN_VALUE = "return";
+
 // Tham số báo phiên đã hết hạn: màn đăng nhập hiện thông báo khi có tham số này.
 export const SESSION_EXPIRED_PARAM = "session";
 export const SESSION_EXPIRED_VALUE = "expired";
