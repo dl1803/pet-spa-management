@@ -16,5 +16,5 @@ export type PaymentResultState = "checking" | "success" | "failed";
 // Kết quả do khoản thanh toán server trả về quyết định; chỉ coi là chưa thành công khi đã hỏi đủ số lần mà vẫn Chưa thanh toán.
 export function getPaymentResultState(payment: Payment | undefined, checkCount: number): PaymentResultState {
   if (payment?.status === "Paid") return "success";
-  return checkCount >= PAYMENT_RESULT_MAX_CHECKS ? "failed" : "checking";
+  return checkCount > PAYMENT_RESULT_MAX_CHECKS ? "failed" : "checking";
 }

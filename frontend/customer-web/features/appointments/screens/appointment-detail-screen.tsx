@@ -21,7 +21,7 @@ import { isChangeWindowClosedError } from "@/lib/appointments";
 import { formatAppointmentCode } from "@/lib/format";
 import { findSpaPayment, getPaymentResultState, ONLINE_PAYMENT_GATEWAY } from "@/lib/payments";
 import { useAppointment, useCancelAppointment } from "@/lib/queries/appointments";
-import { useAppointmentPayments, usePayOnline, usePaymentCheckCount } from "@/lib/queries/payments";
+import { useAppointmentPayments, usePayOnline } from "@/lib/queries/payments";
 import { usePet } from "@/lib/queries/pets";
 import { PAYMENT_RETURN_PARAM, PAYMENT_RETURN_VALUE, ROUTES, WINDOW_CLOSED_PARAM, WINDOW_CLOSED_VALUE } from "@/lib/routes";
 
@@ -64,7 +64,7 @@ export function AppointmentDetailScreen() {
   const isCompletedSpa = appointment?.type === "Spa" && appointment.status === "Completed";
   const isPaymentReturn = searchParams.get(PAYMENT_RETURN_PARAM) === PAYMENT_RETURN_VALUE;
   const payments = useAppointmentPayments(id, { enabled: isCompletedSpa, isPolling: isPaymentReturn });
-  const checkCount = usePaymentCheckCount(id);
+  const checkCount = payments.checkCount;
   const spaPayment = findSpaPayment(payments.data);
 
   // Lỗi khi tải khoản thanh toán thì không kết luận; khối thanh toán tự hiện lỗi và nút Thử lại.

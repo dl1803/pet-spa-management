@@ -13,15 +13,25 @@ type AppointmentPaymentsOptions = {
 
 // Chờ nối API thật: listAppointmentPayments (GET /appointments/{appointmentId}/payments).
 export function useAppointmentPayments(appointmentId: string, { enabled, isPolling }: AppointmentPaymentsOptions) {
-  return useQuery({
-    queryKey: appointmentKeys.payments(appointmentId),
+  const queryClient = useQueryClient();
+  const queryKey = appointmentKeys.payments(appointmentId);
+
+  const query = useQuery({
+    queryKey,
     queryFn: () => mockListAppointmentPayments(appointmentId),
     enabled,
-    refetchInterval: (query) => {
-      if (!isPolling || findSpaPayment(query.state.data)?.status === "Paid") return false;
-      return query.state.dataUpdateCount >= PAYMENT_RESULT_MAX_CHECKS ? false : PAYMENT_RESULT_INTERVAL_MS;
+    refetchInterval: (q) => {
+      if (!isPolling || findSpaPayment(q.state.data)?.status === "Paid") return false;
+      return q.state.dataUpdateCount > PAYMENT_RESULT_MAX_CHECKS ? false : PAYMENT_RESULT_INTERVAL_MS;
     },
   });
+
+  const checkCount = queryClient.getQueryState(queryKey)?.dataUpdateCount ?? 0;
+
+  return {
+    ...query,
+    checkCount,
+  };
 }
 
 // Số lần đã tải khoản thanh toán thành công; dùng để biết khi nào thôi chờ kết quả của cổng.
