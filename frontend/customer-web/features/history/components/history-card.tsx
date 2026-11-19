@@ -70,7 +70,16 @@ export function HistoryCard({ appointment }: HistoryCardProps) {
             {view.title && <div className="mt-1 font-semibold">{view.title}</div>}
             {detail.isLoading && <Skeleton className="mt-2 h-4 w-48 rounded-[10px]" />}
             {detail.error !== null && (
-              <div className="mt-1 text-xs leading-5 text-muted">{getErrorMessage(detail.error)}</div>
+              <div className="mt-1 flex items-center gap-2 text-xs leading-5 text-muted">
+                <span>{getErrorMessage(detail.error)}</span>
+                <button
+                  type="button"
+                  onClick={() => void detail.refetch()}
+                  className="font-medium text-foreground underline hover:opacity-80"
+                >
+                  Thử lại
+                </button>
+              </div>
             )}
             {view.note && <div className="mt-1 text-xs leading-5 text-muted">{view.note}</div>}
           </div>

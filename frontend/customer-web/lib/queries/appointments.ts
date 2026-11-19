@@ -41,12 +41,12 @@ export function useAppointments(filter: AppointmentListFilter = {}) {
   });
 }
 
-// GET /appointments/{appointmentId}. appointmentId là null thì không tải (dùng cho thẻ lịch không cần chi tiết).
-export function useAppointment(appointmentId: string | null) {
-  const id = appointmentId;
+// GET /appointments/{appointmentId}. appointmentId là null, undefined hoặc rỗng thì không tải (dùng cho thẻ lịch không cần chi tiết).
+export function useAppointment(appointmentId: string | null | undefined) {
+  const isValidId = typeof appointmentId === "string" && appointmentId.trim().length > 0;
   return useQuery({
-    queryKey: appointmentKeys.detail(id ?? ""),
-    queryFn: id === null ? skipToken : () => getAppointment(id),
+    queryKey: appointmentKeys.detail(appointmentId ?? ""),
+    queryFn: isValidId ? () => getAppointment(appointmentId) : skipToken,
   });
 }
 
