@@ -4037,7 +4037,7 @@ var tests = new (string Name, Func<Task> Run)[]
 
         return Task.CompletedTask;
     }),
-    ("AppointmentsController.Update rejects a null request and is a PUT restricted to the Customer policy", async () =>
+    ("AppointmentsController.Update rejects a null request and is a PUT restricted to the CustomerOrManager policy", async () =>
     {
         var controller = new AppointmentsController(null!);
         Check(await FailureCodeAsync(() => controller.Update(Guid.NewGuid(), null, CancellationToken.None)) == ErrorCodes.ValidationError,
@@ -4049,11 +4049,113 @@ var tests = new (string Name, Func<Task> Run)[]
             .OfType<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>().FirstOrDefault();
 
         Check(put?.Template == "{id}", "Update must be bound to PUT {id}.");
-        Check(authorize?.Policy == AuthorizationPolicies.Customer, "Update must require the Customer policy.");
-        Check(typeof(UpdateAppointmentRequest).GetProperty("StaffIds") is null
-              && typeof(UpdateAppointmentRequest).GetProperty("CageId") is null
-              && typeof(UpdateAppointmentRequest).GetProperty("Status") is null,
-            "The customer request must not carry staff, cage or status fields.");
+        Check(authorize?.Policy == AuthorizationPolicies.CustomerOrManager, "Update must require the CustomerOrManager policy.");
+        Check(typeof(UpdateAppointmentRequest).GetProperty("Status") is null
+              && typeof(UpdateAppointmentRequest).GetProperty("Amount") is null
+              && typeof(UpdateAppointmentRequest).GetProperty("StaffIds") is not null
+              && typeof(UpdateAppointmentRequest).GetProperty("CageId") is not null
+              && typeof(UpdateAppointmentRequest).GetProperty("ConfirmOutOfShift") is not null,
+            "The request must carry the manager fields but never a status or an amount.");
+    }),
+    ("AppointmentsController.Update lets a manager reschedule through the intervention service and returns only the status", async () =>
+    {
+        var appointment = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var fixture = new InterventionFixture(appointment, holdsStaff: true);
+        var controller = new AppointmentsController(null!, appointmentInterventionService: fixture.Intervention)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [
+                        new Claim(TokenClaims.UserId, Guid.NewGuid().ToString()),
+                        new Claim(TokenClaims.Role, "Manager"),
+                    ], "test")),
+                },
+            },
+        };
+
+        var ok = await controller.Update(
+            appointment.AppointmentId,
+            new UpdateAppointmentRequest(fixture.Pet.PetId, fixture.NewSlot, [fixture.ServiceId], null, null),
+            CancellationToken.None) as OkObjectResult;
+
+        Check(ok?.Value is AppointmentStatusResponse { Status: AppointmentStatus.Confirmed },
+            "Update must return 200 with Confirmed status.");
+        Check(appointment.SlotStart == fixture.NewSlot, "The new slot must be applied.");
+
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+        Check(JsonSerializer.Serialize(ok!.Value, options) == "{\"status\":\"Confirmed\"}",
+            "The response body must contain only the status.");
+    }),
+    ("AppointmentsController.Update keeps the customer path unchanged and ignores manager fields", async () =>
+    {
+        var appointment = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var fixture = new ChangeFixture(appointment);
+        var controller = new AppointmentsController(null!, appointmentChangeService: fixture.ChangeService)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [
+                        new Claim(TokenClaims.UserId, fixture.OwnerUserId.ToString()),
+                        new Claim(TokenClaims.Role, "Customer"),
+                    ], "test")),
+                },
+            },
+        };
+
+        var request = new UpdateAppointmentRequest(
+            fixture.Pet.PetId,
+            fixture.NewSlot,
+            [fixture.ServiceId],
+            null,
+            null,
+            StaffIds: [Guid.NewGuid()],
+            CageId: Guid.NewGuid(),
+            ConfirmOutOfShift: true);
+
+        var ok = await controller.Update(appointment.AppointmentId, request, CancellationToken.None) as OkObjectResult;
+
+        Check(ok?.Value is AppointmentStatusResponse { Status: AppointmentStatus.Pending },
+            "Customer update must return Pending.");
+        Check(fixture.Changes.SavedSpaServiceIds.Count == 1, "The customer change service must be called.");
+    }),
+    ("UpdateAppointmentRequestValidator validates the manager fields", () =>
+    {
+        var validator = new UpdateAppointmentRequestValidator();
+        var future = DateTimeOffset.UtcNow.AddDays(2);
+        var validStaff1 = Guid.NewGuid();
+        var validStaff2 = Guid.NewGuid();
+        var validCage = Guid.NewGuid();
+
+        var validResult1 = validator.Validate(new UpdateAppointmentRequest(Guid.NewGuid(), future, [Guid.NewGuid()], null, null, StaffIds: [validStaff1], CageId: validCage));
+        Check(validResult1.IsValid, "Single staffId and valid cageId must be valid.");
+
+        var validResult2 = validator.Validate(new UpdateAppointmentRequest(Guid.NewGuid(), future, [Guid.NewGuid()], null, null, StaffIds: [validStaff1, validStaff2], CageId: validCage));
+        Check(validResult2.IsValid, "Two staffIds and valid cageId must be valid.");
+
+        var emptyStaffResult = validator.Validate(new UpdateAppointmentRequest(Guid.NewGuid(), future, [Guid.NewGuid()], null, null, StaffIds: []));
+        Check(!emptyStaffResult.IsValid && emptyStaffResult.Errors.Any(e => e.PropertyName == "StaffIds"),
+            "Empty staffIds must fail validation on StaffIds.");
+
+        var threeStaffResult = validator.Validate(new UpdateAppointmentRequest(Guid.NewGuid(), future, [Guid.NewGuid()], null, null, StaffIds: [validStaff1, validStaff2, Guid.NewGuid()]));
+        Check(!threeStaffResult.IsValid && threeStaffResult.Errors.Any(e => e.PropertyName == "StaffIds"),
+            "Three staffIds must fail validation on StaffIds.");
+
+        var emptyGuidStaffResult = validator.Validate(new UpdateAppointmentRequest(Guid.NewGuid(), future, [Guid.NewGuid()], null, null, StaffIds: [Guid.Empty]));
+        Check(!emptyGuidStaffResult.IsValid && emptyGuidStaffResult.Errors.Any(e => e.PropertyName == "StaffIds"),
+            "Guid.Empty in staffIds must fail validation on StaffIds.");
+
+        var emptyGuidCageResult = validator.Validate(new UpdateAppointmentRequest(Guid.NewGuid(), future, [Guid.NewGuid()], null, null, CageId: Guid.Empty));
+        Check(!emptyGuidCageResult.IsValid && emptyGuidCageResult.Errors.Any(e => e.PropertyName == "CageId"),
+            "Guid.Empty in cageId must fail validation on CageId.");
+
+        return Task.CompletedTask;
     }),
     ("AppointmentChangeService.ResolveCancelTargetAsync returns the appointment of its owner without checking status or window", async () =>
     {
