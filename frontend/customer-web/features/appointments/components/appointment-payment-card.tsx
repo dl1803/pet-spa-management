@@ -14,6 +14,7 @@ type AppointmentPaymentCardProps = {
   isLoading: boolean;
   error: unknown;
   isRetrying: boolean;
+  isOnlineActionHidden: boolean;
   onRetry: () => void;
   onPayOnline: () => void;
 };
@@ -48,6 +49,7 @@ export function AppointmentPaymentCard({
   isLoading,
   error,
   isRetrying,
+  isOnlineActionHidden,
   onRetry,
   onPayOnline,
 }: AppointmentPaymentCardProps) {
@@ -89,12 +91,14 @@ export function AppointmentPaymentCard({
           </dl>
         ) : (
           <>
-            <div className="mt-4">
-              <Button block onClick={onPayOnline}>
-                <Icon name="wallet" className="size-4" />
-                Thanh toán trực tuyến
-              </Button>
-            </div>
+            {!isOnlineActionHidden && (
+              <div className="mt-4">
+                <Button block onClick={onPayOnline}>
+                  <Icon name="wallet" className="size-4" />
+                  Thanh toán trực tuyến
+                </Button>
+              </div>
+            )}
             <p className="mt-3 text-xs text-muted">Hoặc thanh toán tại quầy (tiền mặt, chuyển khoản QR) khi đón bé.</p>
           </>
         )}

@@ -15,14 +15,15 @@ import { AppointmentPaymentCard } from "@/features/appointments/components/appoi
 import { CancelAppointmentDialog } from "@/features/appointments/components/cancel-appointment-dialog";
 import { ChangeCancelBlock } from "@/features/appointments/components/change-cancel-block";
 import { OnlinePaymentDialog } from "@/features/appointments/components/online-payment-dialog";
+import { PaymentResultAlert } from "@/features/appointments/components/payment-result-alert";
 import type { Payment } from "@/lib/api/types";
 import { isChangeWindowClosedError } from "@/lib/appointments";
 import { formatAppointmentCode } from "@/lib/format";
-import { findSpaPayment, ONLINE_PAYMENT_GATEWAY } from "@/lib/payments";
+import { findSpaPayment, getPaymentResultState, ONLINE_PAYMENT_GATEWAY } from "@/lib/payments";
 import { useAppointment, useCancelAppointment } from "@/lib/queries/appointments";
-import { useAppointmentPayments, usePayOnline } from "@/lib/queries/payments";
+import { useAppointmentPayments, usePayOnline, usePaymentCheckCount } from "@/lib/queries/payments";
 import { usePet } from "@/lib/queries/pets";
-import { ROUTES, WINDOW_CLOSED_PARAM, WINDOW_CLOSED_VALUE } from "@/lib/routes";
+import { PAYMENT_RETURN_PARAM, PAYMENT_RETURN_VALUE, ROUTES, WINDOW_CLOSED_PARAM, WINDOW_CLOSED_VALUE } from "@/lib/routes";
 
 function AppointmentDetailSkeleton() {
   return (
@@ -61,8 +62,14 @@ export function AppointmentDetailScreen() {
   const cancel = useCancelAppointment();
 
   const isCompletedSpa = appointment?.type === "Spa" && appointment.status === "Completed";
-  const payments = useAppointmentPayments(id, { enabled: isCompletedSpa, isPolling: false });
+  const isPaymentReturn = searchParams.get(PAYMENT_RETURN_PARAM) === PAYMENT_RETURN_VALUE;
+  const payments = useAppointmentPayments(id, { enabled: isCompletedSpa, isPolling: isPaymentReturn });
+  const checkCount = usePaymentCheckCount(id);
   const spaPayment = findSpaPayment(payments.data);
+
+  // Lỗi khi tải khoản thanh toán thì không kết luận; khối thanh toán tự hiện lỗi và nút Thử lại.
+  const resultState =
+    isCompletedSpa && isPaymentReturn && payments.error === null ? getPaymentResultState(spaPayment, checkCount) : null;
   const payOnline = usePayOnline(id);
 
   const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
@@ -139,6 +146,9 @@ export function AppointmentDetailScreen() {
   } else {
     content = (
       <div className="flex flex-col gap-4">
+        {resultState !== null && (
+          <PaymentResultAlert state={resultState} payment={spaPayment} onRetry={openPaymentDialog} />
+        )}
         <AppointmentDetailHeader appointment={appointment} petName={petName} species={pet?.species ?? null} />
         {isCompletedSpa && (
           <AppointmentPaymentCard
@@ -146,6 +156,7 @@ export function AppointmentDetailScreen() {
             isLoading={payments.isPending}
             error={payments.error}
             isRetrying={payments.isFetching}
+            isOnlineActionHidden={resultState !== null}
             onRetry={() => void payments.refetch()}
             onPayOnline={openPaymentDialog}
           />

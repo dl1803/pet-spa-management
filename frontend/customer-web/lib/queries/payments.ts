@@ -24,6 +24,13 @@ export function useAppointmentPayments(appointmentId: string, { enabled, isPolli
   });
 }
 
+// Số lần đã tải khoản thanh toán thành công; dùng để biết khi nào thôi chờ kết quả của cổng.
+// Màn gọi cùng lúc useAppointmentPayments nên được tính lại mỗi lần truy vấn cập nhật.
+export function usePaymentCheckCount(appointmentId: string) {
+  const queryClient = useQueryClient();
+  return queryClient.getQueryState(appointmentKeys.payments(appointmentId))?.dataUpdateCount ?? 0;
+}
+
 export type PayOnlineVariables = {
   // paymentId của khoản thanh toán, không phải appointmentId.
   paymentId: string;

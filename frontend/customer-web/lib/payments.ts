@@ -10,3 +10,11 @@ export const PAYMENT_RESULT_INTERVAL_MS = 2000;
 export function findSpaPayment(payments: Payment[] | undefined): Payment | undefined {
   return payments?.find((payment) => payment.kind === "Spa");
 }
+
+export type PaymentResultState = "checking" | "success" | "failed";
+
+// Kết quả do khoản thanh toán server trả về quyết định; chỉ coi là chưa thành công khi đã hỏi đủ số lần mà vẫn Chưa thanh toán.
+export function getPaymentResultState(payment: Payment | undefined, checkCount: number): PaymentResultState {
+  if (payment?.status === "Paid") return "success";
+  return checkCount >= PAYMENT_RESULT_MAX_CHECKS ? "failed" : "checking";
+}
