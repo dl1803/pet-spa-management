@@ -34,15 +34,15 @@ function getBlockReason(cage: Cage, { sizeGroup, plannedCheckIn }: HotelStay): C
 // - Hiện mờ, không chọn được: khác nhóm kích cỡ; còn thú cưng ở đến sau giờ nhận của lịch này (BR-21).
 // Thứ tự: chuồng đề xuất, chuồng chọn được, chuồng bị khóa.
 // Đây chỉ là gợi ý để Quản lý khỏi chọn nhầm: chuồng không trùng đêm do backend kiểm tra khi xác nhận (CAGE_CONFLICT).
+// Không có chuồng đề xuất (cage = null) thì chỉ còn các chuồng trong `cages`.
 export function buildCageChoices({ cage: suggested }: HotelSuggestions, cages: Cage[], stay: HotelStay): CageChoice[] {
-  const visible = [suggested, ...cages.filter((cage) => cage.cageId !== suggested.cageId)].filter(
-    (cage) => cage.isActive && cage.species === stay.species,
-  );
+  const pool = suggested === null ? cages : [suggested, ...cages.filter((cage) => cage.cageId !== suggested.cageId)];
+  const visible = pool.filter((cage) => cage.isActive && cage.species === stay.species);
   const choices = visible.map((cage): CageChoice => {
     const blockReason = getBlockReason(cage, stay);
     return {
       cage,
-      isSuggested: cage.cageId === suggested.cageId && blockReason === null,
+      isSuggested: suggested !== null && cage.cageId === suggested.cageId && blockReason === null,
       isEligible: blockReason === null,
       blockReason,
     };
@@ -52,6 +52,19 @@ export function buildCageChoices({ cage: suggested }: HotelSuggestions, cages: C
     ...choices.filter((choice) => !choice.isSuggested && choice.isEligible),
     ...choices.filter((choice) => !choice.isEligible),
   ];
+}
+
+// Lựa chọn chuồng của lịch lưu trú thật: chỉ có chuồng backend đề xuất, vì backend chưa có GET /cages (UI-Screens MW-04 vùng 8, G-08)
+// nên chưa có chuồng khác để chọn. Không có chuồng đề xuất thì không có lựa chọn nào.
+export function buildSuggestedCageChoices(
+  suggestions: HotelSuggestions,
+  sizeGroup: SizeGroup,
+  plannedCheckIn: string,
+  plannedCheckOut: string,
+): CageChoice[] {
+  const { cage } = suggestions;
+  if (cage === null) return [];
+  return buildCageChoices(suggestions, [], { species: cage.species, sizeGroup, plannedCheckIn, plannedCheckOut });
 }
 
 // Chọn sẵn chuồng đứng đầu trong các chuồng chọn được (chuồng đề xuất nếu nó chọn được); rỗng nếu không có chuồng nào.

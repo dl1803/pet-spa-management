@@ -117,7 +117,8 @@ export type HotelPricing = {
 };
 
 export type HotelSuggestions = {
-  cage: Cage;
+  // null: không còn chuồng phù hợp trong khoảng ngày lưu trú (backend trả cage = null theo mô tả của getSuggestions; openapi khai báo bắt buộc).
+  cage: Cage | null;
 };
 
 export type ConfirmHotelRequest = {

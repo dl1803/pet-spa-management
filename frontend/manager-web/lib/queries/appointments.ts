@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   confirmAppointment,
+  getHotelSuggestions,
   getSuggestions,
   listAppointments,
   rejectAppointment,
   type ListAppointmentsParams,
 } from "@/lib/api/endpoints/appointments";
-import type { ConfirmSpaRequest } from "@/lib/api/types";
+import type { ConfirmHotelRequest, ConfirmSpaRequest } from "@/lib/api/types";
 
 export const appointmentKeys = {
   all: ["appointments"] as const,
@@ -34,6 +35,14 @@ export function useSpaSuggestions(appointmentId: string) {
   });
 }
 
+// MW-04 vùng 8: đề xuất chuồng của một lịch lưu trú Chờ xác nhận. Cùng khóa với đề xuất spa vì cùng một đường dẫn và một mã lịch chỉ thuộc một loại.
+export function useHotelSuggestions(appointmentId: string) {
+  return useQuery({
+    queryKey: appointmentKeys.suggestions(appointmentId),
+    queryFn: () => getHotelSuggestions(appointmentId),
+  });
+}
+
 // Tải lại danh sách và đề xuất từ server (Frontend-Architecture 5.1: sau xác nhận, từ chối và sau lỗi 409).
 export function useRefreshAppointments() {
   const queryClient = useQueryClient();
@@ -45,7 +54,7 @@ export function useRefreshAppointments() {
 export function useConfirmAppointment() {
   const refreshAppointments = useRefreshAppointments();
   return useMutation({
-    mutationFn: (params: { appointmentId: string; request: ConfirmSpaRequest }) =>
+    mutationFn: (params: { appointmentId: string; request: ConfirmSpaRequest | ConfirmHotelRequest }) =>
       confirmAppointment(params.appointmentId, params.request),
     onSettled: () => {
       void refreshAppointments();
