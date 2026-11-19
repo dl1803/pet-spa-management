@@ -193,6 +193,31 @@ export type CheckInResult = {
   weightCheck?: WeightCheck;
 };
 
+export type CheckOutResult = {
+  status: AppointmentStatus;
+  // Phí phạt trả muộn (VND), nếu có.
+  lateFee?: number;
+};
+
+export type CageOccupant = {
+  petId: string;
+  petName: string;
+  customerId: string;
+  customerName: string;
+  // ISO 8601.
+  plannedCheckOut: string;
+};
+
+export type Cage = {
+  cageId: string;
+  code: string;
+  species: Species;
+  sizeGroup: SizeGroup;
+  isActive: boolean;
+  // null hoặc không có = chuồng trống.
+  occupant?: CageOccupant | null;
+};
+
 export type WeightCheckResponse = {
   weightCheck: WeightCheck;
 };

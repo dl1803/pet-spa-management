@@ -1,17 +1,26 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  COST_PENDING_LOCK_REASON,
+  describeStayFormula,
+  describeStayPaid,
   describeWeightOutcome,
   getCheckInPanel,
+  getHotelCheckInGate,
   getRemainingSeconds,
   isConflictError,
   isCostConfirmationPendingError,
   isNotFoundError,
+  isPaymentNotDueError,
+  NOT_CHECK_IN_STEP_MESSAGE,
+  STAY_UNPAID_LOCK_REASON,
+  WEIGHT_STEP_LOCK_REASON,
 } from "../features/reception-check-in/check-in.ts";
 import { createMockCheckInEntries, MOCK_CHECK_IN_IDS } from "../features/reception-check-in/mock-data.ts";
 import {
   MOCK_WEIGHT_INVALID_TRANSITION,
   MOCK_WEIGHT_NETWORK_ERROR,
+  mockCheckInHotel,
   mockCheckInSpa,
   mockCheckWeight,
   mockGetCheckInData,
@@ -187,5 +196,104 @@ test("mock lỗi: lịch đã tiếp nhận 409, cân nặng đặc biệt cho m
   assert.equal((await rejection(mockCheckInSpa(ids.spaSushi, { actualWeightKg: MOCK_WEIGHT_NETWORK_ERROR }))).kind, "network");
   assert.equal((await rejection(mockCheckInSpa(ids.spaSushi, { actualWeightKg: MOCK_WEIGHT_INVALID_TRANSITION }))).code, "INVALID_TRANSITION");
   assert.ok(isNotFoundError(await rejection(mockGetCheckInData("khong-co"))));
+});
+
+
+test("mock lịch lưu trú: tiền lưu trú = số đêm × (giá + thức ăn) và khớp bảng giá của nhóm kích cỡ", () => {
+  const hotels = createMockCheckInEntries(NOW).filter((entry) => entry.data.appointment.type === "Hotel");
+  assert.deepEqual(hotels.map((entry) => entry.data.pet.name), ["Cốm", "Gấu"]);
+  for (const entry of hotels) {
+    const { appointment, stay } = entry.data;
+    assert.equal(appointment.plannedCheckIn !== undefined && appointment.plannedCheckOut !== undefined, true);
+    for (const [group, rate] of Object.entries(entry.rule.hotelRates)) {
+      assert.equal(2 * (rate.pricePerNight + rate.foodPerNight), entry.rule.prices[group], `${entry.data.pet.name} ${group}`);
+    }
+    assert.equal(stay.payment.kind, "Stay");
+    assert.equal(stay.payment.amount, entry.rule.prices[appointment.sizeGroup]);
+  }
+  const [com, gau] = hotels.map((entry) => entry.data);
+  assert.deepEqual([com.stay.payment.status, com.stay.payment.amount, com.stay.payment.paidAt], ["Unpaid", 250000, null]);
+  assert.deepEqual([gau.stay.payment.status, gau.stay.payment.amount, gau.stay.payment.method], ["Paid", 240000, "Cash"]);
+  assert.equal(gau.cageCode, "A1");
+  assert.equal(createMockCheckInEntries(NOW).filter((entry) => entry.data.appointment.type === "Spa").every((entry) => entry.data.stay === null), true);
+});
+
+test("describeStayFormula và describeStayPaid: công thức theo số đêm, ngày và phương thức đã thu", () => {
+  const entries = createMockCheckInEntries(NOW);
+  const com = entries.find((entry) => entry.data.appointment.appointmentId === ids.hotelCom).data;
+  const gau = entries.find((entry) => entry.data.appointment.appointmentId === ids.hotelGau).data;
+  assert.equal(describeStayFormula(com.appointment, com.stay), "2 đêm × (100.000đ + 25.000đ)");
+  assert.equal(describeStayFormula({ ...com.appointment, plannedCheckOut: undefined }, com.stay), null);
+  assert.equal(describeStayPaid(gau.stay.payment), "08/11, tiền mặt");
+  assert.equal(describeStayPaid({ ...gau.stay.payment, paidAt: null, method: null }), null);
+});
+
+test("getHotelCheckInGate: lý do khóa theo thứ tự cân nặng → chờ khách xác nhận → tiền lưu trú", async () => {
+  resetMockCheckInStore(new Date());
+  assert.deepEqual(getHotelCheckInGate(await mockGetCheckInData(ids.hotelCom)), { ready: false, reason: WEIGHT_STEP_LOCK_REASON });
+  await mockCheckWeight(ids.hotelCom, { actualWeightKg: 1.45 });
+  assert.deepEqual(getHotelCheckInGate(await mockGetCheckInData(ids.hotelCom)), { ready: false, reason: STAY_UNPAID_LOCK_REASON });
+  assert.deepEqual(getHotelCheckInGate(await mockGetCheckInData(ids.hotelGau)), { ready: true });
+
+  resetMockCheckInStore(new Date());
+  await mockCheckWeight(ids.hotelCom, { actualWeightKg: 2.5 });
+  assert.deepEqual(getHotelCheckInGate(await mockGetCheckInData(ids.hotelCom)), { ready: false, reason: COST_PENDING_LOCK_REASON });
+
+  const gau = await mockGetCheckInData(ids.hotelGau);
+  const inStay = { ...gau, appointment: { ...gau.appointment, status: "InStay" } };
+  assert.deepEqual(getHotelCheckInGate(inStay), { ready: false, reason: NOT_CHECK_IN_STEP_MESSAGE });
+});
+
+test("mock tiếp nhận lưu trú: Gấu vào chuồng → Đang lưu trú; thiếu điều kiện thì 409 đúng mã", async () => {
+  resetMockCheckInStore(new Date());
+  const unweighed = await rejection(mockCheckInHotel(ids.hotelCom));
+  assert.equal(unweighed.status, 409);
+  assert.equal(unweighed.code, "INVALID_TRANSITION");
+
+  await mockCheckWeight(ids.hotelCom, { actualWeightKg: 1.45 });
+  const unpaid = await rejection(mockCheckInHotel(ids.hotelCom));
+  assert.ok(isPaymentNotDueError(unpaid));
+  assert.equal(isPaymentNotDueError(unweighed), false);
+  assert.equal(isPaymentNotDueError(new Error("x")), false);
+
+  assert.equal((await rejection(mockCheckInHotel(ids.spaBong))).code, "INVALID_TRANSITION");
+
+  assert.deepEqual(await mockCheckInHotel(ids.hotelGau), { status: "InStay" });
+  const data = await mockGetCheckInData(ids.hotelGau);
+  assert.equal(data.appointment.status, "InStay");
+  assert.equal(getCheckInPanel(data.appointment).kind, "unavailable");
+  assert.ok(isConflictError(await rejection(mockCheckInHotel(ids.hotelGau))));
+  assert.ok(isNotFoundError(await rejection(mockCheckInHotel("khong-co"))));
+});
+
+test("mock tiếp nhận lưu trú: chờ khách xác nhận chi phí thì COST_CONFIRMATION_PENDING", async () => {
+  resetMockCheckInStore(new Date());
+  await mockCheckWeight(ids.hotelCom, { actualWeightKg: 2.5 });
+  assert.ok(isCostConfirmationPendingError(await rejection(mockCheckInHotel(ids.hotelCom))));
+});
+
+test("mock tiền lưu trú theo nhóm kích cỡ: khách đồng ý chi phí mới thì tiền và đơn giá đổi theo nhóm Vừa", async () => {
+  resetMockCheckInStore(new Date());
+  await mockCheckWeight(ids.hotelCom, { actualWeightKg: 2.5 });
+  const pending = await mockGetCheckInData(ids.hotelCom);
+  assert.equal(pending.stay.payment.amount, 250000);
+  await mockRespondCostConfirmation(ids.hotelCom, { accept: true });
+  const data = await mockGetCheckInData(ids.hotelCom);
+  assert.equal(data.appointment.sizeGroup, "Medium");
+  assert.equal(data.stay.payment.amount, 330000);
+  assert.deepEqual(data.stay.rate, { pricePerNight: 120000, foodPerNight: 45000 });
+  assert.equal(describeStayFormula(data.appointment, data.stay), "2 đêm × (120.000đ + 45.000đ)");
+});
+
+test("mock tiền lưu trú: cân nặng giảm xuống nhóm nhỏ hơn thì tiền lưu trú giảm ngay", async () => {
+  resetMockCheckInStore(new Date());
+  await mockCheckWeight(ids.hotelCom, { actualWeightKg: 2.5 });
+  await mockRespondCostConfirmation(ids.hotelCom, { accept: true });
+  const response = await mockCheckWeight(ids.hotelCom, { actualWeightKg: 1 });
+  assert.equal(response.weightCheck.result, "PRICE_DECREASED");
+  const data = await mockGetCheckInData(ids.hotelCom);
+  assert.equal(data.appointment.sizeGroup, "Small");
+  assert.equal(data.stay.payment.amount, 250000);
+  assert.deepEqual(data.stay.rate, { pricePerNight: 100000, foodPerNight: 25000 });
 });
 

@@ -51,7 +51,8 @@ export function ReceptionAppointmentsTable({ rows, dateKey }: { rows: ReceptionA
             const time = getRowTime(appointment, dateKey);
             const event = getHotelEvent(appointment, dateKey);
             const nights = type === "Hotel" && plannedCheckIn && plannedCheckOut ? countNights(plannedCheckIn, plannedCheckOut) : undefined;
-            const canCheckIn = type === "Spa" && status === "Confirmed";
+            const canCheckIn = (type === "Spa" && status === "Confirmed") || (type === "Hotel" && status === "Confirmed" && event === "checkIn");
+            const canCheckOut = type === "Hotel" && status === "InStay" && event === "checkOut";
             return (
               <tr key={appointmentId} className="border-t border-line-soft align-middle hover:bg-[#F8FBFB]">
                 <td className="whitespace-nowrap px-4 py-3 tabular-nums">
@@ -86,6 +87,16 @@ export function ReceptionAppointmentsTable({ rows, dateKey }: { rows: ReceptionA
                       aria-label={`Tiếp nhận ${name}`}
                     >
                       Tiếp nhận
+                    </ButtonLink>
+                  )}
+                  {canCheckOut && (
+                    <ButtonLink
+                      href={withQuery(ROUTES.checkOut, { appointmentId })}
+                      variant="secondary"
+                      size="sm"
+                      aria-label={`Trả thú cưng ${name}`}
+                    >
+                      Trả thú cưng
                     </ButtonLink>
                   )}
                 </td>
