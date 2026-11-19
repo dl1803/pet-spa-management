@@ -19,20 +19,6 @@ export const FOREIGN_APPOINTMENT_ID = "f0000000-0000-4000-8000-0000000000ff";
 export const WINDOW_CLOSED_APPOINTMENT_ID = "6e2b9d84-0000-4000-8000-000000000013";
 
 let appointments: AppointmentDetail[] = MOCK_APPOINTMENTS.map((appointment) => ({ ...appointment }));
-const listeners = new Set<() => void>();
-
-function emitChange() {
-  listeners.forEach((listener) => listener());
-}
-
-// Dành cho useSyncExternalStore ở danh sách lịch hẹn. Mảng chỉ được thay bằng mảng mới, không sửa tại chỗ.
-export function subscribeMockAppointments(listener: () => void) {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
 export function getMockAppointmentsSnapshot(): AppointmentDetail[] {
   return appointments;
 }
@@ -92,7 +78,6 @@ export function getMockAppointmentForChange(appointmentId: string): AppointmentD
 
 export function replaceMockAppointment(next: AppointmentDetail) {
   appointments = appointments.map((item) => (item.appointmentId === next.appointmentId ? next : item));
-  emitChange();
 }
 
 export async function mockCancelAppointment(appointmentId: string): Promise<StatusResult> {
