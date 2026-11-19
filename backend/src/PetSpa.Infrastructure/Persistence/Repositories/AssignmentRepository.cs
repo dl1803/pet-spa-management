@@ -68,6 +68,22 @@ public sealed class AssignmentRepository(AppDbContext db) : IAssignmentRepositor
             : defaultLookbackDays;
     }
 
+    public async Task<int> GetHoldMinutesAsync(CancellationToken ct = default)
+    {
+        var value = await db.Set<SystemConfig>().AsNoTracking()
+            .Where(c => c.ConfigKey == "Booking.HoldMinutes")
+            .Select(c => c.ConfigValue)
+            .FirstOrDefaultAsync(ct);
+
+        if (value is null)
+            throw new InvalidOperationException("Thiếu cấu hình Booking.HoldMinutes.");
+
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes) || minutes <= 0)
+            throw new InvalidOperationException("Cấu hình Booking.HoldMinutes phải là số phút nguyên dương.");
+
+        return minutes;
+    }
+
     public async Task<IReadOnlyDictionary<Guid, int>> CountRecentAssignmentsAsync(
         DateTimeOffset since, CancellationToken ct = default)
     {
