@@ -1,5 +1,13 @@
 import { apiClient } from "@/lib/api/client";
-import type { AppointmentPage, AppointmentStatus, AppointmentType, ConfirmSpaRequest, SpaSuggestions } from "@/lib/api/types";
+import type {
+  AppointmentPage,
+  AppointmentStatus,
+  AppointmentType,
+  ConfirmHotelRequest,
+  ConfirmSpaRequest,
+  HotelSuggestions,
+  SpaSuggestions,
+} from "@/lib/api/types";
 
 // Chỉ khai báo tham số màn đang dùng; openapi còn `date`, `petId` (backend hiện chưa lọc theo `date`).
 export type ListAppointmentsParams = {
@@ -16,14 +24,19 @@ export async function listAppointments(params: ListAppointmentsParams) {
 }
 
 // GET /appointments/{id}/suggestions (getSuggestions): chỉ Quản lý, lịch phải đang Chờ xác nhận (409 INVALID_TRANSITION nếu không).
-// Chỉ khai báo dạng lịch spa (SpaSuggestions); dạng lưu trú (HotelSuggestions) thuộc phần nối lưu trú.
+// Cùng đường dẫn, hai dạng phản hồi theo loại lịch: getSuggestions dùng cho lịch spa (SpaSuggestions), getHotelSuggestions cho lịch lưu trú (HotelSuggestions).
 export async function getSuggestions(appointmentId: string) {
   const { data } = await apiClient.get<SpaSuggestions>(`/appointments/${encodeURIComponent(appointmentId)}/suggestions`);
   return data;
 }
 
-// POST /appointments/{id}/confirm (confirmAppointment): lịch spa gửi { staffIds, confirmOutOfShift? }; web chỉ cần biết thành công hay lỗi.
-export async function confirmAppointment(appointmentId: string, request: ConfirmSpaRequest): Promise<void> {
+export async function getHotelSuggestions(appointmentId: string) {
+  const { data } = await apiClient.get<HotelSuggestions>(`/appointments/${encodeURIComponent(appointmentId)}/suggestions`);
+  return data;
+}
+
+// POST /appointments/{id}/confirm (confirmAppointment): lịch spa gửi { staffIds, confirmOutOfShift? }, lịch lưu trú gửi { cageId }; web chỉ cần biết thành công hay lỗi.
+export async function confirmAppointment(appointmentId: string, request: ConfirmSpaRequest | ConfirmHotelRequest): Promise<void> {
   await apiClient.post(`/appointments/${encodeURIComponent(appointmentId)}/confirm`, request);
 }
 

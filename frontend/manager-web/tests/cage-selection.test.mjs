@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatShortDate, formatTime } from "../lib/format.ts";
-import { buildCageChoices, canConfirmCage, getCageDetail, getInitialCageId } from "../features/pending/cage-selection.ts";
+import { buildCageChoices, buildSuggestedCageChoices, canConfirmCage, getCageDetail, getInitialCageId } from "../features/pending/cage-selection.ts";
 
 const cage = (cageId, code, species, sizeGroup, extra = {}) => ({ cageId, code, species, sizeGroup, isActive: true, occupant: null, ...extra });
 const occupant = (plannedCheckOut) => ({ petId: "p", petName: "Kem", customerId: "c", customerName: "Hà", plannedCheckOut });
@@ -89,4 +89,30 @@ test("giờ và ngày theo múi giờ cửa hàng", () => {
   assert.equal(formatTime("2026-10-06T18:00:00+07:00"), "18:00");
   assert.equal(formatTime("2026-10-06T23:30:00Z"), "06:30");
   assert.equal(formatShortDate("2026-10-06T23:30:00Z"), "07/10");
+});
+
+test("không có chuồng đề xuất (cage = null): chỉ còn các chuồng trong danh sách, không chuồng nào mang nhãn đề xuất", () => {
+  const choices = buildCageChoices({ cage: null }, [b1, b2, b3], stay);
+  assert.deepEqual(choices.map((c) => [c.cage.code, c.isSuggested, c.isEligible]), [["B1", false, true], ["B3", false, true], ["B2", false, false]]);
+  assert.deepEqual(buildCageChoices({ cage: null }, [], stay), []);
+});
+
+test("lịch lưu trú thật: chỉ có chuồng đề xuất, loài lấy từ chính chuồng đó, nhóm kích cỡ từ lịch", () => {
+  const choices = buildSuggestedCageChoices({ cage: b3 }, "Medium", stay.plannedCheckIn, stay.plannedCheckOut);
+  assert.deepEqual(choices.map((c) => [c.cage.code, c.isSuggested, c.isEligible, c.blockReason]), [["B3", true, true, null]]);
+  assert.equal(getInitialCageId(choices), "3");
+  assert.equal(canConfirmCage(choices, "3"), true);
+});
+
+test("lịch lưu trú thật: không có chuồng đề xuất thì không có lựa chọn, không xác nhận được", () => {
+  const choices = buildSuggestedCageChoices({ cage: null }, "Medium", stay.plannedCheckIn, stay.plannedCheckOut);
+  assert.deepEqual(choices, []);
+  assert.equal(getInitialCageId(choices), "");
+  assert.equal(canConfirmCage(choices, ""), false);
+});
+
+test("lịch lưu trú thật: chuồng đề xuất khác nhóm kích cỡ của lịch bị khóa, không xác nhận được", () => {
+  const choices = buildSuggestedCageChoices({ cage: b2 }, "Medium", stay.plannedCheckIn, stay.plannedCheckOut);
+  assert.deepEqual(choices.map((c) => [c.cage.code, c.isSuggested, c.isEligible, c.blockReason]), [["B2", false, false, "size"]]);
+  assert.equal(canConfirmCage(choices, getInitialCageId(choices)), false);
 });

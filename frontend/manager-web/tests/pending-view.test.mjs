@@ -114,11 +114,22 @@ test("lịch spa đang chọn: hiện vùng nhân viên từ đề xuất thật
   assert.ok(html.includes("Xác nhận lịch hẹn"));
 });
 
-test("lịch lưu trú đang chọn: chưa có thao tác xác nhận, từ chối (nối ở bước riêng)", () => {
-  const html = renderView({ page: pageOf([may]), requestedId: MAY_ID });
-  for (const text of ["Xác nhận lịch", "Từ chối", "Nhân viên spa phụ trách", "Đang tải đề xuất nhân viên"]) {
+test("lịch lưu trú đang chọn: hiện vùng chuồng từ đề xuất thật và hai nút xác nhận, từ chối", () => {
+  const cage = { cageId: "c3", code: "B3", species: "Cat", sizeGroup: "Medium", isActive: true };
+  const html = renderView({ page: pageOf([may]), requestedId: MAY_ID, suggestions: { [MAY_ID]: { cage } } });
+  assert.ok(html.includes("Chuồng phù hợp mèo nhóm Vừa, trống trong cả 2 đêm."));
+  assert.ok(html.includes(">B3<"));
+  assert.ok(html.includes("Từ chối: cửa hàng không thể đáp ứng"));
+  assert.ok(html.includes("Xác nhận lịch lưu trú"));
+  for (const text of ["Nhân viên spa phụ trách", "Đang tải đề xuất nhân viên", "Xác nhận lịch hẹn<"]) {
     assert.ok(!html.includes(text), text);
   }
+});
+
+test("lịch lưu trú đang chọn, đề xuất đang tải: báo đang tải đề xuất chuồng", () => {
+  const html = renderView({ page: pageOf([may]), requestedId: MAY_ID });
+  assert.ok(html.includes("Đang tải đề xuất chuồng…"));
+  assert.ok(!html.includes("Đang tải đề xuất nhân viên"));
 });
 
 test("lịch được yêu cầu chọn theo URL; mã không có trong danh sách thì chọn lịch đầu tiên", () => {

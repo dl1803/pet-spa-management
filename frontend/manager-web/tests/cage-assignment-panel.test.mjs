@@ -58,3 +58,21 @@ test("chuồng còn thú cưng đến sau giờ nhận bị khóa trên giao di�
   assert.equal(count(html, /type="radio"[^>]*disabled=""/g), 1);
   assert.ok(html.includes("Còn thú cưng đến 12:00 ngày 09/10"));
 });
+
+test("không có chuồng khác để chọn: bỏ câu mời chọn chuồng khác, vẫn nêu chuồng phù hợp", () => {
+  const only = buildCageChoices(may.suggestions, [], may);
+  const html = renderToStaticMarkup(
+    React.createElement(CageAssignmentPanel, {
+      species: may.species,
+      sizeGroup: may.sizeGroup,
+      nights: 2,
+      choices: only,
+      selectedCageId: may.suggestions.cage.cageId,
+      onSelectedCageIdChange: noop,
+      hasAlternatives: false,
+    }),
+  );
+  assert.ok(html.includes("Chuồng phù hợp mèo nhóm Vừa, trống trong cả 2 đêm."));
+  assert.ok(!html.includes("Bạn có thể chọn chuồng khác phù hợp."));
+  assert.equal(count(html, /type="radio"/g), 1);
+});
