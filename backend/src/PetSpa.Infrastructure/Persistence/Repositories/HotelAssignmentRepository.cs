@@ -54,7 +54,8 @@ public sealed class HotelAssignmentRepository(AppDbContext db, ShopTimeZone shop
                 s.PlannedCheckIn,
                 s.Status == AppointmentStatus.InStay && s.PlannedCheckOut < minOverdueCheckout
                     ? minOverdueCheckout
-                    : s.PlannedCheckOut))
+                    : s.PlannedCheckOut,
+                s.AppointmentId))
             .ToListAsync(ct);
     }
 
