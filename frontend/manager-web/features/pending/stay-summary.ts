@@ -1,4 +1,4 @@
-import { formatMoney, formatShortDate, formatTime, formatWeekday } from "@/lib/format";
+import { formatAppointmentCode, formatMoney, formatShortDate, formatTime, formatWeekday } from "@/lib/format";
 import { countNights, getStoreDateKey } from "@/lib/time";
 
 const DAY_MS = 86_400_000;
@@ -31,4 +31,15 @@ export function getStaySummary(
 // “09:00, thứ năm 08/10” (MW-04 vùng 4).
 export function formatStayMoment(value: string): string {
   return `${formatTime(value)}, ${formatWeekday(value)} ${formatShortDate(value)}`;
+}
+
+// Câu toast sau khi xác nhận lịch lưu trú thật: nêu chuồng được gán. Chưa nêu việc thông báo khách vì thông báo chỉ có khi backend nối
+// sự kiện lịch hẹn với Notifications.
+export function getStayAssignedMessage(appointmentId: string, cageCode: string | null): string {
+  const code = formatAppointmentCode(appointmentId);
+  return cageCode ? `Đã xác nhận ${code}, gán chuồng ${cageCode}` : `Đã xác nhận ${code}`;
+}
+
+export function getStayRejectedMessage(appointmentId: string): string {
+  return `Đã từ chối lịch hẹn ${formatAppointmentCode(appointmentId)}`;
 }
