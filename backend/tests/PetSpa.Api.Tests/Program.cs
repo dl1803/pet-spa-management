@@ -10,6 +10,7 @@ using Microsoft.IdentityModel.Tokens;
 using PetSpa.Api.Controllers;
 using PetSpa.Api.Dtos;
 using PetSpa.Api.Validators;
+using PetSpa.Application;
 using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
@@ -858,11 +859,11 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(repo.Prices.Count == 2, "Repo prices count must be 2.");
         Check(repo.LateFee == 50000m, "Repo late fee must be 50000.");
     }),
-    ("AppointmentQueryService.ListAsync: Quản lý xem toàn cửa hàng, Khách hàng theo phạm vi riêng, Nhân viên bị từ chối", async () =>
+    ("AppointmentQueryService.ListAsync: Quản lý xem toàn cửa hàng, Khách hàng theo phạm vi riêng, tài khoản nhân viên không có hồ sơ bị từ chối", async () =>
     {
         var repo = new TestAppointmentQueryRepo();
         var pet = new Pet { PetId = Guid.NewGuid(), CustomerId = Guid.NewGuid(), IsActive = true };
-        var service = new AppointmentQueryService(repo, new TestPetRepo(pet, Guid.NewGuid()));
+        var service = new AppointmentQueryService(repo, new TestPetRepo(pet, Guid.NewGuid()), new TestStaffRoleReader(null));
 
         var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
         var targetPetId = Guid.NewGuid();
@@ -886,9 +887,194 @@ var tests = new (string Name, Func<Task> Run)[]
             threw = true;
         }
 
-        Check(threw, "Staff must be rejected with Forbidden.");
+        Check(threw, "Staff without a profile must be rejected with Forbidden.");
         Check(repo.ListAllCalls == 1 && repo.ListByCustomerCalls == 1,
-            "Rejected staff must not reach any repository query.");
+            "Staff without a profile must not reach any repository query.");
+    }),
+    ("AppointmentQueryService.ListAsync: Lễ tân xem toàn cửa hàng, Nhân viên spa chỉ xem lịch được phân công cho mình", async () =>
+    {
+        var repo = new TestAppointmentQueryRepo();
+        var pet = new Pet { PetId = Guid.NewGuid(), CustomerId = Guid.NewGuid(), IsActive = true };
+        var petRepo = new TestPetRepo(pet, Guid.NewGuid());
+
+        var receptionist = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+        var receptionistService = new AppointmentQueryService(repo, petRepo, new TestStaffRoleReader(StaffRole.Receptionist));
+        await receptionistService.ListAsync(receptionist, AppointmentType.Spa, AppointmentStatus.Confirmed, null, 1, 20);
+        Check(repo.ListAllCalls == 1 && repo.ListBySpaStaffCalls == 0 && repo.ListByCustomerCalls == 0,
+            "Receptionist must be served by the store-wide query.");
+
+        var spaStaff = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+        var spaService = new AppointmentQueryService(repo, petRepo, new TestStaffRoleReader(StaffRole.SpaStaff));
+        await spaService.ListAsync(spaStaff, null, AppointmentStatus.Confirmed, pet.PetId, 2, 10);
+        Check(repo.ListBySpaStaffCalls == 1 && repo.ListAllCalls == 1 && repo.ListByCustomerCalls == 0,
+            "Spa staff must be served by the assignment-scoped query only.");
+        Check(repo.LastSpaStaffUserId == spaStaff.UserId, "Spa staff query must use the caller's user id.");
+        Check(repo.LastSpaStaffPetId == pet.PetId, "Spa staff query must receive the petId filter.");
+    }),
+    ("AppointmentQueryService.GetAsync: Quản lý, Lễ tân xem lịch bất kỳ; Nhân viên spa chỉ xem lịch được phân công; Khách hàng chỉ xem lịch của mình", async () =>
+    {
+        var ownerUserId = Guid.NewGuid();
+        var appointment = new SpaAppointment { AppointmentId = Guid.NewGuid() };
+        var detail = new AppointmentDetailData(appointment, ownerUserId, "Milo", [], []);
+        var petRepo = new TestPetRepo(new Pet(), Guid.NewGuid());
+
+        AppointmentQueryService Create(TestAppointmentQueryRepo queryRepo, StaffRole? role) =>
+            new(queryRepo, petRepo, new TestStaffRoleReader(role));
+
+        async Task<string?> CodeOfAsync(Func<Task> action)
+        {
+            try
+            {
+                await action();
+                return null;
+            }
+            catch (BusinessException ex)
+            {
+                return ex.Code;
+            }
+        }
+
+        var repo = new TestAppointmentQueryRepo { DetailResult = detail };
+        var staffUser = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+
+        var managerResult = await Create(repo, null).GetAsync(new CurrentUser(Guid.NewGuid(), UserRole.Manager), appointment.AppointmentId);
+        Check(ReferenceEquals(managerResult, detail), "Manager must read any appointment.");
+
+        var receptionistResult = await Create(repo, StaffRole.Receptionist).GetAsync(staffUser, appointment.AppointmentId);
+        Check(ReferenceEquals(receptionistResult, detail), "Receptionist must read any appointment.");
+
+        repo.AssignedResult = true;
+        var assignedResult = await Create(repo, StaffRole.SpaStaff).GetAsync(staffUser, appointment.AppointmentId);
+        Check(ReferenceEquals(assignedResult, detail), "Spa staff must read an appointment assigned to them.");
+
+        repo.AssignedResult = false;
+        Check(await CodeOfAsync(() => Create(repo, StaffRole.SpaStaff).GetAsync(staffUser, appointment.AppointmentId)) == ErrorCodes.Forbidden,
+            "Spa staff must be forbidden from an appointment not assigned to them.");
+
+        Check(await CodeOfAsync(() => Create(repo, null).GetAsync(staffUser, appointment.AppointmentId)) == ErrorCodes.Forbidden,
+            "Staff without a profile must be forbidden.");
+
+        Check(await CodeOfAsync(() => Create(new TestAppointmentQueryRepo(), StaffRole.SpaStaff).GetAsync(staffUser, Guid.NewGuid())) == ErrorCodes.NotFound,
+            "Unknown appointment must be reported as not found.");
+
+        var ownerResult = await Create(repo, null).GetAsync(new CurrentUser(ownerUserId, UserRole.Customer), appointment.AppointmentId);
+        Check(ReferenceEquals(ownerResult, detail), "Customer must read their own appointment.");
+
+        Check(await CodeOfAsync(() => Create(repo, null).GetAsync(new CurrentUser(Guid.NewGuid(), UserRole.Customer), appointment.AppointmentId)) == ErrorCodes.Forbidden,
+            "Customer must be forbidden from another customer's appointment.");
+    }),
+    ("CheckInService.CheckInSpaAsync: Lễ tân và Quản lý chuyển lịch Đã xác nhận sang Đã tiếp nhận khi còn trong thời gian giữ chỗ", async () =>
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        SpaAppointment NewAppointment(AppointmentStatus status, DateTimeOffset slotStart) => new()
+        {
+            AppointmentId = Guid.NewGuid(),
+            Status = status,
+            SlotStart = slotStart,
+            SlotEnd = slotStart.AddMinutes(120),
+            BusyUntil = slotStart.AddMinutes(135),
+            StaffRequired = 1,
+        };
+
+        var late = NewAppointment(AppointmentStatus.Confirmed, now.AddMinutes(-10));
+        var lateRepo = new TestAssignmentRepo(late, [], [], new Dictionary<Guid, int>());
+        var lateGuard = new TestConcurrencyGuard();
+        var receptionistService = new CheckInService(lateRepo, lateGuard, new TestStaffRoleReader(StaffRole.Receptionist));
+        var lateStatus = await receptionistService.CheckInSpaAsync(new CurrentUser(Guid.NewGuid(), UserRole.Staff), late.AppointmentId);
+        Check(lateStatus == AppointmentStatus.Received && late.Status == AppointmentStatus.Received,
+            "Receptionist must move a Confirmed appointment to Received within the hold window.");
+        Check(lateGuard.LockedAppointmentId == late.AppointmentId && lateRepo.SaveCalls == 1,
+            "The appointment row must be locked and the change saved once.");
+
+        var early = NewAppointment(AppointmentStatus.Confirmed, now.AddMinutes(30));
+        var managerService = new CheckInService(
+            new TestAssignmentRepo(early, [], [], new Dictionary<Guid, int>()), new TestConcurrencyGuard(), new TestStaffRoleReader(null));
+        var earlyStatus = await managerService.CheckInSpaAsync(new CurrentUser(Guid.NewGuid(), UserRole.Manager), early.AppointmentId);
+        Check(earlyStatus == AppointmentStatus.Received, "Manager must be able to check in, also before the slot start.");
+
+        var extended = NewAppointment(AppointmentStatus.Confirmed, now.AddMinutes(-20));
+        var extendedRepo = new TestAssignmentRepo(extended, [], [], new Dictionary<Guid, int>()) { HoldMinutes = 30 };
+        var extendedService = new CheckInService(extendedRepo, new TestConcurrencyGuard(), new TestStaffRoleReader(StaffRole.Receptionist));
+        var extendedStatus = await extendedService.CheckInSpaAsync(new CurrentUser(Guid.NewGuid(), UserRole.Staff), extended.AppointmentId);
+        Check(extendedStatus == AppointmentStatus.Received, "The configured Booking.HoldMinutes must be used.");
+    }),
+    ("CheckInService.CheckInSpaAsync: từ chối vai trò không được phép, lịch không tồn tại, quá thời gian giữ chỗ, sai trạng thái", async () =>
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        SpaAppointment NewAppointment(AppointmentStatus status, DateTimeOffset slotStart) => new()
+        {
+            AppointmentId = Guid.NewGuid(),
+            Status = status,
+            SlotStart = slotStart,
+            SlotEnd = slotStart.AddMinutes(120),
+            BusyUntil = slotStart.AddMinutes(135),
+            StaffRequired = 1,
+        };
+
+        async Task<string?> CodeOfAsync(Func<Task> action)
+        {
+            try
+            {
+                await action();
+                return null;
+            }
+            catch (BusinessException ex)
+            {
+                return ex.Code;
+            }
+        }
+
+        CheckInService Create(SpaAppointment? appointment, StaffRole? staffRole, TestConcurrencyGuard? guard = null) =>
+            new(
+                new TestAssignmentRepo(appointment, [], [], new Dictionary<Guid, int>()),
+                guard ?? new TestConcurrencyGuard(),
+                new TestStaffRoleReader(staffRole));
+
+        var staffUser = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+
+        var confirmed = NewAppointment(AppointmentStatus.Confirmed, now.AddMinutes(-5));
+        var rejectedGuard = new TestConcurrencyGuard();
+        Check(await CodeOfAsync(() => Create(confirmed, StaffRole.SpaStaff, rejectedGuard).CheckInSpaAsync(staffUser, confirmed.AppointmentId)) == ErrorCodes.Forbidden,
+            "Spa staff must not check in.");
+        Check(await CodeOfAsync(() => Create(confirmed, null, rejectedGuard).CheckInSpaAsync(staffUser, confirmed.AppointmentId)) == ErrorCodes.Forbidden,
+            "Staff without a profile must not check in.");
+        Check(await CodeOfAsync(() => Create(confirmed, null, rejectedGuard).CheckInSpaAsync(new CurrentUser(Guid.NewGuid(), UserRole.Customer), confirmed.AppointmentId)) == ErrorCodes.Forbidden,
+            "Customer must not check in.");
+        Check(confirmed.Status == AppointmentStatus.Confirmed && rejectedGuard.RunCalls == 0,
+            "A rejected role must not open a transaction or change the appointment.");
+
+        var receptionist = StaffRole.Receptionist;
+        Check(await CodeOfAsync(() => Create(null, receptionist).CheckInSpaAsync(staffUser, Guid.NewGuid())) == ErrorCodes.NotFound,
+            "Unknown or non-spa appointment must be reported as not found.");
+
+        var expired = NewAppointment(AppointmentStatus.Confirmed, now.AddMinutes(-30));
+        Check(await CodeOfAsync(() => Create(expired, receptionist).CheckInSpaAsync(staffUser, expired.AppointmentId)) == ErrorCodes.InvalidTransition,
+            "Check-in after the hold window must be rejected.");
+        Check(expired.Status == AppointmentStatus.Confirmed, "A rejected check-in must keep the status.");
+
+        var tooEarly = NewAppointment(AppointmentStatus.Confirmed, now.AddMinutes(120));
+        Check(await CodeOfAsync(() => Create(tooEarly, receptionist).CheckInSpaAsync(staffUser, tooEarly.AppointmentId)) == ErrorCodes.InvalidTransition,
+            "Check-in more than 60 minutes before slot start must be rejected.");
+        Check(tooEarly.Status == AppointmentStatus.Confirmed, "A rejected check-in must keep the status.");
+
+        foreach (var invalidStatus in new[] { AppointmentStatus.Pending, AppointmentStatus.Received, AppointmentStatus.InProgress, AppointmentStatus.Completed, AppointmentStatus.Cancelled })
+        {
+            var wrongStatus = NewAppointment(invalidStatus, now.AddMinutes(-5));
+            Check(await CodeOfAsync(() => Create(wrongStatus, receptionist).CheckInSpaAsync(staffUser, wrongStatus.AppointmentId)) == ErrorCodes.InvalidTransition,
+                $"Check-in from {invalidStatus} must be rejected.");
+            Check(wrongStatus.Status == invalidStatus, $"A rejected check-in must keep the status {invalidStatus}.");
+        }
+    }),
+    ("AddApplication registers CheckInService into DI container", () =>
+    {
+        var services = new ServiceCollection();
+        services.AddApplication();
+        var descriptor = services.FirstOrDefault(d => d.ServiceType == typeof(CheckInService));
+        Check(descriptor is not null && descriptor.Lifetime == ServiceLifetime.Scoped,
+            "CheckInService must be registered as scoped in AddApplication.");
+        return Task.CompletedTask;
     }),
     ("VnpayPaymentRequestBuilder builds the unsigned sandbox payload from the transaction", () =>
     {
@@ -1930,7 +2116,7 @@ var tests = new (string Name, Func<Task> Run)[]
         {
             FindTypeHandler = id => id == stay.AppointmentId ? AppointmentType.Hotel : id == spa.AppointmentId ? AppointmentType.Spa : null
         };
-        var queryService = new AppointmentQueryService(queryRepo, new TestPetRepo(new Pet(), Guid.NewGuid()));
+        var queryService = new AppointmentQueryService(queryRepo, new TestPetRepo(new Pet(), Guid.NewGuid()), new TestStaffRoleReader(null));
 
         var controller = new AppointmentsController(null!, appointmentQueryService: queryService, assignmentService: spaService, hotelAssignmentService: hotelService)
         {
@@ -2239,7 +2425,7 @@ var tests = new (string Name, Func<Task> Run)[]
         {
             FindTypeHandler = id => id == stay.AppointmentId ? AppointmentType.Hotel : null
         };
-        var queryService = new AppointmentQueryService(queryRepo, new TestPetRepo(new Pet(), Guid.NewGuid()));
+        var queryService = new AppointmentQueryService(queryRepo, new TestPetRepo(new Pet(), Guid.NewGuid()), new TestStaffRoleReader(null));
 
         var controller = new AppointmentsController(null!, appointmentQueryService: queryService, hotelAssignmentService: hotelService)
         {
@@ -2469,7 +2655,7 @@ var tests = new (string Name, Func<Task> Run)[]
         {
             FindTypeHandler = id => id == stay.AppointmentId ? AppointmentType.Hotel : null
         };
-        var queryService = new AppointmentQueryService(queryRepo, new TestPetRepo(new Pet(), Guid.NewGuid()));
+        var queryService = new AppointmentQueryService(queryRepo, new TestPetRepo(new Pet(), Guid.NewGuid()), new TestStaffRoleReader(null));
 
         var controller = new AppointmentsController(null!, appointmentQueryService: queryService, hotelAssignmentService: hotelService)
         {
@@ -4730,7 +4916,12 @@ sealed class TestAppointmentQueryRepo : IAppointmentQueryRepository
 {
     public int ListAllCalls { get; private set; }
     public int ListByCustomerCalls { get; private set; }
+    public int ListBySpaStaffCalls { get; private set; }
     public Guid? LastListAllPetId { get; private set; }
+    public Guid? LastSpaStaffUserId { get; private set; }
+    public Guid? LastSpaStaffPetId { get; private set; }
+    public AppointmentDetailData? DetailResult { get; set; }
+    public bool AssignedResult { get; set; }
 
     public Task<PagedResult<AppointmentListItem>> ListByCustomerUserAsync(
         Guid customerUserId, AppointmentType? type, AppointmentStatus? status, Guid? petId, int page, int pageSize,
@@ -4748,8 +4939,21 @@ sealed class TestAppointmentQueryRepo : IAppointmentQueryRepository
         return Task.FromResult(new PagedResult<AppointmentListItem>([], page, pageSize, 0));
     }
 
+    public Task<PagedResult<AppointmentListItem>> ListBySpaStaffUserAsync(
+        Guid staffUserId, AppointmentType? type, AppointmentStatus? status, Guid? petId, int page, int pageSize,
+        CancellationToken ct = default)
+    {
+        ListBySpaStaffCalls++;
+        LastSpaStaffUserId = staffUserId;
+        LastSpaStaffPetId = petId;
+        return Task.FromResult(new PagedResult<AppointmentListItem>([], page, pageSize, 0));
+    }
+
     public Task<AppointmentDetailData?> FindDetailAsync(Guid appointmentId, CancellationToken ct = default) =>
-        Task.FromResult<AppointmentDetailData?>(null);
+        Task.FromResult(DetailResult);
+
+    public Task<bool> IsAssignedToSpaStaffAsync(Guid appointmentId, Guid staffUserId, CancellationToken ct = default) =>
+        Task.FromResult(AssignedResult);
 
     public Func<Guid, AppointmentType?>? FindTypeHandler { get; set; }
 
@@ -4785,6 +4989,10 @@ sealed class TestAssignmentRepo(
             : Others.FirstOrDefault(a => a.AppointmentId == appointmentId));
 
     public Task<int> GetSuggestLookbackDaysAsync(CancellationToken ct = default) => Task.FromResult(30);
+
+    public int HoldMinutes { get; set; } = 15;
+
+    public Task<int> GetHoldMinutesAsync(CancellationToken ct = default) => Task.FromResult(HoldMinutes);
 
     public Task<IReadOnlyDictionary<Guid, int>> CountRecentAssignmentsAsync(
         DateTimeOffset since, CancellationToken ct = default) =>

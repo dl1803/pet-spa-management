@@ -64,9 +64,9 @@ public sealed class AppointmentsController(
     }
 
     [HttpGet]
-    [Authorize(Policy = AuthorizationPolicies.CustomerOrManager)]
-    [EndpointSummary("Khách hàng xem lịch hẹn của mình; quản lý xem lịch hẹn toàn cửa hàng")]
-    [EndpointDescription("Khách hàng: chỉ lịch hẹn của mình, lọc tùy chọn theo type (Spa, Hotel), status và petId. Xem lịch sử sử dụng dịch vụ: status = Completed kèm petId; thú cưng không thuộc khách trả 403 FORBIDDEN, không tìm thấy trả 404. Quản lý: toàn cửa hàng, lọc tùy chọn theo type, status (status = Pending cho danh sách Chờ xác nhận) và petId, lịch tạo sớm nhất trước. Lễ tân, nhân viên spa nhận 403 FORBIDDEN cho tới khi có phạm vi riêng. Mặc định page = 1, pageSize = 20 (tối đa 100).")]
+    [Authorize]
+    [EndpointSummary("Xem danh sách lịch hẹn theo phạm vi vai trò")]
+    [EndpointDescription("Lọc theo phạm vi vai trò ở backend. Khách hàng: chỉ lịch hẹn của mình, lọc tùy chọn theo type (Spa, Hotel), status và petId. Xem lịch sử sử dụng dịch vụ: status = Completed kèm petId; thú cưng không thuộc khách trả 403 FORBIDDEN, không tìm thấy trả 404. Quản lý, lễ tân: toàn cửa hàng, lọc tùy chọn theo type, status (status = Pending cho danh sách Chờ xác nhận) và petId, lịch tạo sớm nhất trước. Nhân viên spa: chỉ lịch spa đang được phân công cho mình, lọc tùy chọn theo type, status và petId, lịch tạo sớm nhất trước. Tài khoản nhân viên không có hồ sơ nhận 403 FORBIDDEN. Mặc định page = 1, pageSize = 20 (tối đa 100).")]
     public async Task<IActionResult> List([FromQuery] ListAppointmentsQuery query, CancellationToken ct)
     {
         var result = await appointmentQueryService.ListAsync(
@@ -165,9 +165,9 @@ public sealed class AppointmentsController(
     }
 
     [HttpGet("{id}")]
-    [Authorize(Policy = AuthorizationPolicies.Customer)]
-    [EndpointSummary("Khách hàng xem chi tiết lịch hẹn của mình")]
-    [EndpointDescription("Kiểm tra quyền sở hữu theo id: lịch của khách khác trả 403 FORBIDDEN và không trả thông tin; không tìm thấy trả 404. Lịch spa kèm danh sách dịch vụ và nhân viên được phân công (rỗng khi chưa xác nhận); lịch lưu trú trả hai danh sách rỗng.")]
+    [Authorize]
+    [EndpointSummary("Xem chi tiết lịch hẹn theo phạm vi vai trò")]
+    [EndpointDescription("Khách hàng: chỉ lịch của mình, lịch của khách khác trả 403 FORBIDDEN và không trả thông tin. Nhân viên spa: chỉ lịch spa được phân công cho mình, lịch khác trả 403 FORBIDDEN và không trả thông tin. Lễ tân, quản lý: toàn cửa hàng. Không tìm thấy trả 404. Lịch spa kèm danh sách dịch vụ và nhân viên được phân công (rỗng khi chưa xác nhận); lịch lưu trú trả hai danh sách rỗng.")]
     public async Task<IActionResult> GetById(Guid id, CancellationToken ct)
     {
         var detail = await appointmentQueryService.GetAsync(User.ToCurrentUser(), id, ct);

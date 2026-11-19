@@ -26,6 +26,8 @@ public interface IAssignmentRepository
 
     Task<int> GetSuggestLookbackDaysAsync(CancellationToken ct = default);
 
+    Task<int> GetHoldMinutesAsync(CancellationToken ct = default);
+
     Task<IReadOnlyDictionary<Guid, int>> CountRecentAssignmentsAsync(
         DateTimeOffset since, CancellationToken ct = default);
 

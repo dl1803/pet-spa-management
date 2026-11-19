@@ -68,6 +68,20 @@ public sealed class AssignmentRepository(AppDbContext db) : IAssignmentRepositor
             : defaultLookbackDays;
     }
 
+    public async Task<int> GetHoldMinutesAsync(CancellationToken ct = default)
+    {
+        const int defaultHoldMinutes = 15;
+
+        var value = await db.Set<SystemConfig>().AsNoTracking()
+            .Where(c => c.ConfigKey == "Booking.HoldMinutes")
+            .Select(c => c.ConfigValue)
+            .FirstOrDefaultAsync(ct);
+
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes) && minutes > 0
+            ? minutes
+            : defaultHoldMinutes;
+    }
+
     public async Task<IReadOnlyDictionary<Guid, int>> CountRecentAssignmentsAsync(
         DateTimeOffset since, CancellationToken ct = default)
     {

@@ -71,6 +71,52 @@ public sealed class AppointmentQueryRepository(AppDbContext db) : IAppointmentQu
         return new PagedResult<AppointmentListItem>(items, page, pageSize, total);
     }
 
+    public async Task<PagedResult<AppointmentListItem>> ListBySpaStaffUserAsync(
+        Guid staffUserId, AppointmentType? type, AppointmentStatus? status, Guid? petId, int page, int pageSize,
+        CancellationToken ct = default)
+    {
+        var appointments = db.Set<Appointment>().AsNoTracking();
+
+        if (type == AppointmentType.Spa) appointments = appointments.Where(a => a is SpaAppointment);
+        else if (type == AppointmentType.Hotel) appointments = appointments.Where(a => a is HotelAppointment);
+
+        if (status is { } wantedStatus) appointments = appointments.Where(a => a.Status == wantedStatus);
+
+        if (petId is { } wantedPetId) appointments = appointments.Where(a => a.PetId == wantedPetId);
+
+        var query =
+            from a in appointments
+            join assignment in db.Set<AppointmentStaff>() on a.AppointmentId equals assignment.AppointmentId
+            join staff in db.Set<Staff>() on assignment.StaffId equals staff.StaffId
+            join p in db.Set<Pet>() on a.PetId equals p.PetId
+            where staff.UserId == staffUserId
+                && a.Status != AppointmentStatus.Pending
+                && (assignment.IsHolding || a.Status == AppointmentStatus.Completed)
+            select new { Appointment = a, PetName = p.Name };
+
+        var total = await query.CountAsync(ct);
+        var rows = await query
+            .OrderBy(x => x.Appointment.CreatedAt)
+            .ThenBy(x => x.Appointment.AppointmentId)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        var items = rows.Select(r => new AppointmentListItem(r.Appointment, r.PetName)).ToList();
+        return new PagedResult<AppointmentListItem>(items, page, pageSize, total);
+    }
+
+    public Task<bool> IsAssignedToSpaStaffAsync(Guid appointmentId, Guid staffUserId, CancellationToken ct = default) =>
+        (from assignment in db.Set<AppointmentStaff>().AsNoTracking()
+         join appointment in db.Set<Appointment>().AsNoTracking() on assignment.AppointmentId equals appointment.AppointmentId
+         join staff in db.Set<Staff>().AsNoTracking() on assignment.StaffId equals staff.StaffId
+         where assignment.AppointmentId == appointmentId
+             && staff.UserId == staffUserId
+             && appointment.Status != AppointmentStatus.Pending
+             && (assignment.IsHolding || appointment.Status == AppointmentStatus.Completed)
+         select assignment.AppointmentId)
+        .AnyAsync(ct);
+
     public async Task<AppointmentDetailData?> FindDetailAsync(Guid appointmentId, CancellationToken ct = default)
     {
         var row = await (
