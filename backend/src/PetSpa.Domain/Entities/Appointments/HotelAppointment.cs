@@ -25,6 +25,30 @@ public class HotelAppointment : Appointment
         PlannedCheckOut = checkOut;
     }
 
+    public void RescheduleByManager(Guid petId, SizeGroup sizeGroup, DateTimeOffset checkIn, DateTimeOffset checkOut)
+    {
+        BeginManagerChange();
+
+        PetId = petId;
+        SizeGroup = sizeGroup;
+        PlannedCheckIn = checkIn;
+        PlannedCheckOut = checkOut;
+    }
+
+    public void ReassignCage(Cage cage, Species petSpecies)
+    {
+        ArgumentNullException.ThrowIfNull(cage);
+
+        if (Status != AppointmentStatus.Confirmed)
+            throw new BusinessException(ErrorCodes.InvalidTransition);
+
+        if (!cage.IsActive || cage.Species != petSpecies || cage.SizeGroup != SizeGroup)
+            throw new BusinessException(ErrorCodes.CageConflict);
+
+        CageId = cage.CageId;
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
     public override void ReturnToPending()
     {
         base.ReturnToPending();
