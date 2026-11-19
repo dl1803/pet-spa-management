@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, useSyncExternalStore } from "react";
+import { useState } from "react";
+import { AppointmentErrorState } from "@/components/domain/appointment-error-state";
 import { AppointmentTicket } from "@/components/domain/appointment-ticket";
 import { Icon } from "@/components/icons";
 import { PageHeader } from "@/components/layout/page-header";
@@ -11,6 +12,7 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { FilterChip } from "@/components/ui/filter-chip";
 import { Pager } from "@/components/ui/pager";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs } from "@/components/ui/tabs";
 import {
   APPOINTMENT_TABS,
@@ -27,8 +29,8 @@ import type { AppointmentType } from "@/lib/api/types";
 import { sortByStart } from "@/lib/appointments";
 import { formatNameList } from "@/lib/format";
 import { APPOINTMENT_TYPE_LABELS } from "@/lib/labels";
-import { getMockAppointmentsSnapshot, subscribeMockAppointments } from "@/lib/mock-appointments";
-import { MOCK_PETS } from "@/lib/mock-data";
+import { useAppointments } from "@/lib/queries/appointments";
+import { usePets } from "@/lib/queries/pets";
 import { ROUTES, withQuery } from "@/lib/routes";
 import { getStoreDateKey } from "@/lib/time";
 
@@ -38,29 +40,41 @@ const EMPTY_STATES: Record<AppointmentTab, { title: string; description: string 
   cancelled: { title: "Không có lịch hẹn đã hủy", description: "Các lịch đã hủy sẽ hiện ở đây." },
 };
 
+function AppointmentsSkeleton() {
+  return (
+    <div role="status" aria-busy="true" className="flex flex-col gap-3">
+      <span className="sr-only">Đang tải danh sách lịch hẹn…</span>
+      {[0, 1, 2].map((index) => (
+        <Skeleton key={index} className="h-[84px] rounded-2xl" />
+      ))}
+    </div>
+  );
+}
+
 export function AppointmentsScreen() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [now] = useState(() => new Date());
   const todayKey = getStoreDateKey(now);
 
-  const pets = MOCK_PETS;
-  // Cùng kho dữ liệu giả với màn chi tiết để thấy kết quả đổi/hủy. Chờ nối API thật: thay bằng truy vấn danh sách lịch hẹn.
-  const appointments = useSyncExternalStore(
-    subscribeMockAppointments,
-    getMockAppointmentsSnapshot,
-    getMockAppointmentsSnapshot,
-  );
+  const { data: appointments, error, isFetching, refetch } = useAppointments();
+  const { data: petPage } = usePets();
+  // Tên và loài thú cưng chỉ để trang trí; lịch vẫn hiện khi chưa tải được hồ sơ thú cưng.
+  const pets = petPage?.items ?? [];
   const petById = new Map(pets.map((pet) => [pet.petId, pet]));
 
   const tab = parseTab(searchParams.get("tab"));
   const type = parseType(searchParams.get("type"));
 
+  // Lọc ở web: API chỉ lọc một status mỗi lần gọi và không có tham số sắp xếp (UI-Screens G-06).
   const tabItems = APPOINTMENT_TABS.map((item) => ({
     ...item,
-    count: filterAppointments(appointments, item.value, type).length,
+    count: appointments === undefined ? undefined : filterAppointments(appointments, item.value, type).length,
   }));
-  const sorted = sortByStart(filterAppointments(appointments, tab, type), tab === "upcoming" ? "asc" : "desc");
+  const sorted =
+    appointments === undefined
+      ? []
+      : sortByStart(filterAppointments(appointments, tab, type), tab === "upcoming" ? "asc" : "desc");
   const { page, items } = paginate(sorted, parsePage(searchParams.get("page")), APPOINTMENTS_PAGE_SIZE);
 
   function navigate(next: { tab: AppointmentTab; type: AppointmentType | null; page?: number }) {
@@ -111,7 +125,11 @@ export function AppointmentsScreen() {
       </div>
 
       <div role="tabpanel">
-        {items.length === 0 ? (
+        {error !== null ? (
+          <AppointmentErrorState error={error} isRetrying={isFetching} onRetry={() => void refetch()} />
+        ) : appointments === undefined ? (
+          <AppointmentsSkeleton />
+        ) : items.length === 0 ? (
           <Card>
             <EmptyState
               icon="calendar"
@@ -160,4 +178,3 @@ export function AppointmentsScreen() {
     </>
   );
 }
-

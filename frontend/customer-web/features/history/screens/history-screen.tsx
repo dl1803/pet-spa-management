@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { AppointmentErrorState } from "@/components/domain/appointment-error-state";
 import { PetGlyph } from "@/components/domain/pet-avatar";
 import { Icon } from "@/components/icons";
 import { PageHeader } from "@/components/layout/page-header";
@@ -9,23 +10,42 @@ import { Button, ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SegmentedControl } from "@/components/ui/segmented-control";
+import { Skeleton } from "@/components/ui/skeleton";
 import { HistoryCard } from "@/features/history/components/history-card";
 import type { Pet } from "@/lib/api/types";
 import { sortByStart } from "@/lib/appointments";
-import { MOCK_APPOINTMENTS, MOCK_PAYMENTS, MOCK_PETS } from "@/lib/mock-data";
+import { useAppointments } from "@/lib/queries/appointments";
+import { usePets } from "@/lib/queries/pets";
 import { ROUTES, withQuery } from "@/lib/routes";
 
 const HISTORY_PAGE_SIZE = 10;
 const TITLE = "Lịch sử dịch vụ";
 const DESCRIPTION = "Các lịch hẹn đã hoàn tất của từng bé.";
 
+function HistorySkeleton() {
+  return (
+    <div role="status" aria-busy="true" className="flex flex-col gap-3">
+      <span className="sr-only">Đang tải lịch sử dịch vụ…</span>
+      {[0, 1, 2].map((index) => (
+        <Skeleton key={index} className="h-[88px] rounded-2xl" />
+      ))}
+    </div>
+  );
+}
+
 function PetHistory({ pet }: { pet: Pet }) {
   const [visibleCount, setVisibleCount] = useState(HISTORY_PAGE_SIZE);
+  const { data, error, isFetching, refetch } = useAppointments({ status: "Completed", petId: pet.petId });
 
-  const completed = sortByStart(
-    MOCK_APPOINTMENTS.filter((appointment) => appointment.status === "Completed" && appointment.petId === pet.petId),
-    "desc",
-  );
+  if (error !== null) {
+    return <AppointmentErrorState error={error} isRetrying={isFetching} onRetry={() => void refetch()} />;
+  }
+  if (data === undefined) {
+    return <HistorySkeleton />;
+  }
+
+  // Sắp xếp ở web theo giờ hẹn giảm dần: API trả theo ngày tạo (UI-Screens G-06).
+  const completed = sortByStart(data, "desc");
 
   if (completed.length === 0) {
     return (
@@ -50,10 +70,7 @@ function PetHistory({ pet }: { pet: Pet }) {
       <ul className="flex flex-col gap-3">
         {completed.slice(0, visibleCount).map((appointment) => (
           <li key={appointment.appointmentId}>
-            <HistoryCard
-              appointment={appointment}
-              payments={MOCK_PAYMENTS.filter((payment) => payment.appointmentId === appointment.appointmentId)}
-            />
+            <HistoryCard appointment={appointment} />
           </li>
         ))}
       </ul>
@@ -71,8 +88,26 @@ function PetHistory({ pet }: { pet: Pet }) {
 export function HistoryScreen() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { data, error, isFetching, refetch } = usePets();
 
-  const pets = MOCK_PETS;
+  if (error !== null) {
+    return (
+      <>
+        <PageHeader title={TITLE} description={DESCRIPTION} />
+        <AppointmentErrorState error={error} isRetrying={isFetching} onRetry={() => void refetch()} />
+      </>
+    );
+  }
+  if (data === undefined) {
+    return (
+      <>
+        <PageHeader title={TITLE} description={DESCRIPTION} />
+        <HistorySkeleton />
+      </>
+    );
+  }
+
+  const pets = data.items;
   const pet = pets.find((item) => item.petId === searchParams.get("petId")) ?? pets[0];
 
   if (!pet) {

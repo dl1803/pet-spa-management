@@ -1,5 +1,12 @@
 import { apiClient } from "@/lib/api/client";
-import type { SpaBookingCreated, SpaBookingRequest, SpaSlots } from "@/lib/api/types";
+import type {
+  AppointmentDetail,
+  AppointmentPage,
+  AppointmentStatus,
+  SpaBookingCreated,
+  SpaBookingRequest,
+  SpaSlots,
+} from "@/lib/api/types";
 
 export type GetSpaSlotsParams = {
   // Ngày YYYY-MM-DD theo múi giờ cửa hàng.
@@ -20,5 +27,24 @@ export async function getSpaSlots({ date, petId, serviceIds }: GetSpaSlotsParams
 // POST /appointments/spa: tạo lịch hẹn spa ở trạng thái Chờ xác nhận (201).
 export async function createSpaAppointment(request: SpaBookingRequest) {
   const { data } = await apiClient.post<SpaBookingCreated>("/appointments/spa", request);
+  return data;
+}
+
+export type ListAppointmentsParams = {
+  status?: AppointmentStatus;
+  petId?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+// GET /appointments: lịch hẹn của khách đang đăng nhập; backend lọc theo token (BR-16).
+export async function listAppointments(params: ListAppointmentsParams) {
+  const { data } = await apiClient.get<AppointmentPage>("/appointments", { params });
+  return data;
+}
+
+// GET /appointments/{id}: chi tiết lịch hẹn. Lịch của khách khác trả 403 FORBIDDEN, không tìm thấy trả 404 NOT_FOUND.
+export async function getAppointment(appointmentId: string) {
+  const { data } = await apiClient.get<AppointmentDetail>(`/appointments/${encodeURIComponent(appointmentId)}`);
   return data;
 }

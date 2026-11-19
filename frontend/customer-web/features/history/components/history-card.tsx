@@ -1,17 +1,13 @@
+"use client";
+
 import { AppointmentTypeLabel } from "@/components/domain/appointment-type-label";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { Card, CardBody } from "@/components/ui/card";
-import type { AppointmentDetail, Payment } from "@/lib/api/types";
-import {
-  formatAppointmentCode,
-  formatDate,
-  formatMoney,
-  formatShortDate,
-  formatTime,
-  formatTimeRange,
-  lowerFirst,
-} from "@/lib/format";
-import { PAYMENT_METHOD_LABELS } from "@/lib/labels";
+import { Skeleton } from "@/components/ui/skeleton";
+import { getErrorMessage } from "@/lib/api/errors";
+import type { Appointment, AppointmentDetail } from "@/lib/api/types";
+import { formatAppointmentCode, formatDate, formatShortDate, formatTime, formatTimeRange } from "@/lib/format";
+import { useAppointment } from "@/lib/queries/appointments";
 import { countNights } from "@/lib/time";
 
 type HistoryView = {
@@ -23,26 +19,7 @@ type HistoryView = {
 
 const EMPTY_VIEW: HistoryView = { date: "—", sub: "", title: "", note: "" };
 
-function describeAmount(payment: Payment) {
-  if (payment.status === "Unpaid") return `${formatMoney(payment.amount)}, chưa thanh toán`;
-  const method = payment.method ? `, ${lowerFirst(PAYMENT_METHOD_LABELS[payment.method])}` : "";
-  return `${formatMoney(payment.amount)}${method}`;
-}
-
-function describeSpaPayment(payment: Payment | undefined) {
-  if (!payment) return "";
-  if (payment.status === "Unpaid") return `Chưa thanh toán ${formatMoney(payment.amount)}.`;
-  return `Đã thanh toán ${describeAmount(payment)}.`;
-}
-
-function describeStayPayments(stay: Payment | undefined, lateFee: Payment | undefined) {
-  const parts: string[] = [];
-  if (stay) parts.push(`Tiền lưu trú ${describeAmount(stay)}.`);
-  parts.push(lateFee ? `Phí trả muộn ${describeAmount(lateFee)}.` : "Không phát sinh phí trả muộn.");
-  return parts.join(" ");
-}
-
-function getHistoryView(appointment: AppointmentDetail, payments: Payment[]): HistoryView {
+function getHistoryView(appointment: AppointmentDetail): HistoryView {
   if (appointment.type === "Hotel") {
     const { plannedCheckIn, plannedCheckOut } = appointment;
     const checkOut = appointment.actualCheckOut ?? plannedCheckOut;
@@ -51,10 +28,7 @@ function getHistoryView(appointment: AppointmentDetail, payments: Payment[]): Hi
       date: formatDate(checkOut),
       sub: `${countNights(plannedCheckIn, plannedCheckOut)} đêm`,
       title: `Nhận ${formatShortDate(plannedCheckIn)} ${formatTime(plannedCheckIn)}, trả ${formatShortDate(checkOut)} ${formatTime(checkOut)}.`,
-      note: describeStayPayments(
-        payments.find((payment) => payment.kind === "Stay"),
-        payments.find((payment) => payment.kind === "LateFee"),
-      ),
+      note: "",
     };
   }
 
@@ -62,25 +36,22 @@ function getHistoryView(appointment: AppointmentDetail, payments: Payment[]): Hi
   if (!slotStart || !slotEnd) return EMPTY_VIEW;
   const serviceNames = (appointment.services ?? []).flatMap((service) => (service.name ? [service.name] : []));
   const staffNames = (appointment.staff ?? []).flatMap((member) => (member.fullName ? [member.fullName] : []));
-  const noteParts = [
-    staffNames.length > 0 ? `Nhân viên ${staffNames.join(", ")}.` : "",
-    describeSpaPayment(payments.find((payment) => payment.kind === "Spa")),
-  ].filter(Boolean);
   return {
     date: formatDate(slotStart),
     sub: formatTimeRange(slotStart, slotEnd),
     title: serviceNames.join(", "),
-    note: noteParts.join(" "),
+    note: staffNames.length > 0 ? `Nhân viên ${staffNames.join(", ")}.` : "",
   };
 }
 
 type HistoryCardProps = {
-  appointment: AppointmentDetail;
-  payments: Payment[];
+  appointment: Appointment;
 };
 
-export function HistoryCard({ appointment, payments }: HistoryCardProps) {
-  const view = getHistoryView(appointment, payments);
+export function HistoryCard({ appointment }: HistoryCardProps) {
+  // Dịch vụ và nhân viên chỉ có ở chi tiết lịch spa (UI-Screens G-05); tải khi thẻ hiện ra. Lịch lưu trú không cần.
+  const detail = useAppointment(appointment.type === "Spa" ? appointment.appointmentId : null);
+  const view = getHistoryView(detail.data ?? appointment);
 
   return (
     <Card>
@@ -97,6 +68,19 @@ export function HistoryCard({ appointment, payments }: HistoryCardProps) {
               <StatusBadge status={appointment.status} />
             </div>
             {view.title && <div className="mt-1 font-semibold">{view.title}</div>}
+            {detail.isLoading && <Skeleton className="mt-2 h-4 w-48 rounded-[10px]" />}
+            {detail.error !== null && (
+              <div className="mt-1 flex items-center gap-2 text-xs leading-5 text-muted">
+                <span>{getErrorMessage(detail.error)}</span>
+                <button
+                  type="button"
+                  onClick={() => void detail.refetch()}
+                  className="font-medium text-foreground underline hover:opacity-80"
+                >
+                  Thử lại
+                </button>
+              </div>
+            )}
             {view.note && <div className="mt-1 text-xs leading-5 text-muted">{view.note}</div>}
           </div>
         </div>
@@ -104,4 +88,3 @@ export function HistoryCard({ appointment, payments }: HistoryCardProps) {
     </Card>
   );
 }
-
