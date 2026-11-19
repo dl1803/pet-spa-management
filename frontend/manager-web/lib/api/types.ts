@@ -286,6 +286,31 @@ export type AppointmentDetail = Appointment & {
   pendingCostConfirmation?: CostConfirmation | null;
 };
 
+// Lý do hủy mà Quản lý được chọn (openapi ManagerCancelReason).
+export type ManagerCancelReason = Extract<CancelReason, "StoreUnable" | "CustomerBeyondDeadline">;
+
+// Web Quản lý luôn gửi reason; chỉ Khách hàng mới không gửi (openapi CancelRequest).
+export type CancelRequest = {
+  reason: ManagerCancelReason;
+};
+
+// petId luôn gửi vì backend bắt buộc (validator). Spa: slotStart, serviceIds. Lưu trú: plannedCheckIn, plannedCheckOut.
+// staffIds chỉ cho lịch spa Đã xác nhận; confirmOutOfShift chỉ khi xác nhận lại nhân viên ngoài ca. cageId chưa khai báo vì web chưa đổi chuồng.
+export type UpdateAppointmentRequest = {
+  petId: string;
+  slotStart?: string;
+  serviceIds?: string[];
+  plannedCheckIn?: string;
+  plannedCheckOut?: string;
+  staffIds?: string[];
+  confirmOutOfShift?: boolean;
+};
+
+export type StatusResult = {
+  status: AppointmentStatus;
+};
+
+
 export type PhotoKind = "Before" | "After";
 
 export type Photo = {

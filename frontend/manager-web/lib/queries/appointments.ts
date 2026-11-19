@@ -1,17 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  cancelAppointment,
   confirmAppointment,
+  getAppointment,
   getHotelSuggestions,
   getSuggestions,
   listAppointments,
   rejectAppointment,
+  updateAppointment,
   type ListAppointmentsParams,
 } from "@/lib/api/endpoints/appointments";
-import type { ConfirmHotelRequest, ConfirmSpaRequest } from "@/lib/api/types";
+import type {
+  CancelRequest,
+  ConfirmHotelRequest,
+  ConfirmSpaRequest,
+  UpdateAppointmentRequest,
+} from "@/lib/api/types";
 
 export const appointmentKeys = {
   all: ["appointments"] as const,
   list: (params: ListAppointmentsParams) => ["appointments", "list", params] as const,
+  detail: (appointmentId: string) => ["appointments", "detail", appointmentId] as const,
   suggestions: (appointmentId: string) => ["appointments", "detail", appointmentId, "suggestions"] as const,
 };
 
@@ -71,3 +80,35 @@ export function useRejectAppointment() {
     },
   });
 }
+
+// MW-05: chi tiết một lịch hẹn thật.
+export function useAppointment(appointmentId: string) {
+  return useQuery({
+    queryKey: appointmentKeys.detail(appointmentId),
+    queryFn: () => getAppointment(appointmentId),
+  });
+}
+
+// Tải lại cả khi lỗi: 404/409 nghĩa là lịch đã đổi (Frontend-Architecture 5.1).
+export function useUpdateAppointment() {
+  const refreshAppointments = useRefreshAppointments();
+  return useMutation({
+    mutationFn: (params: { appointmentId: string; request: UpdateAppointmentRequest }) =>
+      updateAppointment(params.appointmentId, params.request),
+    onSettled: () => {
+      void refreshAppointments();
+    },
+  });
+}
+
+export function useCancelAppointment() {
+  const refreshAppointments = useRefreshAppointments();
+  return useMutation({
+    mutationFn: (params: { appointmentId: string; request: CancelRequest }) =>
+      cancelAppointment(params.appointmentId, params.request),
+    onSettled: () => {
+      void refreshAppointments();
+    },
+  });
+}
+
