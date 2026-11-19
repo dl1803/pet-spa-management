@@ -4157,6 +4157,105 @@ var tests = new (string Name, Func<Task> Run)[]
 
         return Task.CompletedTask;
     }),
+    ("AppointmentInterventionService.ResolveCancelAsync records the reason for a cancellable appointment without changing anything", async () =>
+    {
+        var cases = new (Appointment appointment, CancelReason reason)[]
+        {
+            (OldSpaAppointment(AppointmentStatus.Pending, TimeSpan.FromDays(5)), CancelReason.StoreUnable),
+            (OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5)), CancelReason.CustomerBeyondDeadline),
+            (OldHotelAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5)), CancelReason.StoreUnable),
+        };
+
+        foreach (var (appointment, reason) in cases)
+        {
+            var initialStatus = appointment.Status;
+            var fixture = new InterventionFixture(appointment);
+
+            var decision = await fixture.Intervention.ResolveCancelAsync(fixture.Manager, appointment.AppointmentId, reason);
+
+            Check(decision.Reason == reason, "The decision must carry the requested reason.");
+            Check(ReferenceEquals(decision.Appointment, appointment), "The decision must reference the target appointment.");
+            Check(appointment.Status == initialStatus, "The status must remain unchanged.");
+            Check(fixture.Changes.SavedCancellations.Count == 0, "No cancellations must be saved to the database.");
+            Check(fixture.Guard.RunCalls == 0, "No transaction or lock must be executed.");
+        }
+    }),
+    ("AppointmentInterventionService.ResolveCancelAsync requires a manager", async () =>
+    {
+        var appointment = OldSpaAppointment(AppointmentStatus.Pending, TimeSpan.FromDays(5));
+        var fixture = new InterventionFixture(appointment);
+
+        foreach (var role in new[] { UserRole.Customer, UserRole.Staff })
+        {
+            var codeWithReason = await FailureCodeAsync(() => fixture.Intervention.ResolveCancelAsync(
+                new CurrentUser(Guid.NewGuid(), role), appointment.AppointmentId, CancelReason.StoreUnable));
+            Check(codeWithReason == ErrorCodes.Forbidden, $"{role} must be rejected with FORBIDDEN even with reason.");
+
+            var codeNullReason = await FailureCodeAsync(() => fixture.Intervention.ResolveCancelAsync(
+                new CurrentUser(Guid.NewGuid(), role), appointment.AppointmentId, null));
+            Check(codeNullReason == ErrorCodes.Forbidden, $"{role} must be rejected with FORBIDDEN before checking reason.");
+        }
+    }),
+    ("AppointmentInterventionService.ResolveCancelAsync requires a reason a manager may give", async () =>
+    {
+        var appointment = OldSpaAppointment(AppointmentStatus.Pending, TimeSpan.FromDays(5));
+        var fixture = new InterventionFixture(appointment);
+
+        var nullCode = await FailureCodeAsync(() => fixture.Intervention.ResolveCancelAsync(
+            fixture.Manager, appointment.AppointmentId, null));
+        Check(nullCode == ErrorCodes.ValidationError, "Null reason must yield ValidationError.");
+
+        foreach (var invalidReason in new[] { CancelReason.CustomerCancelled, CancelReason.NoShow, CancelReason.CostNotConfirmed })
+        {
+            var code = await FailureCodeAsync(() => fixture.Intervention.ResolveCancelAsync(
+                fixture.Manager, appointment.AppointmentId, invalidReason));
+            Check(code == ErrorCodes.ValidationError, $"{invalidReason} must yield ValidationError for manager cancel.");
+        }
+    }),
+    ("AppointmentInterventionService.ResolveCancelAsync rejects unknown appointments and statuses that cannot be cancelled with the reason", async () =>
+    {
+        var fixtureUnknown = new InterventionFixture(OldSpaAppointment(AppointmentStatus.Pending, TimeSpan.FromDays(5)));
+        var unknownCode = await FailureCodeAsync(() => fixtureUnknown.Intervention.ResolveCancelAsync(
+            fixtureUnknown.Manager, Guid.NewGuid(), CancelReason.StoreUnable));
+        Check(unknownCode == ErrorCodes.NotFound, "Unknown appointment must yield NotFound.");
+
+        var invalidStatusCases = new Appointment[]
+        {
+            OldSpaAppointment(AppointmentStatus.Completed, TimeSpan.FromDays(5)),
+            OldSpaAppointment(AppointmentStatus.Cancelled, TimeSpan.FromDays(5)),
+            OldHotelAppointment(AppointmentStatus.Completed, TimeSpan.FromDays(5)),
+        };
+
+        foreach (var appt in invalidStatusCases)
+        {
+            var fixture = new InterventionFixture(appt);
+            var code = await FailureCodeAsync(() => fixture.Intervention.ResolveCancelAsync(
+                fixture.Manager, appt.AppointmentId, CancelReason.StoreUnable));
+            Check(code == ErrorCodes.InvalidTransition, $"Status {appt.Status} must yield InvalidTransition.");
+        }
+    }),
+    ("CancelAppointmentRequestValidator accepts only the manager reasons", () =>
+    {
+        var validator = new CancelAppointmentRequestValidator();
+
+        var validNull = validator.Validate(new CancelAppointmentRequest(null));
+        Check(validNull.IsValid, "Null reason must be valid in request validator.");
+
+        var validStoreUnable = validator.Validate(new CancelAppointmentRequest(CancelReason.StoreUnable));
+        Check(validStoreUnable.IsValid, "StoreUnable must be valid.");
+
+        var validCustomerBeyond = validator.Validate(new CancelAppointmentRequest(CancelReason.CustomerBeyondDeadline));
+        Check(validCustomerBeyond.IsValid, "CustomerBeyondDeadline must be valid.");
+
+        foreach (var invalidReason in new[] { CancelReason.CustomerCancelled, CancelReason.NoShow, CancelReason.CostNotConfirmed })
+        {
+            var result = validator.Validate(new CancelAppointmentRequest(invalidReason));
+            Check(!result.IsValid && result.Errors.Any(e => e.PropertyName == "Reason"),
+                $"{invalidReason} must fail validation on Reason.");
+        }
+
+        return Task.CompletedTask;
+    }),
     ("AppointmentChangeService.ResolveCancelTargetAsync returns the appointment of its owner without checking status or window", async () =>
     {
         var spa = OldSpaAppointment(AppointmentStatus.Received, TimeSpan.FromMinutes(5));

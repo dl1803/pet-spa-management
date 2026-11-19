@@ -18,6 +18,8 @@ public sealed record ManagerAppointmentChange(
     Guid? CageId,
     bool ConfirmOutOfShift);
 
+public sealed record ManagerCancelDecision(Appointment Appointment, CancelReason Reason);
+
 public sealed class AppointmentInterventionService(
     IAppointmentChangeRepository changes,
     IAssignmentRepository assignments,
@@ -222,5 +224,29 @@ public sealed class AppointmentInterventionService(
     private static void EnsureManager(CurrentUser user)
     {
         if (user.Role != UserRole.Manager) throw new BusinessException(ErrorCodes.Forbidden);
+    }
+
+    private static readonly CancelReason[] ManagerCancelReasons =
+        [CancelReason.StoreUnable, CancelReason.CustomerBeyondDeadline];
+
+    public async Task<ManagerCancelDecision> ResolveCancelAsync(
+        CurrentUser user, Guid appointmentId, CancelReason? reason, CancellationToken ct = default)
+    {
+        EnsureManager(user);
+
+        if (reason is null)
+            throw new BusinessException(ErrorCodes.ValidationError, "reason là bắt buộc khi quản lý hủy lịch.");
+
+        if (!ManagerCancelReasons.Contains(reason.Value))
+            throw new BusinessException(
+                ErrorCodes.ValidationError, "reason chỉ được là StoreUnable hoặc CustomerBeyondDeadline.");
+
+        var target = await changes.FindTargetAsync(appointmentId, ct)
+            ?? throw new BusinessException(ErrorCodes.NotFound);
+
+        if (!target.Appointment.CanCancelWith(reason.Value))
+            throw new BusinessException(ErrorCodes.InvalidTransition);
+
+        return new ManagerCancelDecision(target.Appointment, reason.Value);
     }
 }

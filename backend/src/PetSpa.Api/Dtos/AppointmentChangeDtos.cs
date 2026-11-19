@@ -13,3 +13,5 @@ public sealed record UpdateAppointmentRequest(
     bool ConfirmOutOfShift = false);
 
 public sealed record AppointmentStatusResponse(AppointmentStatus Status);
+
+public sealed record CancelAppointmentRequest(CancelReason? Reason);
