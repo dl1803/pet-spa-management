@@ -89,7 +89,9 @@ public sealed class AppointmentQueryRepository(AppDbContext db) : IAppointmentQu
             join assignment in db.Set<AppointmentStaff>() on a.AppointmentId equals assignment.AppointmentId
             join staff in db.Set<Staff>() on assignment.StaffId equals staff.StaffId
             join p in db.Set<Pet>() on a.PetId equals p.PetId
-            where staff.UserId == staffUserId && assignment.IsHolding
+            where staff.UserId == staffUserId
+                && a.Status != AppointmentStatus.Pending
+                && (assignment.IsHolding || a.Status == AppointmentStatus.Completed)
             select new { Appointment = a, PetName = p.Name };
 
         var total = await query.CountAsync(ct);
@@ -106,8 +108,12 @@ public sealed class AppointmentQueryRepository(AppDbContext db) : IAppointmentQu
 
     public Task<bool> IsAssignedToSpaStaffAsync(Guid appointmentId, Guid staffUserId, CancellationToken ct = default) =>
         (from assignment in db.Set<AppointmentStaff>().AsNoTracking()
+         join appointment in db.Set<Appointment>().AsNoTracking() on assignment.AppointmentId equals appointment.AppointmentId
          join staff in db.Set<Staff>().AsNoTracking() on assignment.StaffId equals staff.StaffId
-         where assignment.AppointmentId == appointmentId && staff.UserId == staffUserId
+         where assignment.AppointmentId == appointmentId
+             && staff.UserId == staffUserId
+             && appointment.Status != AppointmentStatus.Pending
+             && (assignment.IsHolding || appointment.Status == AppointmentStatus.Completed)
          select assignment.AppointmentId)
         .AnyAsync(ct);
 

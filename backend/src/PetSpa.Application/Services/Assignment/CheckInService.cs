@@ -10,6 +10,8 @@ public sealed class CheckInService(
     IConcurrencyGuard concurrency,
     IStaffRoleReader staffRoles)
 {
+    private const int EarlyCheckInWindowMinutes = 60;
+
     public async Task<AppointmentStatus> CheckInSpaAsync(
         CurrentUser user, Guid appointmentId, CancellationToken ct = default)
     {
@@ -22,8 +24,9 @@ public sealed class CheckInService(
             var appointment = await assignments.FindSpaAppointmentAsync(appointmentId, ct)
                 ?? throw new BusinessException(ErrorCodes.NotFound);
 
+            var now = DateTimeOffset.UtcNow;
             var holdMinutes = await assignments.GetHoldMinutesAsync(ct);
-            if (DateTimeOffset.UtcNow > appointment.SlotStart.AddMinutes(holdMinutes))
+            if (now > appointment.SlotStart.AddMinutes(holdMinutes) || now < appointment.SlotStart.AddMinutes(-EarlyCheckInWindowMinutes))
                 throw new BusinessException(ErrorCodes.InvalidTransition);
 
             appointment.Receive();

@@ -10,6 +10,7 @@ using Microsoft.IdentityModel.Tokens;
 using PetSpa.Api.Controllers;
 using PetSpa.Api.Dtos;
 using PetSpa.Api.Validators;
+using PetSpa.Application;
 using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
@@ -1051,6 +1052,11 @@ var tests = new (string Name, Func<Task> Run)[]
             "Check-in after the hold window must be rejected.");
         Check(expired.Status == AppointmentStatus.Confirmed, "A rejected check-in must keep the status.");
 
+        var tooEarly = NewAppointment(AppointmentStatus.Confirmed, now.AddMinutes(120));
+        Check(await CodeOfAsync(() => Create(tooEarly, receptionist).CheckInSpaAsync(staffUser, tooEarly.AppointmentId)) == ErrorCodes.InvalidTransition,
+            "Check-in more than 60 minutes before slot start must be rejected.");
+        Check(tooEarly.Status == AppointmentStatus.Confirmed, "A rejected check-in must keep the status.");
+
         foreach (var invalidStatus in new[] { AppointmentStatus.Pending, AppointmentStatus.Received, AppointmentStatus.InProgress, AppointmentStatus.Completed, AppointmentStatus.Cancelled })
         {
             var wrongStatus = NewAppointment(invalidStatus, now.AddMinutes(-5));
@@ -1058,6 +1064,15 @@ var tests = new (string Name, Func<Task> Run)[]
                 $"Check-in from {invalidStatus} must be rejected.");
             Check(wrongStatus.Status == invalidStatus, $"A rejected check-in must keep the status {invalidStatus}.");
         }
+    }),
+    ("AddApplication registers CheckInService into DI container", () =>
+    {
+        var services = new ServiceCollection();
+        services.AddApplication();
+        var descriptor = services.FirstOrDefault(d => d.ServiceType == typeof(CheckInService));
+        Check(descriptor is not null && descriptor.Lifetime == ServiceLifetime.Scoped,
+            "CheckInService must be registered as scoped in AddApplication.");
+        return Task.CompletedTask;
     }),
     ("VnpayPaymentRequestBuilder builds the unsigned sandbox payload from the transaction", () =>
     {
