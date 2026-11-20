@@ -1,5 +1,6 @@
 using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
+using PetSpa.Application.Services.Notifications;
 using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
 using PetSpa.Domain.Exceptions;
@@ -19,7 +20,8 @@ public sealed class AppointmentChangeService(
     BookingService bookingService,
     HotelBookingService hotelBookingService,
     IPetRepository pets,
-    IConcurrencyGuard concurrency)
+    IConcurrencyGuard concurrency,
+    AppointmentNotifier notifier)
 {
     public async Task<AppointmentStatus> ChangeAsync(
         CurrentUser user, Guid appointmentId, AppointmentChange change, CancellationToken ct = default)
@@ -50,7 +52,7 @@ public sealed class AppointmentChangeService(
         var deadlineMinutes = await changes.GetChangeCancelDeadlineMinutesAsync(ct);
         EnsureCancellable(target.Appointment, deadlineMinutes);
 
-        return await concurrency.RunAsync(async () =>
+        var status = await concurrency.RunAsync(async () =>
         {
             await concurrency.LockAppointmentAsync(appointmentId, ct);
 
@@ -65,6 +67,10 @@ public sealed class AppointmentChangeService(
 
             return current.Status;
         }, ct);
+
+        await notifier.CancelledAsync(appointmentId, ct);
+
+        return status;
     }
 
     private async Task<AppointmentStatus> ChangeSpaAsync(

@@ -5938,6 +5938,131 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(code == ErrorCodes.Forbidden, "Customer must be rejected with FORBIDDEN.");
         Check(notificationRepo.Created.Count == 0 && reader.Requested.Count == 0,
             "No notification on forbidden reject.");
+    }),
+    ("AppointmentChangeService.CancelAsync notifies the customer and the assigned staff after the transaction", async () =>
+    {
+        var spa = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var fixture = new ChangeFixture(spa);
+        var staffUserId = Guid.NewGuid();
+        fixture.StaffUserIds.Add(staffUserId);
+
+        var status = await fixture.ChangeService.CancelAsync(fixture.Customer, spa.AppointmentId);
+
+        Check(status == AppointmentStatus.Cancelled, "Status must be Cancelled.");
+        Check(fixture.Notices.Created.Count == 2, "2 notifications for customer and staff.");
+        Check(fixture.Notices.Created.All(n => n.Type == NotificationType.Cancelled), "Types must be Cancelled.");
+        Check(fixture.Notices.Created.All(n => n.Message.Contains("Lý do: khách hàng chủ động hủy.")),
+            "Messages must contain customer cancel reason.");
+        Check(fixture.Notices.Created.All(n => !n.InsideTransaction), "Must be sent outside transaction.");
+        Check(fixture.NotificationReader.Requested.Contains(spa.AppointmentId), "Reader must be called with appointment id.");
+
+        var hotel = OldHotelAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var hotelFixture = new ChangeFixture(hotel);
+        var hotelStatus = await hotelFixture.ChangeService.CancelAsync(hotelFixture.Customer, hotel.AppointmentId);
+        Check(hotelStatus == AppointmentStatus.Cancelled, "Hotel status must be Cancelled.");
+        Check(hotelFixture.Notices.Created.Count == 1, "Only 1 notification for hotel customer.");
+        Check(hotelFixture.Notices.Created[0].RecipientUserId == hotelFixture.CustomerUserId, "Recipient must be customer.");
+    }),
+    ("AppointmentChangeService.CancelAsync sends nothing when the cancellation is refused", async () =>
+    {
+        var spa = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromMinutes(10));
+        var fixture = new ChangeFixture(spa, deadlineMinutes: 60);
+        var code = await FailureCodeAsync(() => fixture.ChangeService.CancelAsync(fixture.Customer, spa.AppointmentId));
+        Check(code == ErrorCodes.ChangeWindowClosed, "Must fail with CHANGE_WINDOW_CLOSED.");
+        Check(fixture.Notices.Created.Count == 0 && fixture.NotificationReader.Requested.Count == 0,
+            "No notification on window closed.");
+
+        var otherCustomer = new CurrentUser(Guid.NewGuid(), UserRole.Customer);
+        var codeOther = await FailureCodeAsync(() => fixture.ChangeService.CancelAsync(otherCustomer, spa.AppointmentId));
+        Check(codeOther == ErrorCodes.Forbidden, "Must fail with FORBIDDEN.");
+        Check(fixture.Notices.Created.Count == 0 && fixture.NotificationReader.Requested.Count == 0,
+            "No notification on wrong owner.");
+
+        var completedSpa = OldSpaAppointment(AppointmentStatus.Completed, TimeSpan.FromDays(5));
+        var completedFixture = new ChangeFixture(completedSpa);
+        var codeCompleted = await FailureCodeAsync(() => completedFixture.ChangeService.CancelAsync(completedFixture.Customer, completedSpa.AppointmentId));
+        Check(codeCompleted == ErrorCodes.InvalidTransition, "Must fail with INVALID_TRANSITION.");
+        Check(completedFixture.Notices.Created.Count == 0 && completedFixture.NotificationReader.Requested.Count == 0,
+            "No notification on completed.");
+    }),
+    ("AppointmentChangeService.ChangeAsync does not notify", async () =>
+    {
+        var appointment = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var fixture = new ChangeFixture(appointment);
+
+        var status = await fixture.ChangeService.ChangeAsync(fixture.Customer, appointment.AppointmentId, fixture.SpaChange);
+
+        Check(status == AppointmentStatus.Pending, "Status must be Pending.");
+        Check(fixture.Notices.Created.Count == 0 && fixture.NotificationReader.Requested.Count == 0,
+            "ChangeAsync must not notify.");
+    }),
+    ("AppointmentInterventionService.CancelAsync notifies the customer and the staff in charge with the manager reason", async () =>
+    {
+        var spa = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var fixture = new InterventionFixture(spa);
+        var staffUserId = Guid.NewGuid();
+        fixture.StaffUserIds.Add(staffUserId);
+
+        var status = await fixture.Intervention.CancelAsync(fixture.Manager, spa.AppointmentId, CancelReason.StoreUnable);
+
+        Check(status == AppointmentStatus.Cancelled, "Status must be Cancelled.");
+        Check(fixture.Notices.Created.Count == 2, "2 notifications for customer and staff.");
+        Check(fixture.Notices.Created.All(n => n.Type == NotificationType.Cancelled), "Types must be Cancelled.");
+        Check(fixture.Notices.Created.All(n => n.Message.Contains("Lý do: cửa hàng không thể đáp ứng.")),
+            "Messages must contain StoreUnable reason.");
+        Check(fixture.Notices.Created.All(n => !n.InsideTransaction), "Must be sent outside transaction.");
+        Check(fixture.NotificationReader.Requested.Contains(spa.AppointmentId), "Reader must be called with appointment id.");
+
+        var hotel = OldHotelAppointment(AppointmentStatus.InStay, TimeSpan.FromDays(5));
+        var hotelFixture = new InterventionFixture(hotel);
+        var hotelStatus = await hotelFixture.Intervention.CancelAsync(hotelFixture.Manager, hotel.AppointmentId, CancelReason.CustomerBeyondDeadline);
+        Check(hotelStatus == AppointmentStatus.Cancelled, "Hotel status must be Cancelled.");
+        Check(hotelFixture.Notices.Created.Count == 1, "Only 1 notification for hotel customer.");
+        Check(hotelFixture.Notices.Created[0].RecipientUserId == hotelFixture.CustomerUserId, "Recipient must be customer.");
+        Check(hotelFixture.Notices.Created[0].Message.Contains("theo yêu cầu của khách hàng ngoài thời hạn tự phục vụ"),
+            "Message must contain CustomerBeyondDeadline reason.");
+        Check(!hotelFixture.Notices.Created[0].InsideTransaction, "Must be sent outside transaction.");
+    }),
+    ("AppointmentInterventionService.CancelAsync sends nothing when it is refused", async () =>
+    {
+        var spa = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var fixture = new InterventionFixture(spa);
+
+        var customer = new CurrentUser(Guid.NewGuid(), UserRole.Customer);
+        var code1 = await FailureCodeAsync(() => fixture.Intervention.CancelAsync(customer, spa.AppointmentId, CancelReason.StoreUnable));
+        Check(code1 == ErrorCodes.Forbidden, "Must fail with FORBIDDEN.");
+        Check(fixture.Notices.Created.Count == 0 && fixture.NotificationReader.Requested.Count == 0,
+            "No notification on non-manager.");
+
+        var code2 = await FailureCodeAsync(() => fixture.Intervention.CancelAsync(fixture.Manager, spa.AppointmentId, CancelReason.CustomerCancelled));
+        Check(code2 == ErrorCodes.ValidationError, "Must fail with VALIDATION_ERROR.");
+        Check(fixture.Notices.Created.Count == 0 && fixture.NotificationReader.Requested.Count == 0,
+            "No notification on invalid reason.");
+
+        var completedSpa = OldSpaAppointment(AppointmentStatus.Completed, TimeSpan.FromDays(5));
+        var completedFixture = new InterventionFixture(completedSpa);
+        var code3 = await FailureCodeAsync(() => completedFixture.Intervention.CancelAsync(completedFixture.Manager, completedSpa.AppointmentId, CancelReason.StoreUnable));
+        Check(code3 == ErrorCodes.InvalidTransition, "Must fail with INVALID_TRANSITION.");
+        Check(completedFixture.Notices.Created.Count == 0 && completedFixture.NotificationReader.Requested.Count == 0,
+            "No notification on completed.");
+
+        var changingSpa = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var lockFixture = new InterventionFixture(changingSpa, beforeFindForUpdate: a => a.Status = AppointmentStatus.Completed);
+        var code4 = await FailureCodeAsync(() => lockFixture.Intervention.CancelAsync(lockFixture.Manager, changingSpa.AppointmentId, CancelReason.StoreUnable));
+        Check(code4 == ErrorCodes.InvalidTransition, "Must fail with INVALID_TRANSITION after lock.");
+        Check(lockFixture.Notices.Created.Count == 0 && lockFixture.NotificationReader.Requested.Count == 0,
+            "No notification on status changed after lock.");
+    }),
+    ("AppointmentInterventionService.RescheduleAsync does not notify", async () =>
+    {
+        var spa = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var fixture = new InterventionFixture(spa);
+
+        var status = await fixture.Intervention.RescheduleAsync(fixture.Manager, spa.AppointmentId, fixture.SpaChange([fixture.Staff.StaffId]));
+
+        Check(status == AppointmentStatus.Confirmed, "Status must be Confirmed.");
+        Check(fixture.Notices.Created.Count == 0 && fixture.NotificationReader.Requested.Count == 0,
+            "RescheduleAsync must not notify.");
     })
 };
 
@@ -6859,6 +6984,7 @@ sealed class ChangeFixture
         Action<Appointment>? beforeFindForUpdate = null)
     {
         OwnerUserId = Guid.NewGuid();
+        CustomerUserId = OwnerUserId;
         Pet = new Pet
         {
             PetId = Guid.NewGuid(),
@@ -6895,6 +7021,12 @@ sealed class ChangeFixture
         HotelRepo = new TestHotelBookingRepo(1, heldStays);
         Guard = new TestConcurrencyGuard();
 
+        Notices = new TestNotificationRepo(() => Guard.InsideRun);
+        NotificationReader = new TestAppointmentNotificationReader(
+            _ => new AppointmentNotificationContext(appointment, CustomerUserId, StaffUserIds.ToList()));
+        var notifier = new AppointmentNotifier(
+            NotificationReader, new NotificationService(Notices), new ShopTimeZone(TimeZoneInfo.Utc));
+
         var petRepo = new TestPetRepo(Pet, petBelongsToOther ? Guid.NewGuid() : OwnerUserId);
         var shopZone = new ShopTimeZone(TimeZoneInfo.Utc);
         var bookingService = new BookingService(
@@ -6908,10 +7040,14 @@ sealed class ChangeFixture
         var hotelService = new HotelBookingService(
             petRepo, new TestStaffRoleReader(null), HotelRepo, new TestHotelCatalogRepo(), shopZone, Guard, TestNotifiers.NoNotifier());
 
-        ChangeService = new AppointmentChangeService(Changes, bookingService, hotelService, petRepo, Guard);
+        ChangeService = new AppointmentChangeService(Changes, bookingService, hotelService, petRepo, Guard, notifier);
     }
 
     public Guid OwnerUserId { get; }
+    public Guid CustomerUserId { get; }
+    public List<Guid> StaffUserIds { get; } = [];
+    public TestNotificationRepo Notices { get; }
+    public TestAppointmentNotificationReader NotificationReader { get; }
     public Pet Pet { get; }
     public Guid ServiceId { get; }
     public DateTimeOffset NewSlot { get; }
@@ -6987,6 +7123,13 @@ sealed class InterventionFixture
         HotelAssignments = new TestHotelAssignmentRepo(null, [Cage], CageWindows);
         Guard = new TestConcurrencyGuard();
 
+        CustomerUserId = Guid.NewGuid();
+        Notices = new TestNotificationRepo(() => Guard.InsideRun);
+        NotificationReader = new TestAppointmentNotificationReader(
+            _ => new AppointmentNotificationContext(appointment, CustomerUserId, StaffUserIds.ToList()));
+        var notifier = new AppointmentNotifier(
+            NotificationReader, new NotificationService(Notices), new ShopTimeZone(TimeZoneInfo.Utc));
+
         var petRepo = new TestPetRepo(Pet, Guid.NewGuid());
         var shopZone = new ShopTimeZone(TimeZoneInfo.Utc);
         var bookingService = new BookingService(
@@ -7001,9 +7144,13 @@ sealed class InterventionFixture
             petRepo, new TestStaffRoleReader(null), HotelRepo, new TestHotelCatalogRepo(), shopZone, Guard, TestNotifiers.NoNotifier());
 
         Intervention = new AppointmentInterventionService(
-            Changes, Assignments, Schedule, HotelAssignments, bookingService, hotelService, petRepo, Guard, shopZone);
+            Changes, Assignments, Schedule, HotelAssignments, bookingService, hotelService, petRepo, Guard, shopZone, notifier);
     }
 
+    public Guid CustomerUserId { get; }
+    public List<Guid> StaffUserIds { get; } = [];
+    public TestNotificationRepo Notices { get; }
+    public TestAppointmentNotificationReader NotificationReader { get; }
     public Appointment Appointment { get; }
     public Pet Pet { get; }
     public Guid ServiceId { get; }
