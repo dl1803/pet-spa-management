@@ -1,12 +1,16 @@
 import { apiClient } from "@/lib/api/client";
 import type {
+  AppointmentDetail,
   AppointmentPage,
   AppointmentStatus,
   AppointmentType,
+  CancelRequest,
   ConfirmHotelRequest,
   ConfirmSpaRequest,
   HotelSuggestions,
   SpaSuggestions,
+  StatusResult,
+  UpdateAppointmentRequest,
 } from "@/lib/api/types";
 
 // Chỉ khai báo tham số màn đang dùng; openapi còn `date`, `petId` (backend hiện chưa lọc theo `date`).
@@ -44,3 +48,22 @@ export async function confirmAppointment(appointmentId: string, request: Confirm
 export async function rejectAppointment(appointmentId: string): Promise<void> {
   await apiClient.post(`/appointments/${encodeURIComponent(appointmentId)}/reject`);
 }
+
+// GET /appointments/{id} (getAppointment): Quản lý xem lịch của toàn cửa hàng; 403 nếu ngoài phạm vi, 404 nếu không có.
+export async function getAppointment(appointmentId: string) {
+  const { data } = await apiClient.get<AppointmentDetail>(`/appointments/${encodeURIComponent(appointmentId)}`);
+  return data;
+}
+
+// PUT /appointments/{id} (updateAppointment): Quản lý đổi lịch Chờ xác nhận hoặc Đã xác nhận khi can thiệp; trạng thái được giữ nguyên.
+export async function updateAppointment(appointmentId: string, request: UpdateAppointmentRequest) {
+  const { data } = await apiClient.put<StatusResult>(`/appointments/${encodeURIComponent(appointmentId)}`, request);
+  return data;
+}
+
+// POST /appointments/{id}/cancel (cancelAppointment): Quản lý gửi { reason }; 200 { status: "Cancelled" }.
+export async function cancelAppointment(appointmentId: string, request: CancelRequest) {
+  const { data } = await apiClient.post<StatusResult>(`/appointments/${encodeURIComponent(appointmentId)}/cancel`, request);
+  return data;
+}
+
