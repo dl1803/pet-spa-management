@@ -13,6 +13,7 @@ type ConfirmDialogProps = {
   children?: ReactNode;
   confirmLabel: string;
   cancelLabel?: string;
+  disabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -33,6 +34,7 @@ export function ConfirmDialog({
   children,
   confirmLabel,
   cancelLabel = "Quay lại",
+  disabled = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -57,10 +59,10 @@ export function ConfirmDialog({
       aria-labelledby={titleId}
       onCancel={(event) => {
         event.preventDefault();
-        onCancel();
+        if (!disabled) onCancel();
       }}
       onClick={(event) => {
-        if (event.target === event.currentTarget) onCancel();
+        if (event.target === event.currentTarget && !disabled) onCancel();
       }}
       className="m-auto w-[480px] max-w-[calc(100%-32px)] animate-dialog-in rounded-2xl border-0 bg-white p-0 text-ink shadow-pop backdrop:bg-ink/40"
     >
@@ -75,8 +77,8 @@ export function ConfirmDialog({
       </div>
       {children && <div className="px-6 pt-4">{children}</div>}
       <div className="flex justify-end gap-2.5 px-6 pb-6 pt-6">
-        <Button variant="ghost" onClick={onCancel}>{cancelLabel}</Button>
-        <Button variant="danger-solid" onClick={onConfirm}>{confirmLabel}</Button>
+        <Button variant="ghost" disabled={disabled} onClick={onCancel}>{cancelLabel}</Button>
+        <Button variant="danger-solid" disabled={disabled} aria-busy={disabled ? "true" : undefined} onClick={onConfirm}>{confirmLabel}</Button>
       </div>
     </dialog>
   );

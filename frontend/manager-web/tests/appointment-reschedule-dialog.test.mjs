@@ -4,6 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "../components/feedback/toast.tsx";
+import { ConfirmDialog } from "../components/ui/confirm-dialog.tsx";
 import { LiveAppointmentHeader } from "../features/appointments/components/live-appointment-header.tsx";
 import { RescheduleHotelDialog } from "../features/appointments/components/reschedule-hotel-dialog.tsx";
 import { RescheduleSpaDialog } from "../features/appointments/components/reschedule-spa-dialog.tsx";
@@ -166,4 +167,39 @@ test("LiveAppointmentHeader: có nút Đổi lịch với Pending/Confirmed, kh�
 
   const completedHtml = renderHeader({ ...baseSpa, status: "Completed" });
   assert.ok(!completedHtml.includes("Đổi lịch"));
+});
+
+test("ConfirmDialog: hỗ trợ prop disabled chống bấm đúp và thể hiện aria-busy", () => {
+  const normalHtml = renderToStaticMarkup(
+    React.createElement(ConfirmDialog, {
+      icon: "alert",
+      title: "Nhân viên ngoài ca",
+      description: "Mô tả",
+      confirmLabel: "Vẫn xác nhận",
+      cancelLabel: "Chọn lại",
+      disabled: false,
+      onConfirm() {},
+      onCancel() {},
+    }),
+  );
+  assert.ok(normalHtml.includes("Vẫn xác nhận"));
+  assert.ok(normalHtml.includes("Chọn lại"));
+  assert.ok(!normalHtml.includes('aria-busy="true"'));
+
+  const disabledHtml = renderToStaticMarkup(
+    React.createElement(ConfirmDialog, {
+      icon: "alert",
+      title: "Nhân viên ngoài ca",
+      description: "Mô tả",
+      confirmLabel: "Đang lưu…",
+      cancelLabel: "Chọn lại",
+      disabled: true,
+      onConfirm() {},
+      onCancel() {},
+    }),
+  );
+  assert.ok(disabledHtml.includes("Đang lưu…"));
+  assert.ok(disabledHtml.includes('aria-busy="true"'));
+  const disabledMatches = disabledHtml.match(/disabled/g);
+  assert.ok(disabledMatches && disabledMatches.length >= 2);
 });

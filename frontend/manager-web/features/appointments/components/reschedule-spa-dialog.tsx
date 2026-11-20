@@ -49,6 +49,7 @@ export function RescheduleSpaDialog({ appointment, onClose, fallbackFocusRef }: 
 
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<unknown>(null);
+  const [isConfirmingOutOfShift, setIsConfirmingOutOfShift] = useState(false);
   const [outOfShiftConfirm, setOutOfShiftConfirm] = useState<{
     detail: string | null;
     values: SpaRescheduleValues;
@@ -57,7 +58,9 @@ export function RescheduleSpaDialog({ appointment, onClose, fallbackFocusRef }: 
   const staffRequired: 1 | 2 = appointment.staffRequired === 2 ? 2 : 1;
   const isConfirmed = appointment.status === "Confirmed";
 
-  const { data: staffData, isPending: isStaffPending, error: staffError, refetch: refetchStaff } = useStaffList();
+  const { data: staffData, isPending: isStaffPending, error: staffError, refetch: refetchStaff } = useStaffList({
+    enabled: isConfirmed,
+  });
   const availableStaff = (staffData?.items ?? []).filter((s) => s.staffRole === "SpaStaff" && s.isActive);
 
   const currentTime = appointment.slotStart ? formatTime(appointment.slotStart) : "";
@@ -78,6 +81,8 @@ export function RescheduleSpaDialog({ appointment, onClose, fallbackFocusRef }: 
   const selectedStaffIds = useWatch({ control, name: "staffIds" }) ?? [];
 
   async function doUpdate(values: SpaRescheduleValues, confirmOutOfShift?: boolean) {
+    if (submitting.current) return;
+    submitting.current = true;
     setAlertMessage(null);
     setSubmitError(null);
     try {
@@ -99,6 +104,8 @@ export function RescheduleSpaDialog({ appointment, onClose, fallbackFocusRef }: 
       } else {
         setSubmitError(failure.error);
       }
+    } finally {
+      submitting.current = false;
     }
   }
 
@@ -112,17 +119,12 @@ export function RescheduleSpaDialog({ appointment, onClose, fallbackFocusRef }: 
 
   async function submitForm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitting.current) return;
-    submitting.current = true;
-    try {
-      await handleSubmit(submit)(event);
-    } finally {
-      submitting.current = false;
-    }
+    if (submitting.current || isConfirmingOutOfShift) return;
+    await handleSubmit(submit)(event);
   }
 
   function close() {
-    if (!submitting.current && !isSubmitting) onClose();
+    if (!submitting.current && !isSubmitting && !isConfirmingOutOfShift) onClose();
   }
 
   return (
@@ -242,15 +244,15 @@ export function RescheduleSpaDialog({ appointment, onClose, fallbackFocusRef }: 
           </div>
 
           <div className="flex justify-end gap-2.5 px-6 pb-6">
-            <Button variant="ghost" data-initial-focus disabled={isSubmitting} onClick={close}>
+            <Button variant="ghost" data-initial-focus disabled={isSubmitting || isConfirmingOutOfShift} onClick={close}>
               Hủy bỏ
             </Button>
             <Button
               type="submit"
-              disabled={isSubmitting || (isConfirmed && isStaffPending)}
-              aria-busy={isSubmitting ? "true" : undefined}
+              disabled={isSubmitting || isConfirmingOutOfShift || (isConfirmed && isStaffPending)}
+              aria-busy={isSubmitting || isConfirmingOutOfShift ? "true" : undefined}
             >
-              {isSubmitting ? "Đang lưu…" : "Lưu thay đổi"}
+              {isSubmitting || isConfirmingOutOfShift ? "Đang lưu…" : "Lưu thay đổi"}
             </Button>
           </div>
         </form>
@@ -261,14 +263,22 @@ export function RescheduleSpaDialog({ appointment, onClose, fallbackFocusRef }: 
           icon="alert"
           title="Nhân viên ngoài ca làm"
           description="Nhân viên này nằm ngoài ca làm, bạn vẫn muốn chọn?"
-          confirmLabel="Vẫn xác nhận"
+          confirmLabel={isConfirmingOutOfShift ? "Đang lưu…" : "Vẫn xác nhận"}
           cancelLabel="Chọn lại"
+          disabled={isConfirmingOutOfShift}
           onConfirm={async () => {
+            if (isConfirmingOutOfShift || submitting.current) return;
+            setIsConfirmingOutOfShift(true);
             const { values } = outOfShiftConfirm;
-            setOutOfShiftConfirm(null);
-            await doUpdate(values, true);
+            try {
+              await doUpdate(values, true);
+            } finally {
+              setIsConfirmingOutOfShift(false);
+              setOutOfShiftConfirm(null);
+            }
           }}
           onCancel={() => {
+            if (isConfirmingOutOfShift) return;
             setOutOfShiftConfirm(null);
           }}
         >

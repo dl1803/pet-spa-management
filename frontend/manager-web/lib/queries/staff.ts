@@ -13,8 +13,12 @@ export const STAFF_PAGE_SIZE = 100;
 
 const STAFF_PARAMS: ListStaffParams = { page: 1, pageSize: STAFF_PAGE_SIZE };
 
-export function useStaffList() {
-  return useQuery({ queryKey: staffKeys.list(STAFF_PARAMS), queryFn: () => listStaff(STAFF_PARAMS) });
+export function useStaffList(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: staffKeys.list(STAFF_PARAMS),
+    queryFn: () => listStaff(STAFF_PARAMS),
+    enabled: options?.enabled,
+  });
 }
 
 // Làm mới danh sách từ server trước khi mutation báo xong, kể cả khi lỗi (404/409 nghĩa là dữ liệu đã đổi),

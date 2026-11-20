@@ -120,6 +120,7 @@ export function RescheduleHotelDialog({ appointment, onClose, fallbackFocusRef }
                 aria-invalid={errors.checkInDate ? true : undefined}
                 aria-describedby={describedBy(checkInDateId, { hasError: Boolean(errors.checkInDate) })}
                 {...register("checkInDate", {
+                  deps: ["checkOutDate"],
                   validate: (val) => {
                     const err = validateHotelCheckInDate(val);
                     if (err) return err;
