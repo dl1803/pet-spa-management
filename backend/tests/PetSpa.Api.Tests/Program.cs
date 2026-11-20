@@ -4448,6 +4448,195 @@ var tests = new (string Name, Func<Task> Run)[]
             Check(code == ErrorCodes.InvalidTransition, $"Status {appt.Status} must yield InvalidTransition.");
         }
     }),
+    ("AppointmentInterventionService.CancelAsync cancels any appointment before Completed with the manager reason", async () =>
+    {
+        var spaStatuses = new[]
+        {
+            AppointmentStatus.Pending,
+            AppointmentStatus.Confirmed,
+            AppointmentStatus.Received,
+            AppointmentStatus.InProgress,
+        };
+
+        var hotelStatuses = new[]
+        {
+            AppointmentStatus.Pending,
+            AppointmentStatus.Confirmed,
+            AppointmentStatus.InStay,
+        };
+
+        var reasons = new[]
+        {
+            CancelReason.StoreUnable,
+            CancelReason.CustomerBeyondDeadline,
+        };
+
+        foreach (var status in spaStatuses)
+        {
+            foreach (var reason in reasons)
+            {
+                var appointment = OldSpaAppointment(status, TimeSpan.FromDays(5));
+                var fixture = new InterventionFixture(appointment);
+
+                var result = await fixture.Intervention.CancelAsync(fixture.Manager, appointment.AppointmentId, reason);
+
+                Check(result == AppointmentStatus.Cancelled, "CancelAsync must return Cancelled.");
+                Check(appointment.Status == AppointmentStatus.Cancelled, "Status must be Cancelled.");
+                Check(appointment.CancelReason == reason, "CancelReason must match requested reason.");
+                Check(appointment.CancelledAt != null, "CancelledAt must not be null.");
+                Check(fixture.Changes.SavedCancellations.Count == 1 && ReferenceEquals(fixture.Changes.SavedCancellations[0], appointment),
+                    "SavedCancellations must contain the appointment.");
+                Check(fixture.Guard.RunCalls == 1, "RunCalls must be 1.");
+                Check(string.Join(",", fixture.Guard.LockOrder) == "lock-appointment", "Lock order must be lock-appointment.");
+            }
+        }
+
+        foreach (var status in hotelStatuses)
+        {
+            foreach (var reason in reasons)
+            {
+                var appointment = OldHotelAppointment(status, TimeSpan.FromDays(5));
+                var initialCageId = appointment.CageId;
+                var fixture = new InterventionFixture(appointment);
+
+                var result = await fixture.Intervention.CancelAsync(fixture.Manager, appointment.AppointmentId, reason);
+
+                Check(result == AppointmentStatus.Cancelled, "CancelAsync must return Cancelled for hotel.");
+                Check(appointment.Status == AppointmentStatus.Cancelled, "Hotel status must be Cancelled.");
+                Check(appointment.CancelReason == reason, "Hotel CancelReason must match requested reason.");
+                Check(appointment.CancelledAt != null, "Hotel CancelledAt must not be null.");
+                Check(fixture.Changes.SavedCancellations.Count == 1 && ReferenceEquals(fixture.Changes.SavedCancellations[0], appointment),
+                    "Hotel SavedCancellations must contain the appointment.");
+                Check(fixture.Guard.RunCalls == 1, "Hotel RunCalls must be 1.");
+                Check(string.Join(",", fixture.Guard.LockOrder) == "lock-appointment", "Hotel lock order must be lock-appointment.");
+                Check(appointment.CageId == initialCageId, "Hotel CageId must remain unchanged.");
+            }
+        }
+    }),
+    ("AppointmentInterventionService.CancelAsync ignores the customer change window", async () =>
+    {
+        var appointment = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromMinutes(5));
+        var fixture = new InterventionFixture(appointment);
+
+        var result = await fixture.Intervention.CancelAsync(fixture.Manager, appointment.AppointmentId, CancelReason.StoreUnable);
+
+        Check(result == AppointmentStatus.Cancelled, "Manager cancel must succeed within customer deadline window.");
+        Check(appointment.Status == AppointmentStatus.Cancelled, "Appointment must be Cancelled.");
+    }),
+    ("AppointmentInterventionService.CancelAsync rejects non-managers, bad reasons, unknown and finished appointments before any transaction", async () =>
+    {
+        var appointment = OldSpaAppointment(AppointmentStatus.Pending, TimeSpan.FromDays(5));
+        var fixture = new InterventionFixture(appointment);
+
+        foreach (var role in new[] { UserRole.Customer, UserRole.Staff })
+        {
+            var code = await FailureCodeAsync(() => fixture.Intervention.CancelAsync(
+                new CurrentUser(Guid.NewGuid(), role), appointment.AppointmentId, CancelReason.StoreUnable));
+            Check(code == ErrorCodes.Forbidden, $"{role} must be rejected with FORBIDDEN.");
+        }
+
+        var badReasons = new CancelReason?[]
+        {
+            null,
+            CancelReason.CustomerCancelled,
+            CancelReason.NoShow,
+            CancelReason.CostNotConfirmed,
+        };
+
+        foreach (var badReason in badReasons)
+        {
+            var code = await FailureCodeAsync(() => fixture.Intervention.CancelAsync(
+                fixture.Manager, appointment.AppointmentId, badReason));
+            Check(code == ErrorCodes.ValidationError, $"{badReason} must be rejected with VALIDATION_ERROR.");
+        }
+
+        var unknownFixture = new InterventionFixture(appointment);
+        var unknownCode = await FailureCodeAsync(() => unknownFixture.Intervention.CancelAsync(
+            unknownFixture.Manager, Guid.NewGuid(), CancelReason.StoreUnable));
+        Check(unknownCode == ErrorCodes.NotFound, "Unknown appointment must yield NOT_FOUND.");
+
+        var finishedCases = new Appointment[]
+        {
+            OldSpaAppointment(AppointmentStatus.Completed, TimeSpan.FromDays(5)),
+            OldSpaAppointment(AppointmentStatus.Cancelled, TimeSpan.FromDays(5)),
+            OldHotelAppointment(AppointmentStatus.Completed, TimeSpan.FromDays(5)),
+            OldHotelAppointment(AppointmentStatus.Cancelled, TimeSpan.FromDays(5)),
+        };
+
+        foreach (var finished in finishedCases)
+        {
+            var finishedFixture = new InterventionFixture(finished);
+            var code = await FailureCodeAsync(() => finishedFixture.Intervention.CancelAsync(
+                finishedFixture.Manager, finished.AppointmentId, CancelReason.StoreUnable));
+            Check(code == ErrorCodes.InvalidTransition, $"Finished status {finished.Status} must yield INVALID_TRANSITION.");
+        }
+
+        Check(fixture.Guard.RunCalls == 0 && fixture.Changes.SavedCancellations.Count == 0,
+            "No transaction or saved cancellation on early failure.");
+    }),
+    ("AppointmentInterventionService.CancelAsync re-checks the status after the row lock", async () =>
+    {
+        var appointment = OldSpaAppointment(AppointmentStatus.Pending, TimeSpan.FromDays(5));
+        var fixture = new InterventionFixture(appointment, beforeFindForUpdate: a => a.Status = AppointmentStatus.Completed);
+
+        var code = await FailureCodeAsync(() => fixture.Intervention.CancelAsync(
+            fixture.Manager, appointment.AppointmentId, CancelReason.StoreUnable));
+
+        Check(code == ErrorCodes.InvalidTransition, "Status changed after lock must yield INVALID_TRANSITION.");
+        Check(fixture.Changes.SavedCancellations.Count == 0, "No cancellation must be saved when re-check fails.");
+    }),
+    ("AppointmentsController.Cancel lets a manager cancel with a reason", async () =>
+    {
+        var appointment = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var fixture = new InterventionFixture(appointment);
+        var controller = new AppointmentsController(null!, appointmentInterventionService: fixture.Intervention)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [
+                        new Claim(TokenClaims.UserId, Guid.NewGuid().ToString()),
+                        new Claim(TokenClaims.Role, "Manager"),
+                    ], "test")),
+                },
+            },
+        };
+
+        var ok = await controller.Cancel(
+            appointment.AppointmentId,
+            new CancelAppointmentRequest(CancelReason.StoreUnable),
+            CancellationToken.None) as OkObjectResult;
+
+        Check(ok?.Value is AppointmentStatusResponse { Status: AppointmentStatus.Cancelled },
+            "Cancel must return 200 with Cancelled status.");
+        Check(appointment.Status == AppointmentStatus.Cancelled, "Status must be Cancelled.");
+        Check(appointment.CancelReason == CancelReason.StoreUnable, "CancelReason must be StoreUnable.");
+    }),
+    ("AppointmentsController.Cancel without a reason from a manager is rejected", async () =>
+    {
+        var appointment = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        var fixture = new InterventionFixture(appointment);
+        var controller = new AppointmentsController(null!, appointmentInterventionService: fixture.Intervention)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [
+                        new Claim(TokenClaims.UserId, Guid.NewGuid().ToString()),
+                        new Claim(TokenClaims.Role, "Manager"),
+                    ], "test")),
+                },
+            },
+        };
+
+        var code = await FailureCodeAsync(() => controller.Cancel(appointment.AppointmentId, null, CancellationToken.None));
+        Check(code == ErrorCodes.ValidationError, "Manager cancel without reason must yield VALIDATION_ERROR.");
+        Check(fixture.Changes.SavedCancellations.Count == 0, "No cancellations saved on null request.");
+    }),
     ("CancelAppointmentRequestValidator accepts only the manager reasons", () =>
     {
         var validator = new CancelAppointmentRequestValidator();
@@ -4696,7 +4885,7 @@ var tests = new (string Name, Func<Task> Run)[]
               && fixture.Changes.SavedSpaServiceIds.Count == 0 && fixture.Guard.LockOrder.Count == 0,
             "Neither the change nor the cancel may touch the appointment after the window closes.");
     }),
-    ("AppointmentsController.Cancel is a POST {id}/cancel restricted to the Customer policy and returns the new status", async () =>
+    ("AppointmentsController.Cancel is a POST {id}/cancel restricted to the CustomerOrManager policy and returns the new status", async () =>
     {
         var method = typeof(AppointmentsController).GetMethod(nameof(AppointmentsController.Cancel));
         var post = method?.GetCustomAttributes(typeof(HttpPostAttribute), true).OfType<HttpPostAttribute>().FirstOrDefault();
@@ -4704,9 +4893,9 @@ var tests = new (string Name, Func<Task> Run)[]
             .OfType<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>().FirstOrDefault();
 
         Check(post?.Template == "{id}/cancel", "Cancel must be bound to POST {id}/cancel.");
-        Check(authorize?.Policy == AuthorizationPolicies.Customer, "Cancel must require the Customer policy.");
-        Check(method!.GetParameters().Select(p => p.ParameterType).SequenceEqual(new[] { typeof(Guid), typeof(CancellationToken) }),
-            "The customer cancel must not take a request body or a reason.");
+        Check(authorize?.Policy == AuthorizationPolicies.CustomerOrManager, "Cancel must require the CustomerOrManager policy.");
+        Check(method!.GetParameters().Select(p => p.ParameterType).SequenceEqual(new[] { typeof(Guid), typeof(CancelAppointmentRequest), typeof(CancellationToken) }),
+            "Cancel must take the optional manager request body.");
 
         var appointment = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
         var fixture = new ChangeFixture(appointment);
@@ -4725,7 +4914,7 @@ var tests = new (string Name, Func<Task> Run)[]
             },
         };
 
-        var ok = await controller.Cancel(appointment.AppointmentId, CancellationToken.None) as OkObjectResult;
+        var ok = await controller.Cancel(appointment.AppointmentId, null, CancellationToken.None) as OkObjectResult;
 
         Check(ok?.Value is AppointmentStatusResponse { Status: AppointmentStatus.Cancelled }
               && appointment.Status == AppointmentStatus.Cancelled,

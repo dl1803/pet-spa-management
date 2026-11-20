@@ -249,4 +249,24 @@ public sealed class AppointmentInterventionService(
 
         return new ManagerCancelDecision(target.Appointment, reason.Value);
     }
+
+    public async Task<AppointmentStatus> CancelAsync(
+        CurrentUser user, Guid appointmentId, CancelReason? reason, CancellationToken ct = default)
+    {
+        var decision = await ResolveCancelAsync(user, appointmentId, reason, ct);
+
+        return await concurrency.RunAsync(async () =>
+        {
+            await concurrency.LockAppointmentAsync(appointmentId, ct);
+
+            var current = await changes.FindForUpdateAsync(appointmentId, ct)
+                ?? throw new BusinessException(ErrorCodes.NotFound);
+
+            current.Cancel(decision.Reason);
+
+            await changes.SaveCancellationAsync(current, ct);
+
+            return current.Status;
+        }, ct);
+    }
 }
