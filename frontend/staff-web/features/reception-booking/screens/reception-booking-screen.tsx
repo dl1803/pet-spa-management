@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs } from "@/components/ui/tabs";
 import { HotelBookingPanel } from "@/features/reception-booking/components/hotel-booking-panel";
 import { ServingCustomerBar } from "@/features/reception-booking/components/serving-customer-bar";
+import { SpaBookingPanel } from "@/features/reception-booking/components/spa-booking-panel";
 import { parseBookingType, type BookingType } from "@/features/reception-booking/forms";
 import { usePets } from "@/lib/queries/pets";
 import { ROUTES, withQuery } from "@/lib/routes";
@@ -129,15 +130,7 @@ function BookingContent({ customer, type, requestedPetId }: BookingContentProps)
     <>
       <ServingCustomerBar customer={customer} />
       <Tabs label="Loại lịch" items={BOOKING_TABS} value={type} onChange={handleTypeChange} />
-      {type === "Spa" ? (
-        <Card>
-          <EmptyState
-            icon="droplet"
-            title="Chức năng chưa khả dụng"
-            description="Đặt lịch spa thay khách chưa có. Chọn Lưu trú để đặt lịch lưu trú."
-          />
-        </Card>
-      ) : pet === null ? (
+      {pet === null ? (
         <Card>
           <EmptyState
             icon="user"
@@ -151,6 +144,8 @@ function BookingContent({ customer, type, requestedPetId }: BookingContentProps)
             }
           />
         </Card>
+      ) : type === "Spa" ? (
+        <SpaBookingPanel customer={customer} pets={pets} pet={pet} onPetSelect={handlePetSelect} />
       ) : (
         <HotelBookingPanel customer={customer} pets={pets} pet={pet} onPetSelect={handlePetSelect} />
       )}
