@@ -1106,6 +1106,18 @@ var tests = new (string Name, Func<Task> Run)[]
         }
 
         Check(threw, "CheckIn must throw ValidationError when the request body is missing.");
+
+        var threwNullWeight = false;
+        try
+        {
+            await controller.CheckIn(spa.AppointmentId, new ActualWeightRequest(null), CancellationToken.None);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.ValidationError)
+        {
+            threwNullWeight = true;
+        }
+
+        Check(threwNullWeight, "CheckIn must throw ValidationError when actualWeightKg is null.");
     }),
     ("CheckInService.CheckInSpaAsync: đối chiếu cân nặng OK, NEEDS_CONFIRMATION, PRICE_DECREASED và chỉ ghi cân nặng thực tế", async () =>
     {
@@ -1251,6 +1263,18 @@ var tests = new (string Name, Func<Task> Run)[]
         }
 
         Check(threw, "WeightCheck must throw ValidationError when the request body is missing.");
+
+        var threwNullWeight = false;
+        try
+        {
+            await controller.WeightCheck(stay.AppointmentId, new ActualWeightRequest(null), CancellationToken.None);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.ValidationError)
+        {
+            threwNullWeight = true;
+        }
+
+        Check(threwNullWeight, "WeightCheck must throw ValidationError when actualWeightKg is null.");
     }),
     ("ActualWeightRequestValidator chỉ chấp nhận cân nặng lớn hơn 0, nhỏ hơn 1000 và tối đa 2 chữ số thập phân", () =>
     {

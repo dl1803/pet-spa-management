@@ -111,5 +111,33 @@ public class WeightComparisonServiceTests
         Assert.Equal(AppointmentStatus.Received, appointment.Status);
         Assert.Equal(SizeGroup.Small, appointment.SizeGroup);
     }
+
+    [Fact]
+    public void Dog_WhenNewGroupIsSmallerThanCurrentGroup_ReturnsPriceDecreasedEvenIfWeightNotSmaller()
+    {
+        var pet = NewPet(Species.Dog, 20.0, 40.0);
+        var result = WeightComparisonService.Compare(pet, SizeGroup.Large, 20.0m, Rules, Tolerances);
+
+        Assert.Equal(WeightCheckResult.PRICE_DECREASED, result.Result);
+        Assert.Equal(SizeGroup.Medium, result.NewSizeGroup);
+    }
+
+    [Fact]
+    public void Compare_WhenMultipleToleranceRowsMatchToGroup_SelectsHighestFromGroupDeterministically()
+    {
+        List<WeightTolerance> multiTolerances =
+        [
+            new() { Species = Species.Cat, FromGroup = SizeGroup.Small, ToGroup = SizeGroup.Large, ToleranceKg = 0.1m },
+            new() { Species = Species.Cat, FromGroup = SizeGroup.Medium, ToGroup = SizeGroup.Large, ToleranceKg = 0.5m },
+        ];
+
+        var pet = NewPet(Species.Cat, 2.8);
+        var result = WeightComparisonService.Compare(pet, SizeGroup.Small, 5.3m, Rules, multiTolerances);
+        Assert.Equal(WeightCheckResult.NEEDS_CONFIRMATION, result.Result);
+
+        multiTolerances.Reverse();
+        var resultReversed = WeightComparisonService.Compare(pet, SizeGroup.Small, 5.3m, Rules, multiTolerances);
+        Assert.Equal(WeightCheckResult.NEEDS_CONFIRMATION, resultReversed.Result);
+    }
 }
 

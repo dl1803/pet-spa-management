@@ -18,18 +18,20 @@ public static class WeightComparisonService
         probe.DetermineSizeGroup(sizeRules);
         var newGroup = probe.SizeGroup;
 
-        if (actualWeightKg < pet.WeightKg)
+        if (newGroup < currentGroup)
         {
-            var lighter = newGroup < currentGroup ? WeightCheckResult.PRICE_DECREASED : WeightCheckResult.OK;
-            return new WeightComparison(lighter, newGroup);
+            return new WeightComparison(WeightCheckResult.PRICE_DECREASED, newGroup);
         }
 
-        if (newGroup <= currentGroup)
+        if (newGroup == currentGroup)
         {
             return new WeightComparison(WeightCheckResult.OK, newGroup);
         }
 
-        var tolerance = tolerances.FirstOrDefault(t => t.Species == pet.Species && t.ToGroup == newGroup)
+        var tolerance = tolerances
+            .Where(t => t.Species == pet.Species && t.ToGroup == newGroup)
+            .OrderByDescending(t => t.FromGroup)
+            .FirstOrDefault()
             ?? throw new InvalidOperationException(
                 $"Thiếu ngưỡng dung sai cân nặng của loài {pet.Species}, nhóm {newGroup} trong bảng WeightTolerance.");
 
