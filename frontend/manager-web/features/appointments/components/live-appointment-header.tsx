@@ -8,7 +8,9 @@ import { describeSpaAppointment } from "@/features/appointments/evidence";
 import type { AppointmentDetail } from "@/lib/api/types";
 import { formatAppointmentCode, formatDate, formatTime } from "@/lib/format";
 import { usePet } from "@/lib/queries/pets";
+import { canCancelAppointment } from "../cancel";
 import { canRescheduleAppointment } from "../forms";
+import { CancelAppointmentDialog } from "./cancel-appointment-dialog";
 import { RescheduleHotelDialog } from "./reschedule-hotel-dialog";
 import { RescheduleSpaDialog } from "./reschedule-spa-dialog";
 
@@ -25,10 +27,10 @@ function describeHotelAppointment(appointment: AppointmentDetail, code: string):
   return `${parts.join(". ")}.`;
 }
 
-// MW-05 vùng 1 – Tiêu đề lịch hẹn thật (UI-Screens.md). Nút Đổi lịch và Hủy lịch sẽ được bổ sung ở các commit sau.
+// MW-05 vùng 1 – Tiêu đề lịch hẹn thật (UI-Screens.md).
 export function LiveAppointmentHeader({ appointment }: { appointment: AppointmentDetail }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const [activeModal, setActiveModal] = useState<"reschedule" | null>(null);
+  const [activeModal, setActiveModal] = useState<"reschedule" | "cancel" | null>(null);
 
   const { data: pet } = usePet(appointment.petId);
   const code = formatAppointmentCode(appointment.appointmentId);
@@ -38,6 +40,9 @@ export function LiveAppointmentHeader({ appointment }: { appointment: Appointmen
     appointment.type === "Spa"
       ? describeSpaAppointment(appointment, code)
       : describeHotelAppointment(appointment, code);
+
+  const canReschedule = canRescheduleAppointment(appointment);
+  const canCancel = canCancelAppointment(appointment);
 
   return (
     <>
@@ -52,11 +57,18 @@ export function LiveAppointmentHeader({ appointment }: { appointment: Appointmen
           </div>
           <p className="mt-1 text-muted">{description}</p>
         </div>
-        {canRescheduleAppointment(appointment) && (
+        {(canReschedule || canCancel) && (
           <div className="ml-auto flex shrink-0 gap-2.5">
-            <Button variant="secondary" onClick={() => setActiveModal("reschedule")}>
-              Đổi lịch
-            </Button>
+            {canReschedule && (
+              <Button variant="secondary" onClick={() => setActiveModal("reschedule")}>
+                Đổi lịch
+              </Button>
+            )}
+            {canCancel && (
+              <Button variant="danger" onClick={() => setActiveModal("cancel")}>
+                Hủy lịch
+              </Button>
+            )}
           </div>
         )}
       </header>
@@ -75,6 +87,14 @@ export function LiveAppointmentHeader({ appointment }: { appointment: Appointmen
             fallbackFocusRef={headingRef}
           />
         ))}
+
+      {activeModal === "cancel" && (
+        <CancelAppointmentDialog
+          appointment={appointment}
+          onClose={() => setActiveModal(null)}
+          fallbackFocusRef={headingRef}
+        />
+      )}
     </>
   );
 }

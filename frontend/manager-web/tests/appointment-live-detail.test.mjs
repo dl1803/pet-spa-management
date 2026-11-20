@@ -37,7 +37,7 @@ function renderDetail(appointmentId, { appointment, pet, error } = {}) {
   );
 }
 
-test("lịch spa thật có tiêu đề, badge trạng thái, dòng mô tả; không có nút Đổi lịch/Hủy lịch", () => {
+test("lịch spa thật có tiêu đề, badge trạng thái, dòng mô tả; trạng thái hoàn tất không có nút Đổi lịch/Hủy lịch", () => {
   const appointment = {
     appointmentId: SPA_ID,
     type: "Spa",
@@ -45,7 +45,7 @@ test("lịch spa thật có tiêu đề, badge trạng thái, dòng mô tả; kh
     customerName: "Nguyễn Văn A",
     petId: "pet-01",
     petName: "Miu Miu",
-    status: "Pending",
+    status: "Completed",
     sizeGroup: "Small",
     slotStart: "2026-11-25T09:00:00+07:00",
     slotEnd: "2026-11-25T10:00:00+07:00",
@@ -66,7 +66,7 @@ test("lịch spa thật có tiêu đề, badge trạng thái, dòng mô tả; kh
 
   const html = renderDetail(SPA_ID, { appointment, pet });
   assert.ok(html.includes("Lịch spa của Miu Miu"));
-  assert.ok(html.includes("Chờ xác nhận"));
+  assert.ok(html.includes("Hoàn tất"));
   assert.ok(html.includes("LH-5F1C2A9B. Nguyễn Văn A."));
   assert.ok(!html.includes("Đổi lịch") && !html.includes("Hủy lịch"));
   assert.equal((html.match(/<button/g) ?? []).length, 0);
