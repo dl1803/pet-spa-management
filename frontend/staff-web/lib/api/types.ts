@@ -161,6 +161,61 @@ export type HotelBookingCreated = {
   estimatedAmount: number;
 };
 
+export type HotelPricing = {
+  pricing: HotelPricingRow[];
+  lateFeePerBlock: number;
+};
+
+export type PricingRow = {
+  species: Species;
+  sizeGroup: SizeGroup;
+  price: number;
+  durationMinutes: number;
+  staffRequired: 1 | 2;
+};
+
+export type Service = {
+  serviceId: string;
+  name: string;
+  description?: string | null;
+  latestStartTime: string;
+  isActive: boolean;
+  pricing: PricingRow[];
+};
+
+export type SlotStatus = "Available" | "Full" | "NotAccepted";
+
+export type SlotInfo = {
+  time: string;
+  group: string;
+  status: SlotStatus;
+};
+
+export type SpaSlots = {
+  durationMinutes: number;
+  staffRequired: 1 | 2;
+  bufferMinutes: number;
+  slots: SlotInfo[];
+};
+
+export type SpaBookingRequest = {
+  petId: string;
+  serviceIds: string[];
+  slotStart: string;
+  customerId: string;
+};
+
+export type SpaBookingCreated = {
+  appointmentId: string;
+  type?: AppointmentType;
+  status: AppointmentStatus;
+  sizeGroup?: SizeGroup;
+  slotStart?: string;
+  slotEnd: string;
+  staffRequired: 1 | 2;
+  estimatedAmount: number;
+};
+
 export type HotelAvailability = {
   available: boolean;
   nights: number;
