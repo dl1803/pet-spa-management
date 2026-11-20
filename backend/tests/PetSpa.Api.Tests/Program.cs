@@ -963,55 +963,47 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(await CodeOfAsync(() => Create(repo, null).GetAsync(new CurrentUser(Guid.NewGuid(), UserRole.Customer), appointment.AppointmentId)) == ErrorCodes.Forbidden,
             "Customer must be forbidden from another customer's appointment.");
     }),
-    ("CheckInService.CheckInSpaAsync: Lễ tân và Quản lý chuyển lịch Đã xác nhận sang Đã tiếp nhận khi còn trong thời gian giữ chỗ", async () =>
+    ("CheckInService.CheckInSpaAsync: Lễ tân và Quản lý chuyển lịch Đã xác nhận sang Đã tiếp nhận khi còn trong thời gian giữ chỗ và ghi nhận cân nặng", async () =>
     {
         var now = DateTimeOffset.UtcNow;
+        var pet = WeightTestCat(2.8m, SizeGroup.Small);
+        var petRepo = WeightTestPetRepo(pet);
 
-        SpaAppointment NewAppointment(AppointmentStatus status, DateTimeOffset slotStart) => new()
-        {
-            AppointmentId = Guid.NewGuid(),
-            Status = status,
-            SlotStart = slotStart,
-            SlotEnd = slotStart.AddMinutes(120),
-            BusyUntil = slotStart.AddMinutes(135),
-            StaffRequired = 1,
-        };
-
-        var late = NewAppointment(AppointmentStatus.Confirmed, now.AddMinutes(-10));
+        var late = WeightTestSpa(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed, now.AddMinutes(-10));
         var lateRepo = new TestAssignmentRepo(late, [], [], new Dictionary<Guid, int>());
         var lateGuard = new TestConcurrencyGuard();
-        var receptionistService = new CheckInService(lateRepo, lateGuard, new TestStaffRoleReader(StaffRole.Receptionist));
-        var lateStatus = await receptionistService.CheckInSpaAsync(new CurrentUser(Guid.NewGuid(), UserRole.Staff), late.AppointmentId);
-        Check(lateStatus == AppointmentStatus.Received && late.Status == AppointmentStatus.Received,
+        var receptionistService = new CheckInService(
+            lateRepo, lateGuard, new TestStaffRoleReader(StaffRole.Receptionist), petRepo, null!);
+        var lateResult = await receptionistService.CheckInSpaAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Staff), late.AppointmentId, 2.8m);
+        Check(lateResult.Status == AppointmentStatus.Received && late.Status == AppointmentStatus.Received,
             "Receptionist must move a Confirmed appointment to Received within the hold window.");
+        Check(lateResult.WeightCheck.Result == WeightCheckResult.OK && late.ActualWeightKg == 2.8m,
+            "The actual weight must be recorded with an OK result.");
         Check(lateGuard.LockedAppointmentId == late.AppointmentId && lateRepo.SaveCalls == 1,
             "The appointment row must be locked and the change saved once.");
 
-        var early = NewAppointment(AppointmentStatus.Confirmed, now.AddMinutes(30));
+        var early = WeightTestSpa(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed, now.AddMinutes(30));
         var managerService = new CheckInService(
-            new TestAssignmentRepo(early, [], [], new Dictionary<Guid, int>()), new TestConcurrencyGuard(), new TestStaffRoleReader(null));
-        var earlyStatus = await managerService.CheckInSpaAsync(new CurrentUser(Guid.NewGuid(), UserRole.Manager), early.AppointmentId);
-        Check(earlyStatus == AppointmentStatus.Received, "Manager must be able to check in, also before the slot start.");
+            new TestAssignmentRepo(early, [], [], new Dictionary<Guid, int>()),
+            new TestConcurrencyGuard(), new TestStaffRoleReader(null), petRepo, null!);
+        var earlyResult = await managerService.CheckInSpaAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Manager), early.AppointmentId, 2.8m);
+        Check(earlyResult.Status == AppointmentStatus.Received, "Manager must be able to check in, also before the slot start.");
 
-        var extended = NewAppointment(AppointmentStatus.Confirmed, now.AddMinutes(-20));
+        var extended = WeightTestSpa(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed, now.AddMinutes(-20));
         var extendedRepo = new TestAssignmentRepo(extended, [], [], new Dictionary<Guid, int>()) { HoldMinutes = 30 };
-        var extendedService = new CheckInService(extendedRepo, new TestConcurrencyGuard(), new TestStaffRoleReader(StaffRole.Receptionist));
-        var extendedStatus = await extendedService.CheckInSpaAsync(new CurrentUser(Guid.NewGuid(), UserRole.Staff), extended.AppointmentId);
-        Check(extendedStatus == AppointmentStatus.Received, "The configured Booking.HoldMinutes must be used.");
+        var extendedService = new CheckInService(
+            extendedRepo, new TestConcurrencyGuard(), new TestStaffRoleReader(StaffRole.Receptionist), petRepo, null!);
+        var extendedResult = await extendedService.CheckInSpaAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Staff), extended.AppointmentId, 2.8m);
+        Check(extendedResult.Status == AppointmentStatus.Received, "The configured Booking.HoldMinutes must be used.");
     }),
     ("CheckInService.CheckInSpaAsync: từ chối vai trò không được phép, lịch không tồn tại, quá thời gian giữ chỗ, sai trạng thái", async () =>
     {
         var now = DateTimeOffset.UtcNow;
-
-        SpaAppointment NewAppointment(AppointmentStatus status, DateTimeOffset slotStart) => new()
-        {
-            AppointmentId = Guid.NewGuid(),
-            Status = status,
-            SlotStart = slotStart,
-            SlotEnd = slotStart.AddMinutes(120),
-            BusyUntil = slotStart.AddMinutes(135),
-            StaffRequired = 1,
-        };
+        var pet = WeightTestCat(2.8m, SizeGroup.Small);
+        const decimal weightKg = 2.8m;
 
         async Task<string?> CodeOfAsync(Func<Task> action)
         {
@@ -1030,41 +1022,46 @@ var tests = new (string Name, Func<Task> Run)[]
             new(
                 new TestAssignmentRepo(appointment, [], [], new Dictionary<Guid, int>()),
                 guard ?? new TestConcurrencyGuard(),
-                new TestStaffRoleReader(staffRole));
+                new TestStaffRoleReader(staffRole),
+                WeightTestPetRepo(pet),
+                null!);
 
         var staffUser = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
 
-        var confirmed = NewAppointment(AppointmentStatus.Confirmed, now.AddMinutes(-5));
+        var confirmed = WeightTestSpa(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed, now.AddMinutes(-5));
         var rejectedGuard = new TestConcurrencyGuard();
-        Check(await CodeOfAsync(() => Create(confirmed, StaffRole.SpaStaff, rejectedGuard).CheckInSpaAsync(staffUser, confirmed.AppointmentId)) == ErrorCodes.Forbidden,
+        Check(await CodeOfAsync(() => Create(confirmed, StaffRole.SpaStaff, rejectedGuard).CheckInSpaAsync(staffUser, confirmed.AppointmentId, weightKg)) == ErrorCodes.Forbidden,
             "Spa staff must not check in.");
-        Check(await CodeOfAsync(() => Create(confirmed, null, rejectedGuard).CheckInSpaAsync(staffUser, confirmed.AppointmentId)) == ErrorCodes.Forbidden,
+        Check(await CodeOfAsync(() => Create(confirmed, null, rejectedGuard).CheckInSpaAsync(staffUser, confirmed.AppointmentId, weightKg)) == ErrorCodes.Forbidden,
             "Staff without a profile must not check in.");
-        Check(await CodeOfAsync(() => Create(confirmed, null, rejectedGuard).CheckInSpaAsync(new CurrentUser(Guid.NewGuid(), UserRole.Customer), confirmed.AppointmentId)) == ErrorCodes.Forbidden,
+        Check(await CodeOfAsync(() => Create(confirmed, null, rejectedGuard).CheckInSpaAsync(new CurrentUser(Guid.NewGuid(), UserRole.Customer), confirmed.AppointmentId, weightKg)) == ErrorCodes.Forbidden,
             "Customer must not check in.");
-        Check(confirmed.Status == AppointmentStatus.Confirmed && rejectedGuard.RunCalls == 0,
+        Check(confirmed.Status == AppointmentStatus.Confirmed && confirmed.ActualWeightKg is null && rejectedGuard.RunCalls == 0,
             "A rejected role must not open a transaction or change the appointment.");
 
         var receptionist = StaffRole.Receptionist;
-        Check(await CodeOfAsync(() => Create(null, receptionist).CheckInSpaAsync(staffUser, Guid.NewGuid())) == ErrorCodes.NotFound,
+        Check(await CodeOfAsync(() => Create(null, receptionist).CheckInSpaAsync(staffUser, Guid.NewGuid(), weightKg)) == ErrorCodes.NotFound,
             "Unknown or non-spa appointment must be reported as not found.");
 
-        var expired = NewAppointment(AppointmentStatus.Confirmed, now.AddMinutes(-30));
-        Check(await CodeOfAsync(() => Create(expired, receptionist).CheckInSpaAsync(staffUser, expired.AppointmentId)) == ErrorCodes.InvalidTransition,
+        var expired = WeightTestSpa(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed, now.AddMinutes(-30));
+        Check(await CodeOfAsync(() => Create(expired, receptionist).CheckInSpaAsync(staffUser, expired.AppointmentId, weightKg)) == ErrorCodes.InvalidTransition,
             "Check-in after the hold window must be rejected.");
-        Check(expired.Status == AppointmentStatus.Confirmed, "A rejected check-in must keep the status.");
+        Check(expired.Status == AppointmentStatus.Confirmed && expired.ActualWeightKg is null,
+            "A rejected check-in must keep the status and not record the weight.");
 
-        var tooEarly = NewAppointment(AppointmentStatus.Confirmed, now.AddMinutes(120));
-        Check(await CodeOfAsync(() => Create(tooEarly, receptionist).CheckInSpaAsync(staffUser, tooEarly.AppointmentId)) == ErrorCodes.InvalidTransition,
+        var tooEarly = WeightTestSpa(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed, now.AddMinutes(120));
+        Check(await CodeOfAsync(() => Create(tooEarly, receptionist).CheckInSpaAsync(staffUser, tooEarly.AppointmentId, weightKg)) == ErrorCodes.InvalidTransition,
             "Check-in more than 60 minutes before slot start must be rejected.");
-        Check(tooEarly.Status == AppointmentStatus.Confirmed, "A rejected check-in must keep the status.");
+        Check(tooEarly.Status == AppointmentStatus.Confirmed && tooEarly.ActualWeightKg is null,
+            "A rejected check-in must keep the status and not record the weight.");
 
         foreach (var invalidStatus in new[] { AppointmentStatus.Pending, AppointmentStatus.Received, AppointmentStatus.InProgress, AppointmentStatus.Completed, AppointmentStatus.Cancelled })
         {
-            var wrongStatus = NewAppointment(invalidStatus, now.AddMinutes(-5));
-            Check(await CodeOfAsync(() => Create(wrongStatus, receptionist).CheckInSpaAsync(staffUser, wrongStatus.AppointmentId)) == ErrorCodes.InvalidTransition,
+            var wrongStatus = WeightTestSpa(pet.PetId, SizeGroup.Small, invalidStatus, now.AddMinutes(-5));
+            Check(await CodeOfAsync(() => Create(wrongStatus, receptionist).CheckInSpaAsync(staffUser, wrongStatus.AppointmentId, weightKg)) == ErrorCodes.InvalidTransition,
                 $"Check-in from {invalidStatus} must be rejected.");
-            Check(wrongStatus.Status == invalidStatus, $"A rejected check-in must keep the status {invalidStatus}.");
+            Check(wrongStatus.Status == invalidStatus && wrongStatus.ActualWeightKg is null,
+                $"A rejected check-in must keep the status {invalidStatus} and not record the weight.");
         }
     }),
     ("AddApplication registers CheckInService into DI container", () =>
@@ -1074,6 +1071,223 @@ var tests = new (string Name, Func<Task> Run)[]
         var descriptor = services.FirstOrDefault(d => d.ServiceType == typeof(CheckInService));
         Check(descriptor is not null && descriptor.Lifetime == ServiceLifetime.Scoped,
             "CheckInService must be registered as scoped in AddApplication.");
+        return Task.CompletedTask;
+    }),
+    ("AppointmentsController.CheckIn tiếp nhận lịch spa, ghi cân nặng và trả CheckInResponse", async () =>
+    {
+        var pet = WeightTestCat(2.8m, SizeGroup.Small);
+        var spa = WeightTestSpa(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed, DateTimeOffset.UtcNow.AddMinutes(-5));
+        var service = new CheckInService(
+            new TestAssignmentRepo(spa, [], [], new Dictionary<Guid, int>()),
+            new TestConcurrencyGuard(), new TestStaffRoleReader(null), WeightTestPetRepo(pet), null!);
+        var controller = new AppointmentsController(null!, checkInService: service)
+        {
+            ControllerContext = WeightTestManagerContext(),
+        };
+
+        var result = await controller.CheckIn(spa.AppointmentId, new ActualWeightRequest(3.4m), CancellationToken.None) as OkObjectResult;
+        Check(result?.Value is CheckInResponse
+            {
+                Status: AppointmentStatus.Received,
+                WeightCheck: { Result: WeightCheckResult.NEEDS_CONFIRMATION, NewSizeGroup: SizeGroup.Medium },
+            },
+            "CheckIn must return Received with a NEEDS_CONFIRMATION weight check and the new size group.");
+        Check(spa.ActualWeightKg == 3.4m && spa.SizeGroup == SizeGroup.Small && pet.WeightKg == 2.8m && pet.SizeGroup == SizeGroup.Small,
+            "Only the actual weight may be recorded; the appointment size group and the pet profile must not change.");
+
+        var threw = false;
+        try
+        {
+            await controller.CheckIn(spa.AppointmentId, null, CancellationToken.None);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.ValidationError)
+        {
+            threw = true;
+        }
+
+        Check(threw, "CheckIn must throw ValidationError when the request body is missing.");
+
+        var threwNullWeight = false;
+        try
+        {
+            await controller.CheckIn(spa.AppointmentId, new ActualWeightRequest(null), CancellationToken.None);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.ValidationError)
+        {
+            threwNullWeight = true;
+        }
+
+        Check(threwNullWeight, "CheckIn must throw ValidationError when actualWeightKg is null.");
+    }),
+    ("CheckInService.CheckInSpaAsync: đối chiếu cân nặng OK, NEEDS_CONFIRMATION, PRICE_DECREASED và chỉ ghi cân nặng thực tế", async () =>
+    {
+        var now = DateTimeOffset.UtcNow;
+        var staffUser = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+
+        async Task<(SpaCheckInResult Result, SpaAppointment Appointment, Pet Pet)> RunAsync(
+            decimal declaredKg, SizeGroup currentGroup, decimal actualKg)
+        {
+            var pet = WeightTestCat(declaredKg, currentGroup);
+            var appointment = WeightTestSpa(pet.PetId, currentGroup, AppointmentStatus.Confirmed, now.AddMinutes(-5));
+            var service = new CheckInService(
+                new TestAssignmentRepo(appointment, [], [], new Dictionary<Guid, int>()),
+                new TestConcurrencyGuard(), new TestStaffRoleReader(StaffRole.Receptionist), WeightTestPetRepo(pet), null!);
+            var result = await service.CheckInSpaAsync(staffUser, appointment.AppointmentId, actualKg);
+            return (result, appointment, pet);
+        }
+
+        var within = await RunAsync(2.8m, SizeGroup.Small, 3.3m);
+        Check(within.Result.WeightCheck == new WeightCheckOutcome(WeightCheckResult.OK, null),
+            "A heavier weight within the tolerance must be OK without a new size group.");
+        Check(within.Appointment.ActualWeightKg == 3.3m && within.Appointment.SizeGroup == SizeGroup.Small
+            && within.Pet.WeightKg == 2.8m && within.Pet.SizeGroup == SizeGroup.Small,
+            "OK must only record the actual weight.");
+
+        var heavier = await RunAsync(2.8m, SizeGroup.Small, 3.4m);
+        Check(heavier.Result.Status == AppointmentStatus.Received
+            && heavier.Result.WeightCheck == new WeightCheckOutcome(WeightCheckResult.NEEDS_CONFIRMATION, SizeGroup.Medium),
+            "A heavier weight beyond the tolerance and into a bigger group must need confirmation and keep the Received status.");
+        Check(heavier.Appointment.ActualWeightKg == 3.4m && heavier.Appointment.SizeGroup == SizeGroup.Small
+            && heavier.Pet.WeightKg == 2.8m && heavier.Pet.SizeGroup == SizeGroup.Small,
+            "NEEDS_CONFIRMATION must only record the actual weight.");
+
+        var lighter = await RunAsync(4.0m, SizeGroup.Medium, 2.9m);
+        Check(lighter.Result.WeightCheck == new WeightCheckOutcome(WeightCheckResult.PRICE_DECREASED, SizeGroup.Small),
+            "A lighter weight into a smaller group must be PRICE_DECREASED with the new size group.");
+        Check(lighter.Appointment.ActualWeightKg == 2.9m && lighter.Appointment.SizeGroup == SizeGroup.Medium
+            && lighter.Pet.WeightKg == 4.0m && lighter.Pet.SizeGroup == SizeGroup.Medium,
+            "PRICE_DECREASED must only record the actual weight.");
+    }),
+    ("CheckInService.CheckHotelWeightAsync: ghi nhận cân nặng lịch lưu trú Đã xác nhận và giữ nguyên trạng thái", async () =>
+    {
+        var pet = WeightTestCat(2.8m, SizeGroup.Small);
+        var stay = WeightTestHotel(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed);
+        var hotelRepo = new TestHotelAssignmentRepo(null, [], []) { Appointment = stay, AppointmentSpecies = Species.Cat };
+        var guard = new TestConcurrencyGuard();
+        var service = new CheckInService(
+            new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()),
+            guard, new TestStaffRoleReader(StaffRole.Receptionist), WeightTestPetRepo(pet), hotelRepo);
+        var staffUser = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+
+        var within = await service.CheckHotelWeightAsync(staffUser, stay.AppointmentId, 3.2m);
+        Check(within == new WeightCheckOutcome(WeightCheckResult.OK, null), "A weight within the tolerance must be OK.");
+        Check(stay.ActualWeightKg == 3.2m && stay.Status == AppointmentStatus.Confirmed && hotelRepo.SaveCalls == 1
+            && guard.LockedAppointmentId == stay.AppointmentId,
+            "The weight must be recorded once under the appointment lock and the status must stay Confirmed.");
+
+        var heavier = await service.CheckHotelWeightAsync(staffUser, stay.AppointmentId, 3.4m);
+        Check(heavier == new WeightCheckOutcome(WeightCheckResult.NEEDS_CONFIRMATION, SizeGroup.Medium),
+            "A weight beyond the tolerance into a bigger group must need confirmation.");
+        Check(stay.ActualWeightKg == 3.4m && stay.SizeGroup == SizeGroup.Small && stay.Status == AppointmentStatus.Confirmed
+            && pet.WeightKg == 2.8m && pet.SizeGroup == SizeGroup.Small,
+            "Only the actual weight may be recorded; the stay size group, status and pet profile must not change.");
+    }),
+    ("CheckInService.CheckHotelWeightAsync: từ chối vai trò không được phép, lịch không phải lưu trú, sai trạng thái", async () =>
+    {
+        var pet = WeightTestCat(2.8m, SizeGroup.Small);
+        var staffUser = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+
+        async Task<string?> CodeOfAsync(Func<Task> action)
+        {
+            try
+            {
+                await action();
+                return null;
+            }
+            catch (BusinessException ex)
+            {
+                return ex.Code;
+            }
+        }
+
+        CheckInService Create(HotelAppointment? stay, SpaAppointment? spa, StaffRole? staffRole, TestConcurrencyGuard? guard = null) =>
+            new(
+                new TestAssignmentRepo(spa, [], [], new Dictionary<Guid, int>()),
+                guard ?? new TestConcurrencyGuard(),
+                new TestStaffRoleReader(staffRole),
+                WeightTestPetRepo(pet),
+                new TestHotelAssignmentRepo(null, [], []) { Appointment = stay, AppointmentSpecies = Species.Cat });
+
+        var confirmed = WeightTestHotel(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed);
+        var rejectedGuard = new TestConcurrencyGuard();
+        Check(await CodeOfAsync(() => Create(confirmed, null, StaffRole.SpaStaff, rejectedGuard).CheckHotelWeightAsync(staffUser, confirmed.AppointmentId, 3.2m)) == ErrorCodes.Forbidden,
+            "Spa staff must not record the weight.");
+        Check(await CodeOfAsync(() => Create(confirmed, null, null, rejectedGuard).CheckHotelWeightAsync(new CurrentUser(Guid.NewGuid(), UserRole.Customer), confirmed.AppointmentId, 3.2m)) == ErrorCodes.Forbidden,
+            "Customer must not record the weight.");
+        Check(confirmed.ActualWeightKg is null && rejectedGuard.RunCalls == 0,
+            "A rejected role must not open a transaction or change the appointment.");
+
+        Check(await CodeOfAsync(() => Create(null, null, StaffRole.Receptionist).CheckHotelWeightAsync(staffUser, Guid.NewGuid(), 3.2m)) == ErrorCodes.NotFound,
+            "Unknown appointment must be reported as not found.");
+
+        var spa = WeightTestSpa(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed, DateTimeOffset.UtcNow.AddMinutes(-5));
+        Check(await CodeOfAsync(() => Create(null, spa, StaffRole.Receptionist).CheckHotelWeightAsync(staffUser, spa.AppointmentId, 3.2m)) == ErrorCodes.NotFound,
+            "A spa appointment must be reported as not found by the hotel weight check.");
+        Check(spa.ActualWeightKg is null, "A spa appointment must not get a weight from the hotel weight check.");
+
+        foreach (var invalidStatus in new[] { AppointmentStatus.Pending, AppointmentStatus.InStay, AppointmentStatus.Completed, AppointmentStatus.Cancelled })
+        {
+            var wrongStatus = WeightTestHotel(pet.PetId, SizeGroup.Small, invalidStatus);
+            Check(await CodeOfAsync(() => Create(wrongStatus, null, StaffRole.Receptionist).CheckHotelWeightAsync(staffUser, wrongStatus.AppointmentId, 3.2m)) == ErrorCodes.InvalidTransition,
+                $"Weight check from {invalidStatus} must be rejected.");
+            Check(wrongStatus.ActualWeightKg is null, $"A rejected weight check on {invalidStatus} must not record the weight.");
+        }
+    }),
+    ("AppointmentsController.WeightCheck ghi nhận cân nặng lịch lưu trú và trả WeightCheckResponse", async () =>
+    {
+        var pet = WeightTestCat(2.8m, SizeGroup.Small);
+        var stay = WeightTestHotel(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed);
+        var service = new CheckInService(
+            new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()),
+            new TestConcurrencyGuard(), new TestStaffRoleReader(null), WeightTestPetRepo(pet),
+            new TestHotelAssignmentRepo(null, [], []) { Appointment = stay, AppointmentSpecies = Species.Cat });
+        var controller = new AppointmentsController(null!, checkInService: service)
+        {
+            ControllerContext = WeightTestManagerContext(),
+        };
+
+        var result = await controller.WeightCheck(stay.AppointmentId, new ActualWeightRequest(3.2m), CancellationToken.None) as OkObjectResult;
+        Check(result?.Value is WeightCheckResponse { WeightCheck: { Result: WeightCheckResult.OK, NewSizeGroup: null } },
+            "WeightCheck must return Ok with an OK weight check and no new size group.");
+        Check(stay.ActualWeightKg == 3.2m && stay.Status == AppointmentStatus.Confirmed,
+            "WeightCheck must record the weight and keep the Confirmed status.");
+
+        var threw = false;
+        try
+        {
+            await controller.WeightCheck(stay.AppointmentId, null, CancellationToken.None);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.ValidationError)
+        {
+            threw = true;
+        }
+
+        Check(threw, "WeightCheck must throw ValidationError when the request body is missing.");
+
+        var threwNullWeight = false;
+        try
+        {
+            await controller.WeightCheck(stay.AppointmentId, new ActualWeightRequest(null), CancellationToken.None);
+        }
+        catch (BusinessException ex) when (ex.Code == ErrorCodes.ValidationError)
+        {
+            threwNullWeight = true;
+        }
+
+        Check(threwNullWeight, "WeightCheck must throw ValidationError when actualWeightKg is null.");
+    }),
+    ("ActualWeightRequestValidator chỉ chấp nhận cân nặng lớn hơn 0, nhỏ hơn 1000 và tối đa 2 chữ số thập phân", () =>
+    {
+        var validator = new ActualWeightRequestValidator();
+
+        Check(validator.Validate(new ActualWeightRequest(11.2m)).IsValid, "11.2 must be valid.");
+        Check(validator.Validate(new ActualWeightRequest(999.99m)).IsValid, "999.99 must be valid.");
+        Check(!validator.Validate(new ActualWeightRequest(null)).IsValid, "A missing weight must fail.");
+        Check(!validator.Validate(new ActualWeightRequest(0m)).IsValid, "Zero must fail.");
+        Check(!validator.Validate(new ActualWeightRequest(-1m)).IsValid, "A negative weight must fail.");
+        Check(!validator.Validate(new ActualWeightRequest(1.234m)).IsValid, "Three decimal places must fail.");
+        Check(!validator.Validate(new ActualWeightRequest(1000m)).IsValid, "1000 must fail.");
+
         return Task.CompletedTask;
     }),
     ("VnpayPaymentRequestBuilder builds the unsigned sandbox payload from the transaction", () =>
@@ -5132,6 +5346,60 @@ static async Task<(int Status, string Body, string ContentType)> RunMiddlewareAs
     return (context.Response.StatusCode, body, context.Response.ContentType ?? string.Empty);
 }
 
+static Pet WeightTestCat(decimal weightKg, SizeGroup sizeGroup) => new()
+{
+    PetId = Guid.NewGuid(),
+    CustomerId = Guid.NewGuid(),
+    Species = Species.Cat,
+    WeightKg = weightKg,
+    SizeGroup = sizeGroup,
+    IsActive = true,
+};
+
+static TestPetRepo WeightTestPetRepo(Pet pet) => new(pet, null)
+{
+    SizeRules = [new SizeRule { Species = Species.Cat, Criterion = SizeCriterion.Weight, SmallUpper = 3m, MediumUpper = 5m }],
+    Tolerances =
+    [
+        new WeightTolerance { Species = Species.Cat, FromGroup = SizeGroup.Small, ToGroup = SizeGroup.Medium, ToleranceKg = 0.5m },
+        new WeightTolerance { Species = Species.Cat, FromGroup = SizeGroup.Medium, ToGroup = SizeGroup.Large, ToleranceKg = 0.5m },
+    ],
+};
+
+static SpaAppointment WeightTestSpa(Guid petId, SizeGroup sizeGroup, AppointmentStatus status, DateTimeOffset slotStart) => new()
+{
+    AppointmentId = Guid.NewGuid(),
+    PetId = petId,
+    Status = status,
+    SizeGroup = sizeGroup,
+    SlotStart = slotStart,
+    SlotEnd = slotStart.AddMinutes(120),
+    BusyUntil = slotStart.AddMinutes(135),
+    StaffRequired = 1,
+};
+
+static HotelAppointment WeightTestHotel(Guid petId, SizeGroup sizeGroup, AppointmentStatus status) => new()
+{
+    AppointmentId = Guid.NewGuid(),
+    PetId = petId,
+    Status = status,
+    SizeGroup = sizeGroup,
+    PlannedCheckIn = DateTimeOffset.UtcNow.AddDays(1),
+    PlannedCheckOut = DateTimeOffset.UtcNow.AddDays(3),
+};
+
+static ControllerContext WeightTestManagerContext() => new()
+{
+    HttpContext = new DefaultHttpContext
+    {
+        User = new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim(TokenClaims.UserId, Guid.NewGuid().ToString()),
+            new Claim(TokenClaims.Role, "Manager"),
+        ], "test")),
+    },
+};
+
 static void Check(bool condition, string message)
 {
     if (!condition)
@@ -5283,7 +5551,10 @@ sealed class TestPetRepo(Pet pet, Guid? ownerUserId) : IPetRepository
         Task.FromResult<PetWithOwner?>(pet.PetId == petId ? new PetWithOwner(pet, ownerUserId) : null);
     public Task<Guid?> FindCustomerIdByUserIdAsync(Guid userId, CancellationToken ct = default) => Task.FromResult<Guid?>(null);
     public Task<bool> CustomerExistsAsync(Guid customerId, CancellationToken ct = default) => Task.FromResult(true);
-    public Task<IReadOnlyList<SizeRule>> GetSizeRulesAsync(Species species, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<SizeRule>>([]);
+    public IReadOnlyList<SizeRule> SizeRules { get; init; } = [];
+    public IReadOnlyList<WeightTolerance> Tolerances { get; init; } = [];
+    public Task<IReadOnlyList<SizeRule>> GetSizeRulesAsync(Species species, CancellationToken ct = default) => Task.FromResult(SizeRules);
+    public Task<IReadOnlyList<WeightTolerance>> GetWeightTolerancesAsync(Species species, CancellationToken ct = default) => Task.FromResult(Tolerances);
     public Task<(IReadOnlyList<Pet> Items, int Total)> ListActiveByCustomerAsync(Guid customerId, int page, int pageSize, CancellationToken ct = default) => Task.FromResult(((IReadOnlyList<Pet>)[], 0));
     public Task<bool> IsAssignedToStaffAsync(Guid petId, Guid staffUserId, CancellationToken ct = default) => Task.FromResult(false);
     public Task<bool> HasAppointmentsAsync(Guid petId, CancellationToken ct = default) => Task.FromResult(false);

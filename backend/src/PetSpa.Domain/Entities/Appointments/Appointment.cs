@@ -44,6 +44,12 @@ public abstract class Appointment
 
     public virtual void ReturnToPending() => MoveTo(AppointmentStatus.Pending);
 
+    public void RecordWeight(decimal actualWeightKg)
+    {
+        ActualWeightKg = actualWeightKg;
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
     public void Reject()
     {
         if (Status != AppointmentStatus.Pending)
