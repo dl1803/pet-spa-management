@@ -1442,7 +1442,8 @@ var tests = new (string Name, Func<Task> Run)[]
         var service = new AssignmentService(
             new TestAssignmentRepo(appointment, [an, binh, chi, dung], busy, recentCounts),
             new TestScheduleRepo(15, false, shifts, []),
-            new TestConcurrencyGuard());
+            new TestConcurrencyGuard(),
+            NoNotifier());
 
         var result = await service.GetSpaSuggestionsAsync(
             new CurrentUser(Guid.NewGuid(), UserRole.Manager), appointment.AppointmentId);
@@ -1469,7 +1470,8 @@ var tests = new (string Name, Func<Task> Run)[]
         var service = new AssignmentService(
             new TestAssignmentRepo(appointment, [], [], new Dictionary<Guid, int>()),
             new TestScheduleRepo(15, false, [], []),
-            new TestConcurrencyGuard());
+            new TestConcurrencyGuard(),
+            NoNotifier());
         var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
 
         async Task<string?> CodeOfAsync(Func<Task> action)
@@ -1514,7 +1516,7 @@ var tests = new (string Name, Func<Task> Run)[]
             .ToList();
         var repo = new TestAssignmentRepo(appointment, [an, binh], [], new Dictionary<Guid, int>());
         var guard = new TestConcurrencyGuard();
-        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, shifts, []), guard);
+        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, shifts, []), guard, NoNotifier());
 
         await service.AssignSpaStaffAsync(
             new CurrentUser(Guid.NewGuid(), UserRole.Manager),
@@ -1541,7 +1543,7 @@ var tests = new (string Name, Func<Task> Run)[]
             .ToList();
         var repoReassign = new TestAssignmentRepo(appointment, [an, cuong], [], new Dictionary<Guid, int>());
         repoReassign.Added.AddRange(repo.Added); // simulate existing assignments in DB
-        var serviceReassign = new AssignmentService(repoReassign, new TestScheduleRepo(15, false, shiftsWithCuong, []), guard);
+        var serviceReassign = new AssignmentService(repoReassign, new TestScheduleRepo(15, false, shiftsWithCuong, []), guard, NoNotifier());
 
         await serviceReassign.AssignSpaStaffAsync(
             new CurrentUser(Guid.NewGuid(), UserRole.Manager),
@@ -1580,7 +1582,7 @@ var tests = new (string Name, Func<Task> Run)[]
             IReadOnlyList<StaffShiftWindow> shifts)
         {
             var repo = new TestAssignmentRepo(target, [an, binh], busy, new Dictionary<Guid, int>());
-            return (new AssignmentService(repo, new TestScheduleRepo(15, false, shifts, []), new TestConcurrencyGuard()), repo);
+            return (new AssignmentService(repo, new TestScheduleRepo(15, false, shifts, []), new TestConcurrencyGuard(), NoNotifier()), repo);
         }
 
         async Task<BusinessException?> ThrownAsync(Func<Task> action)
@@ -1682,7 +1684,8 @@ var tests = new (string Name, Func<Task> Run)[]
         var service = new AssignmentService(
             new TestAssignmentRepo(appointment, [an], [], new Dictionary<Guid, int>()),
             new TestScheduleRepo(15, false, shifts, []),
-            guard);
+            guard,
+            NoNotifier());
 
         await service.AssignSpaStaffAsync(
             new CurrentUser(Guid.NewGuid(), UserRole.Manager), appointment.AppointmentId, [an.StaffId], false);
@@ -1727,7 +1730,7 @@ var tests = new (string Name, Func<Task> Run)[]
             AssignedAt = DateTimeOffset.UtcNow,
         });
         var guard = new TestConcurrencyGuard();
-        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, [], []), guard);
+        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, [], []), guard, NoNotifier());
 
         var result = await service.ConfirmSpaAsync(
             new CurrentUser(Guid.NewGuid(), UserRole.Manager), appointment.AppointmentId);
@@ -1770,7 +1773,7 @@ var tests = new (string Name, Func<Task> Run)[]
                 });
             }
 
-            return (new AssignmentService(repo, new TestScheduleRepo(15, false, [], []), new TestConcurrencyGuard()), repo);
+            return (new AssignmentService(repo, new TestScheduleRepo(15, false, [], []), new TestConcurrencyGuard(), NoNotifier()), repo);
         }
 
         async Task<BusinessException?> ThrownAsync(Func<Task> action)
@@ -1844,7 +1847,7 @@ var tests = new (string Name, Func<Task> Run)[]
                 [new ServicePricing { ServiceId = bath, Species = Species.Dog, SizeGroup = SizeGroup.Small, Price = 100_000m }]),
         };
         var guard = new TestConcurrencyGuard();
-        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, shifts, []), guard);
+        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, shifts, []), guard, NoNotifier());
 
         var result = await service.ConfirmSpaAsync(
             new CurrentUser(Guid.NewGuid(), UserRole.Manager),
@@ -1880,7 +1883,7 @@ var tests = new (string Name, Func<Task> Run)[]
             AmountInput = new SpaAmountInput(Species.Dog, [bath], []),
         };
         var guard = new TestConcurrencyGuard();
-        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, outOfShift, []), guard);
+        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, outOfShift, []), guard, NoNotifier());
         var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
 
         async Task<BusinessException?> ThrownAsync(Func<Task> action)
@@ -1969,7 +1972,7 @@ var tests = new (string Name, Func<Task> Run)[]
                 [bath],
                 [new ServicePricing { ServiceId = bath, Species = Species.Dog, SizeGroup = SizeGroup.Small, Price = 100_000m }]),
         };
-        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, shifts, []), new TestConcurrencyGuard());
+        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, shifts, []), new TestConcurrencyGuard(), NoNotifier());
         var controller = new AppointmentsController(null!, assignmentService: service)
         {
             ControllerContext = new ControllerContext
@@ -2018,7 +2021,7 @@ var tests = new (string Name, Func<Task> Run)[]
         {
             AmountInput = new SpaAmountInput(Species.Dog, [bath], []),
         };
-        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, shifts, []), new TestConcurrencyGuard());
+        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, shifts, []), new TestConcurrencyGuard(), NoNotifier());
 
         BusinessException? thrown = null;
         try
@@ -2061,7 +2064,7 @@ var tests = new (string Name, Func<Task> Run)[]
         }
 
         var guard = new TestConcurrencyGuard();
-        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, [], []), guard);
+        var service = new AssignmentService(repo, new TestScheduleRepo(15, false, [], []), guard, NoNotifier());
 
         await service.RejectSpaAsync(new CurrentUser(Guid.NewGuid(), UserRole.Manager), appointment.AppointmentId);
 
@@ -2102,7 +2105,7 @@ var tests = new (string Name, Func<Task> Run)[]
                 AssignedAt = DateTimeOffset.UtcNow,
             });
 
-            return (new AssignmentService(repo, new TestScheduleRepo(15, false, [], []), new TestConcurrencyGuard()), repo);
+            return (new AssignmentService(repo, new TestScheduleRepo(15, false, [], []), new TestConcurrencyGuard(), NoNotifier()), repo);
         }
 
         async Task<BusinessException?> ThrownAsync(Func<Task> action)
@@ -2174,7 +2177,8 @@ var tests = new (string Name, Func<Task> Run)[]
         var service = new HotelAssignmentService(
             new TestHotelAssignmentRepo(stay, [inactive, cat, medium, occupied, free, other], windows),
             new ShopTimeZone(TimeZoneInfo.Utc),
-            new TestConcurrencyGuard());
+            new TestConcurrencyGuard(),
+            NoNotifier());
 
         var result = await service.GetCageSuggestionAsync(
             new CurrentUser(Guid.NewGuid(), UserRole.Manager), stay.AppointmentId);
@@ -2197,7 +2201,7 @@ var tests = new (string Name, Func<Task> Run)[]
         };
         var windows = new[] { new CageStayWindow(cage.CageId, checkIn.AddDays(-1), checkIn.AddDays(1)) };
         var service = new HotelAssignmentService(
-            new TestHotelAssignmentRepo(stay, [cage], windows), new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard());
+            new TestHotelAssignmentRepo(stay, [cage], windows), new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard(), NoNotifier());
 
         var result = await service.GetCageSuggestionAsync(
             new CurrentUser(Guid.NewGuid(), UserRole.Manager), stay.AppointmentId);
@@ -2210,7 +2214,7 @@ var tests = new (string Name, Func<Task> Run)[]
         var confirmed = new HotelStayForAssignment(
             Guid.NewGuid(), AppointmentStatus.Confirmed, Species.Dog, SizeGroup.Small, checkIn, checkIn.AddDays(2));
         var service = new HotelAssignmentService(
-            new TestHotelAssignmentRepo(confirmed, [], []), new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard());
+            new TestHotelAssignmentRepo(confirmed, [], []), new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard(), NoNotifier());
         var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
 
         async Task<string?> CodeOfAsync(Func<Task> action)
@@ -2270,7 +2274,7 @@ var tests = new (string Name, Func<Task> Run)[]
             IsActive = true,
         };
         var hotelService = new HotelAssignmentService(
-            new TestHotelAssignmentRepo(stay, [cage], []), new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard());
+            new TestHotelAssignmentRepo(stay, [cage], []), new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard(), NoNotifier());
 
         var slotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
         var spa = new SpaAppointment
@@ -2285,7 +2289,8 @@ var tests = new (string Name, Func<Task> Run)[]
         var spaService = new AssignmentService(
             new TestAssignmentRepo(spa, [], [], new Dictionary<Guid, int>()),
             new TestScheduleRepo(15, false, [], []),
-            new TestConcurrencyGuard());
+            new TestConcurrencyGuard(),
+            NoNotifier());
 
         var controller = new AppointmentsController(null!, assignmentService: spaService, hotelAssignmentService: hotelService)
         {
@@ -2324,7 +2329,7 @@ var tests = new (string Name, Func<Task> Run)[]
             IsActive = true,
         };
         var hotelService = new HotelAssignmentService(
-            new TestHotelAssignmentRepo(stay, [cage], []), new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard());
+            new TestHotelAssignmentRepo(stay, [cage], []), new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard(), NoNotifier());
 
         var slotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
         var spa = new SpaAppointment
@@ -2339,7 +2344,8 @@ var tests = new (string Name, Func<Task> Run)[]
         var spaService = new AssignmentService(
             new TestAssignmentRepo(spa, [], [], new Dictionary<Guid, int>()),
             new TestScheduleRepo(15, false, [], []),
-            new TestConcurrencyGuard());
+            new TestConcurrencyGuard(),
+            NoNotifier());
 
         var queryRepo = new TestAppointmentQueryRepo
         {
@@ -2393,7 +2399,7 @@ var tests = new (string Name, Func<Task> Run)[]
             StaffRequired = 1,
         };
         var repo = new TestAssignmentRepo(spa, [], [], new Dictionary<Guid, int>());
-        var spaService = new AssignmentService(repo, new TestScheduleRepo(15, false, [], []), new TestConcurrencyGuard());
+        var spaService = new AssignmentService(repo, new TestScheduleRepo(15, false, [], []), new TestConcurrencyGuard(), NoNotifier());
         var controller = new AppointmentsController(null!, assignmentService: spaService)
         {
             ControllerContext = new ControllerContext
@@ -2445,7 +2451,8 @@ var tests = new (string Name, Func<Task> Run)[]
         var service = new HotelAssignmentService(
             new TestHotelAssignmentRepo(stay, [overdueCage, freeCage], [overdueWindow]),
             new ShopTimeZone(TimeZoneInfo.Utc),
-            new TestConcurrencyGuard());
+            new TestConcurrencyGuard(),
+            NoNotifier());
 
         var result = await service.GetCageSuggestionAsync(
             new CurrentUser(Guid.NewGuid(), UserRole.Manager), stay.AppointmentId);
@@ -2476,7 +2483,7 @@ var tests = new (string Name, Func<Task> Run)[]
         var tomorrow = today.AddDays(1);
         var overdueWindow = new CageStayWindow(cage.CageId, checkIn.AddDays(-3), new DateTimeOffset(tomorrow, TimeSpan.Zero));
         var repo = new TestHotelAssignmentRepo(null, [cage], [overdueWindow]) { Appointment = stay };
-        var service = new HotelAssignmentService(repo, new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard());
+        var service = new HotelAssignmentService(repo, new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard(), NoNotifier());
 
         string? errorCode = null;
         try
@@ -2515,7 +2522,7 @@ var tests = new (string Name, Func<Task> Run)[]
         var endsOnCheckInDate = new CageStayWindow(cage.CageId, checkIn.AddDays(-2), checkIn);
         var repo = new TestHotelAssignmentRepo(null, [cage], [endsOnCheckInDate]) { Appointment = stay };
         var guard = new TestConcurrencyGuard();
-        var service = new HotelAssignmentService(repo, new ShopTimeZone(TimeZoneInfo.Utc), guard);
+        var service = new HotelAssignmentService(repo, new ShopTimeZone(TimeZoneInfo.Utc), guard, NoNotifier());
 
         var status = await service.ConfirmHotelAsync(
             new CurrentUser(Guid.NewGuid(), UserRole.Manager), stay.AppointmentId, cage.CageId);
@@ -2557,7 +2564,7 @@ var tests = new (string Name, Func<Task> Run)[]
             HotelAppointment stay, Cage cage, IReadOnlyList<CageStayWindow> windows)
         {
             var repo = new TestHotelAssignmentRepo(null, [cage], windows) { Appointment = stay };
-            return (new HotelAssignmentService(repo, new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard()), repo);
+            return (new HotelAssignmentService(repo, new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard(), NoNotifier()), repo);
         }
 
         async Task<string?> CodeOfAsync(Func<Task> action)
@@ -2649,7 +2656,8 @@ var tests = new (string Name, Func<Task> Run)[]
         var hotelService = new HotelAssignmentService(
             new TestHotelAssignmentRepo(null, [cage], []) { Appointment = stay },
             new ShopTimeZone(TimeZoneInfo.Utc),
-            new TestConcurrencyGuard());
+            new TestConcurrencyGuard(),
+            NoNotifier());
         var queryRepo = new TestAppointmentQueryRepo
         {
             FindTypeHandler = id => id == stay.AppointmentId ? AppointmentType.Hotel : null
@@ -2691,7 +2699,7 @@ var tests = new (string Name, Func<Task> Run)[]
         };
         var repo = new TestHotelAssignmentRepo(null, [], []) { Appointment = stay };
         var guard = new TestConcurrencyGuard();
-        var service = new HotelAssignmentService(repo, new ShopTimeZone(TimeZoneInfo.Utc), guard);
+        var service = new HotelAssignmentService(repo, new ShopTimeZone(TimeZoneInfo.Utc), guard, NoNotifier());
 
         await service.RejectHotelAsync(new CurrentUser(Guid.NewGuid(), UserRole.Manager), stay.AppointmentId);
 
@@ -2735,7 +2743,7 @@ var tests = new (string Name, Func<Task> Run)[]
         var forConfirmedRepo = new TestHotelAssignmentRepo(null, [], []) { Appointment = confirmed };
 
         HotelAssignmentService ServiceOf(TestHotelAssignmentRepo repo) =>
-            new(repo, new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard());
+            new(repo, new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard(), TestNotifiers.NoNotifier());
 
         var forCustomer = await CodeOfAsync(() => ServiceOf(forCustomerRepo).RejectHotelAsync(
             new CurrentUser(Guid.NewGuid(), UserRole.Customer), pending.AppointmentId));
@@ -2791,7 +2799,7 @@ var tests = new (string Name, Func<Task> Run)[]
         var repoLock = new object();
         var sharedRepo = new ConcurrentTestHotelAssignmentRepo(appointments, [cage], repoLock);
         var sharedGuard = new SimulatedAdvisoryConcurrencyGuard();
-        var service = new HotelAssignmentService(sharedRepo, new ShopTimeZone(TimeZoneInfo.Utc), sharedGuard);
+        var service = new HotelAssignmentService(sharedRepo, new ShopTimeZone(TimeZoneInfo.Utc), sharedGuard, NoNotifier());
 
         async Task<(AppointmentStatus? Status, string? ErrorCode)> ExecAsync(Guid appointmentId)
         {
@@ -2832,7 +2840,7 @@ var tests = new (string Name, Func<Task> Run)[]
             PlannedCheckOut = checkIn.AddDays(2),
         };
         var repo = new MissingPetTestHotelAssignmentRepo(stay);
-        var service = new HotelAssignmentService(repo, new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard());
+        var service = new HotelAssignmentService(repo, new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard(), NoNotifier());
 
         string? errorCode = null;
         try
@@ -2858,7 +2866,7 @@ var tests = new (string Name, Func<Task> Run)[]
             PlannedCheckOut = checkIn.AddDays(2),
         };
         var repo = new MissingPetTestHotelAssignmentRepo(stay);
-        var service = new HotelAssignmentService(repo, new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard());
+        var service = new HotelAssignmentService(repo, new ShopTimeZone(TimeZoneInfo.Utc), new TestConcurrencyGuard(), NoNotifier());
 
         await service.RejectHotelAsync(new CurrentUser(Guid.NewGuid(), UserRole.Manager), stay.AppointmentId);
 
@@ -2879,7 +2887,8 @@ var tests = new (string Name, Func<Task> Run)[]
         var hotelService = new HotelAssignmentService(
             new TestHotelAssignmentRepo(null, [], []) { Appointment = stay },
             new ShopTimeZone(TimeZoneInfo.Utc),
-            new TestConcurrencyGuard());
+            new TestConcurrencyGuard(),
+            NoNotifier());
         var queryRepo = new TestAppointmentQueryRepo
         {
             FindTypeHandler = id => id == stay.AppointmentId ? AppointmentType.Hotel : null
@@ -5767,6 +5776,168 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(code == ErrorCodes.NoCapacity, "Must fail with NO_CAPACITY.");
         Check(notificationRepo.Created.Count == 0 && reader.Requested.Count == 0,
             "No notification or reader request when booking fails.");
+    }),
+    ("AssignmentService.ConfirmSpaAsync notifies the customer and the assigned staff after the transaction", async () =>
+    {
+        var customerUserId = Guid.NewGuid();
+        var staffUserId = Guid.NewGuid();
+        var staffCandidate = new SpaStaffCandidate(staffUserId, "An");
+        var appointment = OldSpaAppointment(AppointmentStatus.Pending, TimeSpan.FromDays(5));
+        var bath = Guid.NewGuid();
+        var shifts = new List<StaffShiftWindow>
+        {
+            new(staffUserId, appointment.SlotStart.AddHours(-1), appointment.SlotStart.AddHours(4))
+        };
+
+        var guard = new TestConcurrencyGuard();
+        var notificationRepo = new TestNotificationRepo(() => guard.InsideRun);
+        var reader = new TestAppointmentNotificationReader(id =>
+            new AppointmentNotificationContext(appointment, customerUserId, [staffUserId]));
+        var notifier = new AppointmentNotifier(reader, new NotificationService(notificationRepo), new ShopTimeZone(TimeZoneInfo.Utc));
+
+        var repo = new TestAssignmentRepo(appointment, [staffCandidate], [], new Dictionary<Guid, int>())
+        {
+            AmountInput = new SpaAmountInput(
+                Species.Dog,
+                [bath],
+                [new ServicePricing { ServiceId = bath, Species = Species.Dog, SizeGroup = SizeGroup.Small, Price = 100_000m }]),
+        };
+        var scheduleRepo = new TestScheduleRepo(15, false, shifts, []);
+        var service = new AssignmentService(repo, scheduleRepo, guard, notifier);
+
+        var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+        var result = await service.ConfirmSpaAsync(manager, appointment.AppointmentId, [staffUserId]);
+
+        Check(result.Status == AppointmentStatus.Confirmed, "Status must be Confirmed.");
+        Check(notificationRepo.Created.Count == 2, "2 notifications (customer + staff).");
+        Check(notificationRepo.Created.All(n => n.Type == NotificationType.ConfirmedAssigned), "Type must be ConfirmedAssigned.");
+        Check(notificationRepo.Created.All(n => !n.InsideTransaction), "All notifications must be sent after transaction.");
+        Check(notificationRepo.Created.All(n => n.AppointmentId == appointment.AppointmentId), "AppointmentId must match.");
+    }),
+    ("AssignmentService.ConfirmSpaAsync sends nothing when the confirmation fails", async () =>
+    {
+        var staffUserId = Guid.NewGuid();
+        var staffCandidate = new SpaStaffCandidate(staffUserId, "An");
+        var appointment = OldSpaAppointment(AppointmentStatus.Pending, TimeSpan.FromDays(5));
+        var busy = new List<StaffBusyWindow>
+        {
+            new(staffUserId, appointment.SlotStart, appointment.BusyUntil)
+        };
+
+        var guard = new TestConcurrencyGuard();
+        var notificationRepo = new TestNotificationRepo(() => guard.InsideRun);
+        var reader = new TestAppointmentNotificationReader(_ => null);
+        var notifier = new AppointmentNotifier(reader, new NotificationService(notificationRepo), new ShopTimeZone(TimeZoneInfo.Utc));
+
+        var repo = new TestAssignmentRepo(appointment, [staffCandidate], busy, new Dictionary<Guid, int>());
+        var scheduleRepo = new TestScheduleRepo(15, false, [], []);
+        var service = new AssignmentService(repo, scheduleRepo, guard, notifier);
+
+        var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+        var code = await FailureCodeAsync(() => service.ConfirmSpaAsync(manager, appointment.AppointmentId, [staffUserId]));
+
+        Check(code == ErrorCodes.StaffConflict, "Must fail with STAFF_CONFLICT.");
+        Check(notificationRepo.Created.Count == 0 && reader.Requested.Count == 0,
+            "No notification or reader request when confirmation fails.");
+    }),
+    ("AssignmentService.RejectSpaAsync notifies the customer with the StoreUnable reason", async () =>
+    {
+        var customerUserId = Guid.NewGuid();
+        var appointment = OldSpaAppointment(AppointmentStatus.Pending, TimeSpan.FromDays(5));
+        var guard = new TestConcurrencyGuard();
+        var notificationRepo = new TestNotificationRepo(() => guard.InsideRun);
+        var reader = new TestAppointmentNotificationReader(id =>
+            new AppointmentNotificationContext(appointment, customerUserId, []));
+        var notifier = new AppointmentNotifier(reader, new NotificationService(notificationRepo), new ShopTimeZone(TimeZoneInfo.Utc));
+
+        var repo = new TestAssignmentRepo(appointment, [], [], new Dictionary<Guid, int>());
+        var scheduleRepo = new TestScheduleRepo(15, false, [], []);
+        var service = new AssignmentService(repo, scheduleRepo, guard, notifier);
+
+        var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+        await service.RejectSpaAsync(manager, appointment.AppointmentId);
+
+        Check(notificationRepo.Created.Count == 1, "1 notification for customer.");
+        Check(notificationRepo.Created[0].Type == NotificationType.Cancelled, "Type must be Cancelled.");
+        Check(notificationRepo.Created[0].Message.Contains("Lý do: cửa hàng không thể đáp ứng."),
+            "Message must contain StoreUnable reason text.");
+        Check(!notificationRepo.Created[0].InsideTransaction, "Notification must be sent after transaction.");
+
+        notificationRepo.Created.Clear();
+        reader.Requested.Clear();
+        var customer = new CurrentUser(Guid.NewGuid(), UserRole.Customer);
+        var code = await FailureCodeAsync(() => service.RejectSpaAsync(customer, appointment.AppointmentId));
+        Check(code == ErrorCodes.Forbidden, "Customer must be rejected with FORBIDDEN.");
+        Check(notificationRepo.Created.Count == 0 && reader.Requested.Count == 0,
+            "No notification on forbidden reject.");
+    }),
+    ("HotelAssignmentService.ConfirmHotelAsync notifies only the customer after the transaction", async () =>
+    {
+        var customerUserId = Guid.NewGuid();
+        var appointment = OldHotelAppointment(AppointmentStatus.Pending, TimeSpan.FromDays(5));
+        var cage = new Cage { CageId = Guid.NewGuid(), Code = "A1", Species = Species.Dog, SizeGroup = SizeGroup.Small, IsActive = true };
+
+        var guard = new TestConcurrencyGuard();
+        var notificationRepo = new TestNotificationRepo(() => guard.InsideRun);
+        var reader = new TestAppointmentNotificationReader(id =>
+            new AppointmentNotificationContext(appointment, customerUserId, []));
+        var notifier = new AppointmentNotifier(reader, new NotificationService(notificationRepo), new ShopTimeZone(TimeZoneInfo.Utc));
+
+        var repo = new TestHotelAssignmentRepo(null, [cage], []) { Appointment = appointment };
+        var service = new HotelAssignmentService(repo, new ShopTimeZone(TimeZoneInfo.Utc), guard, notifier);
+
+        var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+        var status = await service.ConfirmHotelAsync(manager, appointment.AppointmentId, cage.CageId);
+
+        Check(status == AppointmentStatus.Confirmed, "Status must be Confirmed.");
+        Check(notificationRepo.Created.Count == 1, "Only 1 notification for customer.");
+        Check(notificationRepo.Created[0].Type == NotificationType.ConfirmedAssigned, "Type must be ConfirmedAssigned.");
+        Check(!notificationRepo.Created[0].InsideTransaction, "Notification must be sent after transaction.");
+
+        notificationRepo.Created.Clear();
+        reader.Requested.Clear();
+        var busyWindows = new List<CageStayWindow>
+        {
+            new(cage.CageId, appointment.PlannedCheckIn, appointment.PlannedCheckOut)
+        };
+        var conflictAppointment = OldHotelAppointment(AppointmentStatus.Pending, TimeSpan.FromDays(5));
+        var busyRepo = new TestHotelAssignmentRepo(null, [cage], busyWindows) { Appointment = conflictAppointment };
+        var busyService = new HotelAssignmentService(busyRepo, new ShopTimeZone(TimeZoneInfo.Utc), guard, notifier);
+
+        var code = await FailureCodeAsync(() => busyService.ConfirmHotelAsync(manager, conflictAppointment.AppointmentId, cage.CageId));
+        Check(code == ErrorCodes.CageConflict, "Must fail with CAGE_CONFLICT.");
+        Check(notificationRepo.Created.Count == 0 && reader.Requested.Count == 0,
+            "No notification on CAGE_CONFLICT.");
+    }),
+    ("HotelAssignmentService.RejectHotelAsync notifies the customer with the StoreUnable reason", async () =>
+    {
+        var customerUserId = Guid.NewGuid();
+        var appointment = OldHotelAppointment(AppointmentStatus.Pending, TimeSpan.FromDays(5));
+        var guard = new TestConcurrencyGuard();
+        var notificationRepo = new TestNotificationRepo(() => guard.InsideRun);
+        var reader = new TestAppointmentNotificationReader(id =>
+            new AppointmentNotificationContext(appointment, customerUserId, []));
+        var notifier = new AppointmentNotifier(reader, new NotificationService(notificationRepo), new ShopTimeZone(TimeZoneInfo.Utc));
+
+        var repo = new TestHotelAssignmentRepo(null, [], []) { Appointment = appointment };
+        var service = new HotelAssignmentService(repo, new ShopTimeZone(TimeZoneInfo.Utc), guard, notifier);
+
+        var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+        await service.RejectHotelAsync(manager, appointment.AppointmentId);
+
+        Check(notificationRepo.Created.Count == 1, "1 notification for customer.");
+        Check(notificationRepo.Created[0].Type == NotificationType.Cancelled, "Type must be Cancelled.");
+        Check(notificationRepo.Created[0].Message.Contains("Lý do: cửa hàng không thể đáp ứng."),
+            "Message must contain StoreUnable reason text.");
+        Check(!notificationRepo.Created[0].InsideTransaction, "Notification must be sent after transaction.");
+
+        notificationRepo.Created.Clear();
+        reader.Requested.Clear();
+        var customer = new CurrentUser(Guid.NewGuid(), UserRole.Customer);
+        var code = await FailureCodeAsync(() => service.RejectHotelAsync(customer, appointment.AppointmentId));
+        Check(code == ErrorCodes.Forbidden, "Customer must be rejected with FORBIDDEN.");
+        Check(notificationRepo.Created.Count == 0 && reader.Requested.Count == 0,
+            "No notification on forbidden reject.");
     })
 };
 
