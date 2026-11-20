@@ -1,5 +1,6 @@
 using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
+using PetSpa.Application.Services.Notifications;
 using PetSpa.Domain.Enums;
 using PetSpa.Domain.Exceptions;
 using PetSpa.Domain.Services;
@@ -16,7 +17,8 @@ public sealed record SpaConfirmResult(AppointmentStatus Status, decimal Amount);
 public sealed class AssignmentService(
     IAssignmentRepository assignments,
     ISpaScheduleRepository schedule,
-    IConcurrencyGuard concurrency)
+    IConcurrencyGuard concurrency,
+    AppointmentNotifier notifier)
 {
     public async Task<SpaStaffSuggestionsResult> GetSpaSuggestionsAsync(
         CurrentUser user, Guid appointmentId, CancellationToken ct = default)
@@ -122,7 +124,7 @@ public sealed class AssignmentService(
     {
         if (user.Role != UserRole.Manager) throw new BusinessException(ErrorCodes.Forbidden);
 
-        return await concurrency.RunAsync(async () =>
+        var result = await concurrency.RunAsync(async () =>
         {
             await concurrency.LockAppointmentAsync(appointmentId, ct);
 
@@ -199,6 +201,10 @@ public sealed class AssignmentService(
 
             return new SpaConfirmResult(appointment.Status, amount);
         }, ct);
+
+        await notifier.ConfirmedAsync(appointmentId, ct);
+
+        return result;
     }
 
     public async Task RejectSpaAsync(CurrentUser user, Guid appointmentId, CancellationToken ct = default)
@@ -216,6 +222,8 @@ public sealed class AssignmentService(
             await assignments.ReleaseStaffHoldsAsync(appointmentId, ct);
             await assignments.UpdateSpaAppointmentAsync(appointment, ct);
         }, ct);
+
+        await notifier.CancelledAsync(appointmentId, ct);
     }
 }
 

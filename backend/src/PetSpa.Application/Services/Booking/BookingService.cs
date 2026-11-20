@@ -1,6 +1,7 @@
 using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
+using PetSpa.Application.Services.Notifications;
 using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
 using PetSpa.Domain.Exceptions;
@@ -32,7 +33,8 @@ public sealed class BookingService(
     IServiceCatalogRepository catalog,
     ISpaScheduleRepository schedule,
     IConcurrencyGuard concurrency,
-    ShopTimeZone shopTimeZone)
+    ShopTimeZone shopTimeZone,
+    AppointmentNotifier notifier)
 {
     public async Task<SpaSelection> ResolveSpaSelectionAsync(
         CurrentUser user,
@@ -251,6 +253,8 @@ public sealed class BookingService(
             await schedule.AddSpaAppointmentAsync(
                 appointment, selection.Services.Select(x => x.ServiceId).ToList(), ct);
         }, ct);
+
+        await notifier.BookingReceivedAsync(appointment.AppointmentId, ct);
 
         return new SpaBookingResult(appointment, selection.Services.Sum(x => x.Price));
     }

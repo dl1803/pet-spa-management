@@ -1,6 +1,7 @@
 using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
+using PetSpa.Application.Services.Notifications;
 using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
 using PetSpa.Domain.Exceptions;
@@ -13,7 +14,8 @@ public sealed record HotelCageSuggestionResult(Cage? Cage);
 public sealed class HotelAssignmentService(
     IHotelAssignmentRepository hotelAssignments,
     ShopTimeZone shopTimeZone,
-    IConcurrencyGuard concurrency)
+    IConcurrencyGuard concurrency,
+    AppointmentNotifier notifier)
 {
     public async Task<HotelCageSuggestionResult?> GetCageSuggestionAsync(
         CurrentUser user, Guid appointmentId, CancellationToken ct = default)
@@ -56,7 +58,7 @@ public sealed class HotelAssignmentService(
         if (preCheck.Appointment.Status != AppointmentStatus.Pending)
             throw new BusinessException(ErrorCodes.InvalidTransition);
 
-        return await concurrency.RunAsync(async () =>
+        var status = await concurrency.RunAsync(async () =>
         {
             await concurrency.LockHotelGroupAsync(preCheck.Species, preCheck.Appointment.SizeGroup, ct);
             await concurrency.LockAppointmentAsync(appointmentId, ct);
@@ -91,6 +93,10 @@ public sealed class HotelAssignmentService(
 
             return stay.Status;
         }, ct);
+
+        await notifier.ConfirmedAsync(appointmentId, ct);
+
+        return status;
     }
 
     public async Task RejectHotelAsync(CurrentUser user, Guid appointmentId, CancellationToken ct = default)
@@ -107,6 +113,8 @@ public sealed class HotelAssignmentService(
             appointment.Reject();
             await hotelAssignments.UpdateHotelAppointmentAsync(appointment, ct);
         }, ct);
+
+        await notifier.CancelledAsync(appointmentId, ct);
     }
 }
 
