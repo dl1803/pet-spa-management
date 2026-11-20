@@ -513,7 +513,8 @@ var tests = new (string Name, Func<Task> Run)[]
             new TestCatalogRepo(new ServiceWithPricing(new Service(), []), []),
             new TestScheduleRepo(15, false, [], []),
             new TestConcurrencyGuard(),
-            new ShopTimeZone(TimeZoneInfo.Utc));
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            NoNotifier());
 
         var controller = new AppointmentsController(dummyService);
         var threw = false;
@@ -546,7 +547,8 @@ var tests = new (string Name, Func<Task> Run)[]
             new TestCatalogRepo(serviceWithPricing, slotTimes),
             new TestScheduleRepo(15, false, [], []),
             new TestConcurrencyGuard(),
-            new ShopTimeZone(TimeZoneInfo.Utc));
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            NoNotifier());
 
         var user = new CurrentUser(ownerUserId, UserRole.Customer);
         var threw = false;
@@ -579,7 +581,8 @@ var tests = new (string Name, Func<Task> Run)[]
             new TestCatalogRepo(serviceWithPricing, slotTimes),
             new TestScheduleRepo(15, false, [], []),
             new TestConcurrencyGuard(),
-            new ShopTimeZone(TimeZoneInfo.Utc));
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            NoNotifier());
 
         var user = new CurrentUser(ownerUserId, UserRole.Customer);
         var futureDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2));
@@ -615,7 +618,8 @@ var tests = new (string Name, Func<Task> Run)[]
             new TestCatalogRepo(serviceWithPricing, slotTimes),
             new TestScheduleRepo(15, isLocked: true, [], []),
             new TestConcurrencyGuard(),
-            new ShopTimeZone(TimeZoneInfo.Utc));
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            NoNotifier());
 
         var user = new CurrentUser(ownerUserId, UserRole.Customer);
         var futureDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1));
@@ -660,7 +664,8 @@ var tests = new (string Name, Func<Task> Run)[]
             new TestCatalogRepo(serviceWithPricing, slotTimes),
             scheduleRepo,
             concurrencyGuard,
-            new ShopTimeZone(TimeZoneInfo.Utc));
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            NoNotifier());
 
         var receptionistUser = new CurrentUser(staffUserId, UserRole.Staff);
         var result = await bookingService.CreateSpaAppointmentAsync(
@@ -692,7 +697,8 @@ var tests = new (string Name, Func<Task> Run)[]
             new TestCatalogRepo(serviceWithPricing, slotTimes),
             new TestScheduleRepo(15, isLocked: false, shifts: [], held: []),
             new TestConcurrencyGuard(),
-            new ShopTimeZone(TimeZoneInfo.Utc));
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            NoNotifier());
 
         var user = new CurrentUser(ownerUserId, UserRole.Customer);
         var threw = false;
@@ -2918,7 +2924,8 @@ var tests = new (string Name, Func<Task> Run)[]
             repo,
             new TestHotelCatalogRepo(),
             new ShopTimeZone(TimeZoneInfo.Utc),
-            new TestConcurrencyGuard());
+            new TestConcurrencyGuard(),
+            NoNotifier());
         var user = new CurrentUser(ownerUserId, UserRole.Customer);
 
         var fullOnNov11 = await service.HasCapacityAsync(
@@ -2948,7 +2955,8 @@ var tests = new (string Name, Func<Task> Run)[]
             new TestHotelBookingRepo(1, []),
             new TestHotelCatalogRepo(),
             new ShopTimeZone(TimeZoneInfo.Utc),
-            new TestConcurrencyGuard());
+            new TestConcurrencyGuard(),
+            NoNotifier());
 
         async Task<string?> CodeOfAsync(Func<Task> action)
         {
@@ -3448,7 +3456,8 @@ var tests = new (string Name, Func<Task> Run)[]
             new TestHotelBookingRepo(activeCages, []),
             catalog,
             new ShopTimeZone(TimeZoneInfo.Utc),
-            new TestConcurrencyGuard());
+            new TestConcurrencyGuard(),
+            NoNotifier());
 
         var open = await ServiceFor(1).GetAvailabilityAsync(user, pet.PetId, checkIn, checkOut);
         var full = await ServiceFor(0).GetAvailabilityAsync(user, pet.PetId, checkIn, checkOut);
@@ -3507,7 +3516,8 @@ var tests = new (string Name, Func<Task> Run)[]
             repo,
             catalog,
             new ShopTimeZone(TimeZoneInfo.Utc),
-            guard);
+            guard,
+            NoNotifier());
 
         var futureDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2));
         var checkIn = new DateTimeOffset(futureDate.ToDateTime(new TimeOnly(14, 0)), TimeSpan.Zero);
@@ -3553,7 +3563,8 @@ var tests = new (string Name, Func<Task> Run)[]
             repository,
             catalog,
             new ShopTimeZone(TimeZoneInfo.Utc),
-            new TestConcurrencyGuard());
+            new TestConcurrencyGuard(),
+            NoNotifier());
 
         async Task<string?> CodeOfAsync(Func<Task> action)
         {
@@ -4014,7 +4025,8 @@ var tests = new (string Name, Func<Task> Run)[]
             repo,
             new TestHotelCatalogRepo(),
             new ShopTimeZone(TimeZoneInfo.Utc),
-            new TestConcurrencyGuard());
+            new TestConcurrencyGuard(),
+            NoNotifier());
         var excludedId = Guid.NewGuid();
 
         var capacity = await service.HasCapacityForGroupAsync(
@@ -4034,7 +4046,8 @@ var tests = new (string Name, Func<Task> Run)[]
             new TestHotelBookingRepo(1, []),
             new TestHotelCatalogRepo(),
             new ShopTimeZone(TimeZoneInfo.Utc),
-            new TestConcurrencyGuard());
+            new TestConcurrencyGuard(),
+            NoNotifier());
 
         var day = DateTimeOffset.UtcNow.AddDays(3);
         var checkIn = new DateTimeOffset(day.Year, day.Month, day.Day, 10, 0, 0, TimeSpan.FromHours(7));
@@ -5580,6 +5593,180 @@ var tests = new (string Name, Func<Task> Run)[]
         }
         Check(noShowThrew, "Unsupported cancel reason must throw InvalidOperationException.");
         Check(repo.Created.Count == 0, "No notification created on unsupported cancel reason.");
+    }),
+    ("BookingService.CreateSpaAppointmentAsync notifies the customer account after the transaction", async () =>
+    {
+        var customerId = Guid.NewGuid();
+        var customerUserId = Guid.NewGuid();
+        var petId = Guid.NewGuid();
+        var serviceId = Guid.NewGuid();
+        var pet = new Pet { PetId = petId, CustomerId = customerId, Species = Species.Dog, SizeGroup = SizeGroup.Small, IsActive = true };
+        var service = new Service { ServiceId = serviceId, Name = "Tắm", LatestStartTime = new TimeOnly(18, 0), IsActive = true };
+        var pricing = new ServicePricing { ServiceId = serviceId, Species = Species.Dog, SizeGroup = SizeGroup.Small, Price = 100000, DurationMinutes = 60, StaffRequired = 1 };
+        var slotTimes = new List<TimeOnly> { new(10, 0) };
+        var futureDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1));
+        var validSlot = new DateTimeOffset(futureDate.ToDateTime(new TimeOnly(10, 0)), TimeSpan.Zero);
+        var shifts = new List<StaffShiftWindow> { new(Guid.NewGuid(), validSlot.AddHours(-1), validSlot.AddHours(3)) };
+
+        var serviceWithPricing = new ServiceWithPricing(service, [pricing]);
+        var scheduleRepo = new TestScheduleRepo(15, isLocked: false, shifts, []);
+        var guard = new TestConcurrencyGuard();
+        var notificationRepo = new TestNotificationRepo(() => guard.InsideRun);
+        var reader = new TestAppointmentNotificationReader(id =>
+        {
+            var spa = OldSpaAppointment(AppointmentStatus.Pending, TimeSpan.FromDays(1));
+            spa.AppointmentId = id;
+            spa.SlotStart = validSlot;
+            return new AppointmentNotificationContext(spa, customerUserId, []);
+        });
+        var notifier = new AppointmentNotifier(reader, new NotificationService(notificationRepo), new ShopTimeZone(TimeZoneInfo.Utc));
+
+        var bookingService = new BookingService(
+            new TestPetRepo(pet, customerUserId),
+            new TestStaffRoleReader(null),
+            new TestCatalogRepo(serviceWithPricing, slotTimes),
+            scheduleRepo,
+            guard,
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            notifier);
+
+        var user = new CurrentUser(customerUserId, UserRole.Customer);
+        var result = await bookingService.CreateSpaAppointmentAsync(user, null, petId, [serviceId], validSlot);
+
+        Check(notificationRepo.Created.Count == 1, "Exactly 1 notification must be created.");
+        Check(notificationRepo.Created[0].Type == NotificationType.BookingReceived, "Type must be BookingReceived.");
+        Check(notificationRepo.Created[0].RecipientUserId == customerUserId, "Recipient must be customerUserId.");
+        Check(notificationRepo.Created[0].AppointmentId == result.Appointment.AppointmentId, "AppointmentId must match.");
+        Check(!notificationRepo.Created[0].InsideTransaction, "Notification must be sent outside transaction.");
+        Check(reader.Requested.Count == 1 && reader.Requested[0] == result.Appointment.AppointmentId, "Reader must be called for created appointment.");
+    }),
+    ("BookingService.CreateSpaAppointmentAsync sends nothing for a walk-in customer and when the booking is rejected", async () =>
+    {
+        var customerId = Guid.NewGuid();
+        var petId = Guid.NewGuid();
+        var serviceId = Guid.NewGuid();
+        var pet = new Pet { PetId = petId, CustomerId = customerId, Species = Species.Dog, SizeGroup = SizeGroup.Small, IsActive = true };
+        var service = new Service { ServiceId = serviceId, Name = "Tắm", LatestStartTime = new TimeOnly(18, 0), IsActive = true };
+        var pricing = new ServicePricing { ServiceId = serviceId, Species = Species.Dog, SizeGroup = SizeGroup.Small, Price = 100000, DurationMinutes = 60, StaffRequired = 1 };
+        var slotTimes = new List<TimeOnly> { new(10, 0) };
+        var futureDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1));
+        var validSlot = new DateTimeOffset(futureDate.ToDateTime(new TimeOnly(10, 0)), TimeSpan.Zero);
+        var shifts = new List<StaffShiftWindow> { new(Guid.NewGuid(), validSlot.AddHours(-1), validSlot.AddHours(3)) };
+
+        var serviceWithPricing = new ServiceWithPricing(service, [pricing]);
+        var scheduleRepo = new TestScheduleRepo(15, isLocked: false, shifts, []);
+        var guard = new TestConcurrencyGuard();
+        var notificationRepo = new TestNotificationRepo(() => guard.InsideRun);
+        var reader = new TestAppointmentNotificationReader(id =>
+        {
+            var spa = OldSpaAppointment(AppointmentStatus.Pending, TimeSpan.FromDays(1));
+            spa.AppointmentId = id;
+            return new AppointmentNotificationContext(spa, null, []);
+        });
+        var notifier = new AppointmentNotifier(reader, new NotificationService(notificationRepo), new ShopTimeZone(TimeZoneInfo.Utc));
+
+        var bookingService = new BookingService(
+            new TestPetRepo(pet, null),
+            new TestStaffRoleReader(StaffRole.Receptionist),
+            new TestCatalogRepo(serviceWithPricing, slotTimes),
+            scheduleRepo,
+            guard,
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            notifier);
+
+        var receptionist = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+        await bookingService.CreateSpaAppointmentAsync(receptionist, customerId, petId, [serviceId], validSlot);
+
+        Check(notificationRepo.Created.Count == 0, "No notifications for walk-in customer.");
+
+        var fullBookingService = new BookingService(
+            new TestPetRepo(pet, Guid.NewGuid()),
+            new TestStaffRoleReader(null),
+            new TestCatalogRepo(serviceWithPricing, slotTimes),
+            new TestScheduleRepo(15, isLocked: false, shifts: [], held: []),
+            guard,
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            notifier);
+
+        reader.Requested.Clear();
+        await FailureCodeAsync(() => fullBookingService.CreateSpaAppointmentAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Customer), null, petId, [serviceId], validSlot));
+
+        Check(reader.Requested.Count == 0 && notificationRepo.Created.Count == 0,
+            "No notification or reader call when booking rejected with SLOT_FULL.");
+    }),
+    ("HotelBookingService.CreateHotelAppointmentAsync notifies the customer account after the transaction", async () =>
+    {
+        var ownerUserId = Guid.NewGuid();
+        var pet = new Pet { PetId = Guid.NewGuid(), CustomerId = Guid.NewGuid(), Species = Species.Dog, SizeGroup = SizeGroup.Small, IsActive = true };
+        var repo = new TestHotelBookingRepo(2, []);
+        var guard = new TestConcurrencyGuard();
+        var notificationRepo = new TestNotificationRepo(() => guard.InsideRun);
+        var reader = new TestAppointmentNotificationReader(id =>
+        {
+            var hotel = OldHotelAppointment(AppointmentStatus.Pending, TimeSpan.FromDays(1));
+            hotel.AppointmentId = id;
+            return new AppointmentNotificationContext(hotel, ownerUserId, []);
+        });
+        var notifier = new AppointmentNotifier(reader, new NotificationService(notificationRepo), new ShopTimeZone(TimeZoneInfo.Utc));
+
+        var service = new HotelBookingService(
+            new TestPetRepo(pet, ownerUserId),
+            new TestStaffRoleReader(null),
+            repo,
+            new TestHotelCatalogRepo
+            {
+                Prices = [new HotelPricing { Species = Species.Dog, SizeGroup = SizeGroup.Small, PricePerNight = 100000m, FoodPerNight = 20000m }],
+            },
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            guard,
+            notifier);
+
+        var checkIn = DateTimeOffset.UtcNow.AddDays(2);
+        var checkOut = checkIn.AddDays(2);
+        var user = new CurrentUser(ownerUserId, UserRole.Customer);
+        var result = await service.CreateHotelAppointmentAsync(user, null, pet.PetId, checkIn, checkOut);
+
+        Check(notificationRepo.Created.Count == 1, "Exactly 1 notification for hotel booking.");
+        Check(notificationRepo.Created[0].Type == NotificationType.BookingReceived, "Type must be BookingReceived.");
+        Check(notificationRepo.Created[0].RecipientUserId == ownerUserId, "Recipient must be ownerUserId.");
+        Check(notificationRepo.Created[0].AppointmentId == result.Appointment.AppointmentId, "AppointmentId must match.");
+        Check(!notificationRepo.Created[0].InsideTransaction, "Notification must be sent outside transaction.");
+    }),
+    ("HotelBookingService.CreateHotelAppointmentAsync sends nothing when there is no capacity", async () =>
+    {
+        var ownerUserId = Guid.NewGuid();
+        var pet = new Pet { PetId = Guid.NewGuid(), CustomerId = Guid.NewGuid(), Species = Species.Dog, SizeGroup = SizeGroup.Small, IsActive = true };
+        var checkIn = DateTimeOffset.UtcNow.AddDays(2);
+        var checkOut = checkIn.AddDays(2);
+        var held = new[]
+        {
+            new HeldHotelStay(checkIn, checkOut),
+        };
+        var repo = new TestHotelBookingRepo(1, held);
+        var guard = new TestConcurrencyGuard();
+        var notificationRepo = new TestNotificationRepo(() => guard.InsideRun);
+        var reader = new TestAppointmentNotificationReader(_ => null);
+        var notifier = new AppointmentNotifier(reader, new NotificationService(notificationRepo), new ShopTimeZone(TimeZoneInfo.Utc));
+
+        var service = new HotelBookingService(
+            new TestPetRepo(pet, ownerUserId),
+            new TestStaffRoleReader(null),
+            repo,
+            new TestHotelCatalogRepo
+            {
+                Prices = [new HotelPricing { Species = Species.Dog, SizeGroup = SizeGroup.Small, PricePerNight = 100000m, FoodPerNight = 20000m }],
+            },
+            new ShopTimeZone(TimeZoneInfo.Utc),
+            guard,
+            notifier);
+
+        var user = new CurrentUser(ownerUserId, UserRole.Customer);
+        var code = await FailureCodeAsync(() => service.CreateHotelAppointmentAsync(user, null, pet.PetId, checkIn, checkOut));
+
+        Check(code == ErrorCodes.NoCapacity, "Must fail with NO_CAPACITY.");
+        Check(notificationRepo.Created.Count == 0 && reader.Requested.Count == 0,
+            "No notification or reader request when booking fails.");
     })
 };
 
@@ -5623,10 +5810,13 @@ static (BookingService Service, TestScheduleRepo Schedule, CurrentUser User, Gui
         new TestCatalogRepo(new ServiceWithPricing(service, [pricing]), [new TimeOnly(10, 0)]),
         schedule,
         new TestConcurrencyGuard(),
-        new ShopTimeZone(TimeZoneInfo.Utc));
+        new ShopTimeZone(TimeZoneInfo.Utc),
+        NoNotifier());
 
     return (bookingService, schedule, new CurrentUser(ownerUserId, UserRole.Customer), petId, serviceId, slotStart);
 }
+
+static AppointmentNotifier NoNotifier() => TestNotifiers.NoNotifier();
 
 static async Task<string?> FailureCodeAsync(Func<Task> action)
 {
@@ -6000,17 +6190,34 @@ sealed class TestConcurrencyGuard : IConcurrencyGuard
     public Guid? LockedAppointmentId { get; private set; }
     public Guid? LockedPaymentId { get; private set; }
     public int RunCalls { get; private set; }
-    public Task<T> RunAsync<T>(Func<Task<T>> work, CancellationToken ct = default)
+    public bool InsideRun { get; private set; }
+    public async Task<T> RunAsync<T>(Func<Task<T>> work, CancellationToken ct = default)
     {
         RunCalls++;
         Events.Add("run");
-        return work();
+        InsideRun = true;
+        try
+        {
+            return await work();
+        }
+        finally
+        {
+            InsideRun = false;
+        }
     }
-    public Task RunAsync(Func<Task> work, CancellationToken ct = default)
+    public async Task RunAsync(Func<Task> work, CancellationToken ct = default)
     {
         RunCalls++;
         Events.Add("run");
-        return work();
+        InsideRun = true;
+        try
+        {
+            await work();
+        }
+        finally
+        {
+            InsideRun = false;
+        }
     }
     public Task LockSpaDayAsync(DateOnly day, CancellationToken ct = default)
     {
@@ -6525,9 +6732,10 @@ sealed class ChangeFixture
             new TestCatalogRepo(new ServiceWithPricing(service, [pricing]), [new TimeOnly(10, 0)]),
             Schedule,
             Guard,
-            shopZone);
+            shopZone,
+            TestNotifiers.NoNotifier());
         var hotelService = new HotelBookingService(
-            petRepo, new TestStaffRoleReader(null), HotelRepo, new TestHotelCatalogRepo(), shopZone, Guard);
+            petRepo, new TestStaffRoleReader(null), HotelRepo, new TestHotelCatalogRepo(), shopZone, Guard, TestNotifiers.NoNotifier());
 
         ChangeService = new AppointmentChangeService(Changes, bookingService, hotelService, petRepo, Guard);
     }
@@ -6616,9 +6824,10 @@ sealed class InterventionFixture
             new TestCatalogRepo(new ServiceWithPricing(service, [pricing]), [new TimeOnly(10, 0)]),
             Schedule,
             Guard,
-            shopZone);
+            shopZone,
+            TestNotifiers.NoNotifier());
         var hotelService = new HotelBookingService(
-            petRepo, new TestStaffRoleReader(null), HotelRepo, new TestHotelCatalogRepo(), shopZone, Guard);
+            petRepo, new TestStaffRoleReader(null), HotelRepo, new TestHotelCatalogRepo(), shopZone, Guard, TestNotifiers.NoNotifier());
 
         Intervention = new AppointmentInterventionService(
             Changes, Assignments, Schedule, HotelAssignments, bookingService, hotelService, petRepo, Guard, shopZone);
@@ -6840,4 +7049,12 @@ sealed class TestAppointmentNotificationReader(Func<Guid, AppointmentNotificatio
         Requested.Add(appointmentId);
         return Task.FromResult(find(appointmentId));
     }
+}
+
+static class TestNotifiers
+{
+    public static AppointmentNotifier NoNotifier() => new(
+        new TestAppointmentNotificationReader(_ => null),
+        new NotificationService(new TestNotificationRepo(() => false)),
+        new ShopTimeZone(TimeZoneInfo.Utc));
 }

@@ -1,6 +1,7 @@
 using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
+using PetSpa.Application.Services.Notifications;
 using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
 using PetSpa.Domain.Exceptions;
@@ -18,7 +19,8 @@ public sealed class HotelBookingService(
     IHotelBookingRepository hotelBookings,
     IHotelCatalogRepository hotelCatalog,
     ShopTimeZone shopTimeZone,
-    IConcurrencyGuard concurrency)
+    IConcurrencyGuard concurrency,
+    AppointmentNotifier notifier)
 {
     private sealed record StayQuote(int Nights, decimal Amount);
 
@@ -130,6 +132,8 @@ public sealed class HotelBookingService(
 
             await hotelBookings.AddHotelAppointmentAsync(appointment, ct);
         }, ct);
+
+        await notifier.BookingReceivedAsync(appointment.AppointmentId, ct);
 
         return new HotelBookingResult(appointment, quote.Nights, quote.Amount);
     }
