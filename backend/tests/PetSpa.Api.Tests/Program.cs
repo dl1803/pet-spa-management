@@ -1073,6 +1073,15 @@ var tests = new (string Name, Func<Task> Run)[]
             "CheckInService must be registered as scoped in AddApplication.");
         return Task.CompletedTask;
     }),
+    ("AddApplication registers AppointmentNotifier into DI container", () =>
+    {
+        var services = new ServiceCollection();
+        services.AddApplication();
+        var descriptor = services.FirstOrDefault(d => d.ServiceType == typeof(AppointmentNotifier));
+        Check(descriptor is not null && descriptor.Lifetime == ServiceLifetime.Scoped,
+            "AppointmentNotifier must be registered as scoped in AddApplication.");
+        return Task.CompletedTask;
+    }),
     ("AppointmentsController.CheckIn tiếp nhận lịch spa, ghi cân nặng và trả CheckInResponse", async () =>
     {
         var pet = WeightTestCat(2.8m, SizeGroup.Small);
@@ -5382,6 +5391,195 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(appointment.Status == AppointmentStatus.Confirmed, "The appointment must not change.");
         Check(guard.LockedAppointments.Count == 0 && assignments.SaveCalls == 0 && notificationRepo.Created.Count == 0,
             "Nothing must be locked, saved or notified.");
+    }),
+    ("AppointmentNotifier.BookingReceivedAsync notifies the customer account of a spa and a hotel appointment", async () =>
+    {
+        var zone = TimeZoneInfo.CreateCustomTimeZone("UTC+7", TimeSpan.FromHours(7), "UTC+7", "UTC+7");
+        var shopZone = new ShopTimeZone(zone);
+        var repo = new TestNotificationRepo(() => false);
+        var customerUserId = Guid.NewGuid();
+
+        var spa = OldSpaAppointment(AppointmentStatus.Pending, TimeSpan.FromDays(5));
+        spa.SlotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var staffUserIds = new[] { Guid.NewGuid() };
+        var readerSpa = new TestAppointmentNotificationReader(_ => new AppointmentNotificationContext(spa, customerUserId, staffUserIds));
+        var notifierSpa = new AppointmentNotifier(readerSpa, new NotificationService(repo), shopZone);
+
+        await notifierSpa.BookingReceivedAsync(spa.AppointmentId);
+
+        Check(repo.Created.Count == 1, "Only 1 notification must be created for spa booking.");
+        Check(repo.Created[0].Type == NotificationType.BookingReceived, "Type must be BookingReceived.");
+        Check(repo.Created[0].RecipientUserId == customerUserId, "Recipient must be CustomerUserId.");
+        Check(repo.Created[0].AppointmentId == spa.AppointmentId, "AppointmentId must match.");
+        Check(repo.Created[0].Message == "Lịch spa lúc 10:00 ngày 20/11/2026 đã được ghi nhận và đang chờ cửa hàng xác nhận.",
+            "Spa message must match template.");
+
+        var hotel = OldHotelAppointment(AppointmentStatus.Pending, TimeSpan.FromDays(5));
+        hotel.PlannedCheckIn = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        hotel.PlannedCheckOut = new DateTimeOffset(2026, 11, 22, 3, 0, 0, TimeSpan.Zero);
+        var readerHotel = new TestAppointmentNotificationReader(_ => new AppointmentNotificationContext(hotel, customerUserId, []));
+        var notifierHotel = new AppointmentNotifier(readerHotel, new NotificationService(repo), shopZone);
+
+        await notifierHotel.BookingReceivedAsync(hotel.AppointmentId);
+
+        Check(repo.Created.Count == 2, "A second notification must be created for hotel booking.");
+        Check(repo.Created[1].Type == NotificationType.BookingReceived, "Type must be BookingReceived.");
+        Check(repo.Created[1].RecipientUserId == customerUserId, "Recipient must be CustomerUserId.");
+        Check(repo.Created[1].AppointmentId == hotel.AppointmentId, "AppointmentId must match.");
+        Check(repo.Created[1].Message == "Lịch lưu trú từ ngày 20/11/2026 đến ngày 22/11/2026 đã được ghi nhận và đang chờ cửa hàng xác nhận.",
+            "Hotel message must match template.");
+    }),
+    ("AppointmentNotifier skips walk-in customers and unknown appointments", async () =>
+    {
+        var zone = TimeZoneInfo.CreateCustomTimeZone("UTC+7", TimeSpan.FromHours(7), "UTC+7", "UTC+7");
+        var shopZone = new ShopTimeZone(zone);
+        var repo = new TestNotificationRepo(() => false);
+
+        var spa = OldSpaAppointment(AppointmentStatus.Pending, TimeSpan.FromDays(5));
+        spa.SlotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        spa.CancelReason = CancelReason.StoreUnable;
+        var walkInReader = new TestAppointmentNotificationReader(_ => new AppointmentNotificationContext(spa, null, []));
+        var walkInNotifier = new AppointmentNotifier(walkInReader, new NotificationService(repo), shopZone);
+
+        await walkInNotifier.BookingReceivedAsync(spa.AppointmentId);
+        await walkInNotifier.ConfirmedAsync(spa.AppointmentId);
+        await walkInNotifier.CancelledAsync(spa.AppointmentId);
+
+        Check(repo.Created.Count == 0, "No notifications for walk-in customer with no staff.");
+
+        var nullReader = new TestAppointmentNotificationReader(_ => null);
+        var nullNotifier = new AppointmentNotifier(nullReader, new NotificationService(repo), shopZone);
+
+        await nullNotifier.BookingReceivedAsync(Guid.NewGuid());
+        await nullNotifier.ConfirmedAsync(Guid.NewGuid());
+        await nullNotifier.CancelledAsync(Guid.NewGuid());
+
+        Check(repo.Created.Count == 0, "No notifications for unknown appointment.");
+    }),
+    ("AppointmentNotifier.ConfirmedAsync notifies the customer and every assigned staff member", async () =>
+    {
+        var zone = TimeZoneInfo.CreateCustomTimeZone("UTC+7", TimeSpan.FromHours(7), "UTC+7", "UTC+7");
+        var shopZone = new ShopTimeZone(zone);
+        var repo = new TestNotificationRepo(() => false);
+        var customerUserId = Guid.NewGuid();
+        var staff1 = Guid.NewGuid();
+        var staff2 = Guid.NewGuid();
+
+        var spa = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        spa.SlotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var readerSpa = new TestAppointmentNotificationReader(_ => new AppointmentNotificationContext(spa, customerUserId, [staff1, staff2]));
+        var notifierSpa = new AppointmentNotifier(readerSpa, new NotificationService(repo), shopZone);
+
+        await notifierSpa.ConfirmedAsync(spa.AppointmentId);
+
+        Check(repo.Created.Count == 3, "3 notifications must be created (1 customer + 2 staff).");
+        Check(repo.Created.All(n => n.Type == NotificationType.ConfirmedAssigned), "All must be ConfirmedAssigned.");
+        Check(repo.Created[0].RecipientUserId == customerUserId && repo.Created[0].Message == "Lịch spa lúc 10:00 ngày 20/11/2026 đã được cửa hàng xác nhận.",
+            "Customer message must match.");
+        Check(repo.Created[1].RecipientUserId == staff1 && repo.Created[1].Message == "Lịch spa lúc 10:00 ngày 20/11/2026 đã được phân công cho bạn.",
+            "Staff 1 message must match.");
+        Check(repo.Created[2].RecipientUserId == staff2 && repo.Created[2].Message == "Lịch spa lúc 10:00 ngày 20/11/2026 đã được phân công cho bạn.",
+            "Staff 2 message must match.");
+
+        var hotel = OldHotelAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        hotel.PlannedCheckIn = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        hotel.PlannedCheckOut = new DateTimeOffset(2026, 11, 22, 3, 0, 0, TimeSpan.Zero);
+        var readerHotel = new TestAppointmentNotificationReader(_ => new AppointmentNotificationContext(hotel, customerUserId, []));
+        var notifierHotel = new AppointmentNotifier(readerHotel, new NotificationService(repo), shopZone);
+
+        await notifierHotel.ConfirmedAsync(hotel.AppointmentId);
+
+        Check(repo.Created.Count == 4, "Hotel confirmation creates 1 notification for customer.");
+        Check(repo.Created[3].RecipientUserId == customerUserId && repo.Created[3].Message == "Lịch lưu trú từ ngày 20/11/2026 đến ngày 22/11/2026 đã được cửa hàng xác nhận.",
+            "Hotel customer message must match.");
+    }),
+    ("AppointmentNotifier.CancelledAsync notifies the customer and the staff in charge with the reason", async () =>
+    {
+        var zone = TimeZoneInfo.CreateCustomTimeZone("UTC+7", TimeSpan.FromHours(7), "UTC+7", "UTC+7");
+        var shopZone = new ShopTimeZone(zone);
+        var customerUserId = Guid.NewGuid();
+        var staffUserId = Guid.NewGuid();
+
+        var reasonCases = new (CancelReason reason, string expectedFragment)[]
+        {
+            (CancelReason.StoreUnable, "Lý do: cửa hàng không thể đáp ứng."),
+            (CancelReason.CustomerCancelled, "Lý do: khách hàng chủ động hủy."),
+            (CancelReason.CustomerBeyondDeadline, "Lý do: theo yêu cầu của khách hàng ngoài thời hạn tự phục vụ."),
+        };
+
+        foreach (var (reason, expectedFragment) in reasonCases)
+        {
+            var repo = new TestNotificationRepo(() => false);
+            var spa = OldSpaAppointment(AppointmentStatus.Cancelled, TimeSpan.FromDays(5));
+            spa.SlotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+            spa.CancelReason = reason;
+
+            var reader = new TestAppointmentNotificationReader(_ => new AppointmentNotificationContext(spa, customerUserId, [staffUserId]));
+            var notifier = new AppointmentNotifier(reader, new NotificationService(repo), shopZone);
+
+            await notifier.CancelledAsync(spa.AppointmentId);
+
+            Check(repo.Created.Count == 2, "Customer and assigned staff must be notified of cancellation.");
+            Check(repo.Created[0].RecipientUserId == customerUserId && repo.Created[0].Type == NotificationType.Cancelled,
+                "Customer must receive Cancelled notice.");
+            Check(repo.Created[0].Message.Contains(expectedFragment), $"Customer message must contain '{expectedFragment}'.");
+            Check(repo.Created[1].RecipientUserId == staffUserId && repo.Created[1].Type == NotificationType.Cancelled,
+                "Staff must receive Cancelled notice.");
+            Check(repo.Created[1].Message == $"Lịch spa lúc 10:00 ngày 20/11/2026 do bạn phụ trách đã bị hủy. {expectedFragment}",
+                "Staff message must match template.");
+        }
+
+        var unassignedRepo = new TestNotificationRepo(() => false);
+        var unassignedSpa = OldSpaAppointment(AppointmentStatus.Cancelled, TimeSpan.FromDays(5));
+        unassignedSpa.SlotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        unassignedSpa.CancelReason = CancelReason.StoreUnable;
+        var unassignedReader = new TestAppointmentNotificationReader(_ => new AppointmentNotificationContext(unassignedSpa, customerUserId, []));
+        var unassignedNotifier = new AppointmentNotifier(unassignedReader, new NotificationService(unassignedRepo), shopZone);
+
+        await unassignedNotifier.CancelledAsync(unassignedSpa.AppointmentId);
+
+        Check(unassignedRepo.Created.Count == 1, "Only customer receives notice when no staff assigned.");
+    }),
+    ("AppointmentNotifier.CancelledAsync fails loudly for a missing or unsupported reason", async () =>
+    {
+        var zone = TimeZoneInfo.CreateCustomTimeZone("UTC+7", TimeSpan.FromHours(7), "UTC+7", "UTC+7");
+        var shopZone = new ShopTimeZone(zone);
+        var repo = new TestNotificationRepo(() => false);
+        var customerUserId = Guid.NewGuid();
+
+        var spaNullReason = OldSpaAppointment(AppointmentStatus.Cancelled, TimeSpan.FromDays(5));
+        spaNullReason.CancelReason = null;
+        var readerNull = new TestAppointmentNotificationReader(_ => new AppointmentNotificationContext(spaNullReason, customerUserId, []));
+        var notifierNull = new AppointmentNotifier(readerNull, new NotificationService(repo), shopZone);
+
+        var nullThrew = false;
+        try
+        {
+            await notifierNull.CancelledAsync(spaNullReason.AppointmentId);
+        }
+        catch (InvalidOperationException)
+        {
+            nullThrew = true;
+        }
+        Check(nullThrew, "Missing cancel reason must throw InvalidOperationException.");
+        Check(repo.Created.Count == 0, "No notification created on missing cancel reason.");
+
+        var spaNoShow = OldSpaAppointment(AppointmentStatus.Cancelled, TimeSpan.FromDays(5));
+        spaNoShow.CancelReason = CancelReason.NoShow;
+        var readerNoShow = new TestAppointmentNotificationReader(_ => new AppointmentNotificationContext(spaNoShow, customerUserId, []));
+        var notifierNoShow = new AppointmentNotifier(readerNoShow, new NotificationService(repo), shopZone);
+
+        var noShowThrew = false;
+        try
+        {
+            await notifierNoShow.CancelledAsync(spaNoShow.AppointmentId);
+        }
+        catch (InvalidOperationException)
+        {
+            noShowThrew = true;
+        }
+        Check(noShowThrew, "Unsupported cancel reason must throw InvalidOperationException.");
+        Check(repo.Created.Count == 0, "No notification created on unsupported cancel reason.");
     })
 };
 
@@ -6631,4 +6829,15 @@ sealed class TestNotificationRepo(Func<bool> insideTransaction) : INotificationR
 
     public Task MarkReadAsync(Guid notificationId, CancellationToken ct = default) =>
         throw new NotSupportedException();
+}
+
+sealed class TestAppointmentNotificationReader(Func<Guid, AppointmentNotificationContext?> find) : IAppointmentNotificationReader
+{
+    public List<Guid> Requested { get; } = [];
+
+    public Task<AppointmentNotificationContext?> FindAsync(Guid appointmentId, CancellationToken ct = default)
+    {
+        Requested.Add(appointmentId);
+        return Task.FromResult(find(appointmentId));
+    }
 }
