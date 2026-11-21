@@ -1,7 +1,13 @@
 import { skipToken, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createSpaAppointment, getAppointment, listAppointments } from "@/lib/api/endpoints/appointments";
-import type { Appointment, AppointmentStatus, SpaBookingRequest } from "@/lib/api/types";
+import {
+  createHotelAppointment,
+  createSpaAppointment,
+  getAppointment,
+  listAppointments,
+} from "@/lib/api/endpoints/appointments";
+import type { Appointment, AppointmentStatus, HotelBookingRequest, SpaBookingRequest } from "@/lib/api/types";
 import { mockCancelAppointment } from "@/lib/mock-appointments";
+import { hotelKeys } from "@/lib/queries/hotel";
 import { spaSlotKeys } from "@/lib/queries/spa-slots";
 
 // pageSize lớn nhất backend nhận (ListAppointmentsQueryValidator: 1 đến 100).
@@ -73,6 +79,22 @@ export function useCreateSpaAppointment() {
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: spaSlotKeys.all });
+    },
+  });
+}
+
+// POST /appointments/hotel. Tải lại chỗ trống khi hoàn tất (cả khi lỗi 409 NO_CAPACITY) và tải lại danh sách lịch hẹn khi thành công.
+// Không trả Promise để màn hình xử lý kết quả ngay, không chờ tải lại xong.
+export function useCreateHotelAppointment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (request: HotelBookingRequest) => createHotelAppointment(request),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: appointmentKeys.all });
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: hotelKeys.availabilityAll });
     },
   });
 }
