@@ -1,0 +1,126 @@
+"use client";
+
+// SW-02 Lịch hẹn (Nhân viên spa, vùng 4 đến 6) – UI-Screens.md
+
+import { useState } from "react";
+import { ErrorAlert } from "@/components/feedback/error-alert";
+import { ForbiddenState } from "@/components/feedback/forbidden-state";
+import { PageHeader } from "@/components/layout/page-header";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
+import { AppointmentTicket } from "@/features/spa-appointments/components/appointment-ticket";
+import {
+  buildSpaListParams,
+  groupSpaAppointments,
+  SPA_LIST_REFETCH_MS,
+} from "@/features/spa-appointments/list";
+import { isForbiddenError } from "@/lib/api/errors";
+import { formatLongDate } from "@/lib/format";
+import { useAppointments } from "@/lib/queries/appointments";
+import { buildStoreDateTime, getStoreDateKey } from "@/lib/time";
+
+export function SpaAppointmentsScreen() {
+  const [todayKey] = useState(() => getStoreDateKey(new Date()));
+
+  const confirmed = useAppointments(buildSpaListParams("Confirmed"), {
+    refetchInterval: SPA_LIST_REFETCH_MS,
+  });
+  const received = useAppointments(buildSpaListParams("Received"), {
+    refetchInterval: SPA_LIST_REFETCH_MS,
+  });
+  const inProgress = useAppointments(buildSpaListParams("InProgress"), {
+    refetchInterval: SPA_LIST_REFETCH_MS,
+  });
+
+  const queries = [confirmed, received, inProgress];
+  const hasAllData = queries.every((query) => query.data !== undefined);
+  const error = queries.find((query) => query.error)?.error;
+
+  return (
+    <div>
+      <PageHeader
+        title="Lịch được phân công cho bạn"
+        description={`${formatLongDate(buildStoreDateTime(todayKey, "12:00"))}.`}
+      />
+
+      {!hasAllData && error ? (
+        isForbiddenError(error) ? (
+          <ForbiddenState />
+        ) : (
+          <ErrorAlert error={error} />
+        )
+      ) : !hasAllData ? (
+        <div>
+          <Skeleton className="mb-3 h-[104px] w-full rounded-2xl" />
+          <Skeleton className="h-[104px] w-full rounded-2xl" />
+        </div>
+      ) : (
+        (() => {
+          const groups = groupSpaAppointments(
+            queries.map((query) => query.data?.items ?? []),
+            todayKey,
+          );
+
+          return (
+            <>
+              {/* Khối Hôm nay */}
+              <section aria-labelledby="spa-today-heading" className="mb-8">
+                <div className="mb-3 flex items-baseline justify-between">
+                  <h2 id="spa-today-heading">Hôm nay</h2>
+                  <span className="text-[13px] text-muted">{`${groups.today.length} lịch`}</span>
+                </div>
+
+                {groups.today.length > 0 ? (
+                  <ul className="flex flex-col gap-3">
+                    {groups.today.map((appointment) => (
+                      <AppointmentTicket
+                        key={appointment.appointmentId}
+                        appointment={appointment}
+                        variant="today"
+                      />
+                    ))}
+                  </ul>
+                ) : (
+                  <Card>
+                    <EmptyState
+                      icon="calendar"
+                      title="Hôm nay bạn chưa được phân công lịch nào."
+                      description="Lịch được phân công cho bạn trong ngày sẽ hiện ở đây."
+                    />
+                  </Card>
+                )}
+              </section>
+
+              {/* Khối Sắp tới */}
+              {groups.upcoming.length > 0 && (
+                <section aria-labelledby="spa-upcoming-heading">
+                  <div className="mb-3 flex items-baseline justify-between">
+                    <h2 id="spa-upcoming-heading">Sắp tới</h2>
+                    <span className="text-[13px] text-muted">{`${groups.upcoming.length} lịch`}</span>
+                  </div>
+
+                  <ul className="flex flex-col gap-3">
+                    {groups.upcoming.map((appointment) => (
+                      <AppointmentTicket
+                        key={appointment.appointmentId}
+                        appointment={appointment}
+                        variant="upcoming"
+                      />
+                    ))}
+                  </ul>
+
+                  {groups.hiddenUpcoming > 0 && (
+                    <p className="mt-3 text-[13px] text-muted">
+                      {`Còn ${groups.hiddenUpcoming} lịch sắp tới chưa hiển thị.`}
+                    </p>
+                  )}
+                </section>
+              )}
+            </>
+          );
+        })()
+      )}
+    </div>
+  );
+}

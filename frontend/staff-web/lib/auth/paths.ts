@@ -8,13 +8,12 @@ export function getSafeNextPath(next: string | null): string | null {
   return next;
 }
 
-// Trang đích mặc định sau đăng nhập theo vai trò: Lễ tân vào /lich-hen, Nhân viên spa vào /lich-su-cong-viec
-// (màn /lich-hen của Nhân viên spa chưa triển khai).
+// Trang đích mặc định sau đăng nhập: Lễ tân và Nhân viên spa đều vào /lich-hen (cùng đường dẫn, màn khác nhau theo vai trò).
 export function getLandingPath(next: string | null, staffRole?: StaffRole | null): string {
   const safe = getSafeNextPath(next);
   // Màn đăng nhập không phải đích hợp lệ: tránh vòng lặp.
   if (safe === null || safe === ROUTES.login || safe.startsWith(`${ROUTES.login}?`) || safe.startsWith(`${ROUTES.login}/`)) {
-    if (staffRole === "SpaStaff") return ROUTES.workHistory;
+    if (staffRole === "SpaStaff") return ROUTES.appointments;
     if (staffRole === "Receptionist") return ROUTES.appointments;
     return ROUTES.home;
   }

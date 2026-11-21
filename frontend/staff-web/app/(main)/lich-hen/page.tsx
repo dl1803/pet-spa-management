@@ -1,14 +1,11 @@
 import { Suspense } from "react";
-import { ReceptionAppointmentsScreen } from "@/features/reception-appointments/screens/reception-appointments-screen";
-import { RoleGate } from "@/lib/auth/role-gate";
+import { AppointmentsByRole } from "./appointments-by-role";
 
 export default function Page() {
   return (
-    <RoleGate allow={["Receptionist"]}>
-      <Suspense fallback={null}>
-        <ReceptionAppointmentsScreen />
-      </Suspense>
-    </RoleGate>
+    <Suspense fallback={null}>
+      <AppointmentsByRole />
+    </Suspense>
   );
 }
 
