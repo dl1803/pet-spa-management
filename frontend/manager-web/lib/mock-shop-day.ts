@@ -72,6 +72,10 @@ export const MOCK_SPA_TODAY: AppointmentDetail[] = [
     no: 1031, petNo: 3, customerName: "Võ Thanh Tùng", petName: "Nâu", status: "InProgress",
     slotStart: "2026-10-06T09:00:00+07:00", slotEnd: "2026-10-06T10:45:00+07:00",
     staff: [assigned(QUYEN, "2026-10-05T10:05:00+07:00")],
+    services: [
+      { serviceId: "a1000000-0000-4000-8000-000000000001", name: "Tắm & sấy lông", isDone: true, doneAt: "2026-10-06T09:18:00+07:00" },
+      { serviceId: "a1000000-0000-4000-8000-000000000002", name: "Cắt tỉa lông", isDone: false },
+    ],
   }),
   spa({
     no: 1032, petNo: 4, customerName: "Lý Ngọc Hân", petName: "Sushi", status: "Confirmed",
@@ -169,5 +173,7 @@ export const MOCK_PHOTOS: Record<string, Photo[]> = {
     photo("e1000000-0000-4000-8000-000000000002", "Before", "2026-10-06T08:02:00+07:00"),
     photo("e1000000-0000-4000-8000-000000000003", "After", "2026-10-06T08:48:00+07:00"),
   ],
-  // Đã tiếp nhận, chưa có ảnh nào: các lịch còn lại không có khóa trong bảng này.
+  // Đã tiếp nhận, có ảnh trước: thử được “Bắt đầu thực hiện”.
+  [appointmentId(1033)]: [photo("e1000000-0000-4000-8000-000000000004", "Before", "2026-10-06T09:12:00+07:00")],
+  // Các lịch còn lại không có khóa trong bảng này (chưa có ảnh nào).
 };
