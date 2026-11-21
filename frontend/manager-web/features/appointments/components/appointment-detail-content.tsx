@@ -1,8 +1,6 @@
-// features/appointments/components/appointment-detail-content.tsx
 import Link from "next/link";
 import { EmptyState } from "@/components/ui/empty-state";
-import { AppointmentHeader } from "@/features/appointments/components/appointment-header";
-import { EvidencePhotos } from "@/features/appointments/components/evidence-photos";
+import { MockSpaDetail } from "@/features/appointments/components/mock-spa-detail";
 import { findMockSpaAppointment } from "@/features/appointments/evidence";
 import { formatAppointmentCode } from "@/lib/format";
 import { ROUTES } from "@/lib/routes";
@@ -25,13 +23,10 @@ export function AppointmentDetailContent({ appointmentId }: { appointmentId: str
     );
   }
 
-  const { appointment, species, photos } = found;
-
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-[13px] text-muted">Lịch hẹn › {formatAppointmentCode(appointment.appointmentId)}</p>
-      <AppointmentHeader appointment={appointment} species={species} />
-      <EvidencePhotos photos={photos} petName={appointment.petName ?? "thú cưng"} />
+      <p className="text-[13px] text-muted">Lịch hẹn › {formatAppointmentCode(found.appointment.appointmentId)}</p>
+      <MockSpaDetail found={found} />
     </div>
   );
 }

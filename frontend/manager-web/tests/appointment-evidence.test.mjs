@@ -66,12 +66,13 @@ test("EvidencePhotos: đủ 2 ảnh thì không có ô trống; chưa có ảnh 
   assert.ok(none.includes("Chưa có ảnh trước") && none.includes("Chưa có ảnh sau"));
 });
 
-test("AppointmentDetailContent: lịch spa có tiêu đề, trạng thái, mô tả và vùng ảnh; chưa có nút Đổi lịch/Hủy lịch", () => {
+test("AppointmentDetailContent: lịch spa có tiêu đề, trạng thái, mô tả, vùng ảnh và thẻ cập nhật trạng thái; chưa có nút Đổi lịch/Hủy lịch", () => {
   const html = render(AppointmentDetailContent, { appointmentId: NAU });
   assert.ok(html.includes("<h1>Lịch spa của Nâu</h1>") && html.includes("Đang thực hiện"));
   assert.ok(html.includes("LH-5F1C0407. Võ Thanh Tùng.") && html.includes("Nhân viên Quyên."));
   assert.ok(html.includes("Lịch hẹn › LH-5F1C0407") && html.includes("Ảnh minh chứng"));
-  assert.equal(count(html, /<button/g), 0);
+  assert.equal(count(html, /<button/g), 1);
+  assert.ok(html.includes("Cập nhật trạng thái") && html.includes("Chuyển sang Hoàn tất"));
   assert.ok(!html.includes("Đổi lịch") && !html.includes("Hủy lịch"));
 });
 
