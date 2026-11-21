@@ -13,11 +13,11 @@ test("getSafeNextPath chỉ nhận đường dẫn nội bộ", () => {
 test("getLandingPath: next hợp lệ thì dùng, ngược lại theo vai trò hoặc về /; không quay lại màn đăng nhập", () => {
   assert.equal(getLandingPath("/khach-hang", "Receptionist"), "/khach-hang");
   assert.equal(getLandingPath(null, "Receptionist"), "/lich-hen");
-  assert.equal(getLandingPath(null, "SpaStaff"), "/lich-su-cong-viec");
+  assert.equal(getLandingPath(null, "SpaStaff"), "/lich-hen");
   assert.equal(getLandingPath(null), "/");
   assert.equal(getLandingPath("//evil.example", "Receptionist"), "/lich-hen");
   assert.equal(getLandingPath("/dang-nhap", "Receptionist"), "/lich-hen");
-  assert.equal(getLandingPath("/dang-nhap?next=%2Fkhach-hang", "SpaStaff"), "/lich-su-cong-viec");
+  assert.equal(getLandingPath("/dang-nhap?next=%2Fkhach-hang", "SpaStaff"), "/lich-hen");
 });
 
 test("buildLoginPath mã hóa next và thêm reason khi hết phiên", () => {
