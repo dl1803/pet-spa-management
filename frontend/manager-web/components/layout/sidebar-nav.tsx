@@ -20,7 +20,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: ROUTES.cages, label: "Chuồng & giá", icon: "grid", available: true },
   { href: ROUTES.staff, label: "Nhân viên", icon: "users", available: true },
   { href: ROUTES.workShifts, label: "Lịch làm việc", icon: "calendar" },
-  { href: ROUTES.lockedCustomers, label: "Khách bị khóa", icon: "lock" },
+  { href: ROUTES.lockedCustomers, label: "Khách bị khóa", icon: "lock", available: true },
   { href: ROUTES.payments, label: "Thanh toán", icon: "wallet", available: true },
   { href: ROUTES.config, label: "Cấu hình", icon: "sliders" },
 ];

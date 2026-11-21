@@ -18,12 +18,13 @@ test("khung chờ của Suspense: có tiêu đề Chuồng và giá lưu trú v�
   assert.ok(!html.includes("<table") && !html.includes("Thêm chuồng") && !html.includes("Lưu bảng giá"));
 });
 
-test("menu: Chuồng & giá là liên kết tới /chuong-va-gia; còn 4 mục chưa có trang bị khóa", () => {
+test("menu: Chuồng & giá và Khách bị khóa là liên kết; còn 3 mục chưa có trang bị khóa", () => {
   const html = renderToStaticMarkup(React.createElement(SidebarNav, { pathname: "/", pendingCount: null }));
-  assert.equal(count(html, /<a\b/g), 6);
-  assert.equal(count(html, /aria-disabled="true"/g), 4);
+  assert.equal(count(html, /<a\b/g), 7);
+  assert.equal(count(html, /aria-disabled="true"/g), 3);
   assert.match(html, /<a\b[^>]*href="\/chuong-va-gia"[^>]*>[\s\S]*?Chuồng &amp; giá<\/a>/);
-  for (const label of ["Lịch hẹn", "Lịch làm việc", "Khách bị khóa", "Cấu hình"]) {
+  assert.match(html, /<a\b[^>]*href="\/go-khoa-dat-lich"[^>]*>[\s\S]*?Khách bị khóa<\/a>/);
+  for (const label of ["Lịch hẹn", "Lịch làm việc", "Cấu hình"]) {
     assert.match(html, new RegExp(`aria-disabled="true"[^>]*>[\\s\\S]*?${label}`), label);
   }
 });

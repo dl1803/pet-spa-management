@@ -63,14 +63,15 @@ test("đã có cookie phiên: rời màn đăng nhập; khung hiện chỗ chờ
   // React stream gửi fallback trước; menu cuối là nội dung đã giải quyết Suspense.
   const navigation = [...html.matchAll(/<nav\b[^>]*aria-label="Menu quản lý"[\s\S]*?<\/nav>/g)].at(-1)?.[0];
   assert.ok(navigation, "Thiếu menu quản lý");
-  assert.equal((navigation.match(/<a\b/g) ?? []).length, 6);
+  assert.equal((navigation.match(/<a\b/g) ?? []).length, 7);
   assert.match(navigation, /<a\b[^>]*aria-current="page"[^>]*>[\s\S]*?Tổng quan<\/a>/);
   assert.match(navigation, /<a\b[^>]*href="\/cho-xac-nhan"[^>]*>[\s\S]*?Chờ xác nhận<\/a>/);
   assert.match(navigation, /<a\b[^>]*href="\/dich-vu"[^>]*>[\s\S]*?Dịch vụ<\/a>/);
   assert.match(navigation, /<a\b[^>]*href="\/chuong-va-gia"[^>]*>[\s\S]*?Chuồng &amp; giá<\/a>/);
   assert.match(navigation, /<a\b[^>]*href="\/nhan-vien"[^>]*>[\s\S]*?Nhân viên<\/a>/);
   assert.match(navigation, /<a\b[^>]*href="\/thanh-toan"[^>]*>[\s\S]*?Thanh toán<\/a>/);
-  assert.equal((navigation.match(/aria-disabled="true"/g) ?? []).length, 4);
+  assert.match(navigation, /<a\b[^>]*href="\/go-khoa-dat-lich"[^>]*>[\s\S]*?Khách bị khóa<\/a>/);
+  assert.equal((navigation.match(/aria-disabled="true"/g) ?? []).length, 3);
 
   // Theo mọi liên kết trang thực sự hiển thị để phát hiện đích 404 trong shell.
   for (const [, href] of html.matchAll(/<a\b[^>]*href="(\/[^"#]*)"/g)) {

@@ -174,6 +174,14 @@ export type DeactivateResult = {
   returnedToPending: number;
 };
 
+export type Customer = {
+  customerId: string;
+  fullName: string;
+  phone: string;
+  email?: string | null;
+  isBookingLocked: boolean;
+};
+
 export type PaymentKind = "Spa" | "Stay" | "LateFee";
 export type PaymentStatus = "Unpaid" | "Paid";
 export type PaymentMethod = "Cash" | "BankQR" | "Online";
