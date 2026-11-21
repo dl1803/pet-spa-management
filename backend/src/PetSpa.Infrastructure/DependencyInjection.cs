@@ -12,6 +12,7 @@ using PetSpa.Infrastructure.Identity;
 using PetSpa.Infrastructure.Payments.Vnpay;
 using PetSpa.Infrastructure.Persistence;
 using PetSpa.Infrastructure.Persistence.Repositories;
+using PetSpa.Infrastructure.Storage;
 
 namespace PetSpa.Infrastructure;
 
@@ -108,8 +109,11 @@ public static class DependencyInjection
         services.AddScoped<IAppointmentNotificationReader, AppointmentNotificationReader>();
         services.AddScoped<IAppointmentQueryRepository, AppointmentQueryRepository>();
         services.AddScoped<IPaymentRepository, PaymentRepository>();
+        services.AddScoped<IAppointmentPhotoRepository, AppointmentPhotoRepository>();
         services.AddScoped<IPaymentGateway>(_ => new VnpayPaymentGateway(
             config.GetSection("Payment:Vnpay").Get<VnpayOptions>() ?? new VnpayOptions()));
+        services.AddSingleton(config.GetSection("Storage").Get<StorageOptions>() ?? new StorageOptions());
+        services.AddHttpClient<IPhotoStorage, SupabasePhotoStorage>();
 
         return services;
     }
