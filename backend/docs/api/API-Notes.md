@@ -197,7 +197,7 @@ Chỉ chuyển đúng trình tự tiến; `Cancelled` từ mọi trạng thái t
 | 409 | `CHANGE_WINDOW_CLOSED` | `PUT /appointments/{id}`, `/cancel` |
 | 409 | `PHOTO_REQUIRED` | `/start`, `/complete` |
 | 409 | `SERVICES_INCOMPLETE` | `/complete` |
-| 409 | `COST_CONFIRMATION_PENDING` | `/start`, `/check-in`, `/payments/{id}/counter` (khoản `Stay`) |
+| 409 | `COST_CONFIRMATION_PENDING` | `/start`, `/check-in`, `/weight-check` (Đề xuất), `/payments/{id}/counter` (khoản `Stay`) |
 | 409 | `PAYMENT_NOT_DUE` | `/check-in` (lưu trú), `/check-out`, `/payments/{id}/counter`, `/payments/{id}/online` |
 | 409 | `AMOUNT_MISMATCH` | `/payments/{id}/counter` |
 | 409 | `SHIFT_OVERLAP`, `SHIFT_HAS_APPOINTMENTS` | `/work-shifts` |
