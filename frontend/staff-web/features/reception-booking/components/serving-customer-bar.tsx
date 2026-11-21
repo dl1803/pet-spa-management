@@ -1,9 +1,9 @@
 import { Icon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { getInitials } from "@/features/reception-booking/forms";
-import type { Customer } from "@/lib/api/types";
+import type { ServingCustomer } from "@/lib/serving-customer";
 
-export function ServingCustomerBar({ customer }: { customer: Customer }) {
+export function ServingCustomerBar({ customer }: { customer: ServingCustomer }) {
   return (
     <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-mist px-4 py-3.5">
       <span
@@ -23,4 +23,3 @@ export function ServingCustomerBar({ customer }: { customer: Customer }) {
     </div>
   );
 }
-

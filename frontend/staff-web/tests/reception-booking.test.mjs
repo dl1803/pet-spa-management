@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { HotelAvailabilityNotice } from "../features/reception-booking/components/hotel-availability-notice.tsx";
 import { HotelBookingSummary } from "../features/reception-booking/components/hotel-booking-summary.tsx";
 import { HotelStayForm } from "../features/reception-booking/components/hotel-stay-form.tsx";
+import { BookingPetCard } from "../features/reception-booking/components/booking-pet-card.tsx";
 import { PetChoiceList } from "../features/reception-booking/components/pet-choice-list.tsx";
 import { ServingCustomerBar } from "../features/reception-booking/components/serving-customer-bar.tsx";
 import {
@@ -14,17 +15,38 @@ import {
   getInitials,
   getStay,
   isCheckOutNotAfter,
+  findPricingRow,
   isNoCapacityError,
   parseBookingType,
   toHotelBookingRequest,
   validateCheckOutDate,
 } from "../features/reception-booking/forms.ts";
-import { findMockCustomer, getMockPets, MOCK_HOTEL_PRICING } from "../features/reception-booking/mock-data.ts";
-import { mockCreateHotelAppointment, mockGetHotelAvailability } from "../features/reception-booking/mock-hotel.ts";
 
-const CUSTOMER = findMockCustomer("c2000000-0000-4000-8000-000000000001");
-const PETS = getMockPets(CUSTOMER.customerId);
-const BAP = PETS[0];
+const CUSTOMER = {
+  customerId: "c2000000-0000-4000-8000-000000000001",
+  fullName: "Ngô Thanh Bình",
+  phone: "0962345118",
+  isBookingLocked: false,
+};
+const makePet = (petId, name, species, breed, temperament, weightKg, sizeGroup) => ({
+  petId,
+  customerId: CUSTOMER.customerId,
+  name,
+  species,
+  breed,
+  temperament,
+  weightKg,
+  heightCm: null,
+  coatNote: null,
+  notes: null,
+  sizeGroup,
+  isActive: true,
+});
+const BAP = makePet("p0000000-0000-4000-8000-000000000001", "Bắp", "Dog", "Corgi", "Difficult", 11, "Medium");
+const MUOP = makePet("p0000000-0000-4000-8000-000000000002", "Mướp", "Cat", "Anh lông ngắn", "Calm", 4.2, "Small");
+const SOC = makePet("p0000000-0000-4000-8000-000000000003", "Sóc", "Rabbit", "Holland Lop", "Normal", 1.8, "Small");
+const PETS = [BAP, MUOP, SOC];
+const RATE = { species: "Dog", sizeGroup: "Medium", pricePerNight: 220000, foodPerNight: 50000 };
 const FULL_VALUES = { checkInDate: "2026-10-08", checkInTime: "09:00", checkOutDate: "2026-10-10", checkOutTime: "18:00" };
 const STAY = { from: "2026-10-08T09:00:00+07:00", to: "2026-10-10T18:00:00+07:00" };
 
@@ -66,61 +88,10 @@ test("hàm phụ: chữ cái đầu, tab, chọn thú cưng, danh sách đêm, y
   assert.equal(isNoCapacityError(new Error("x")), false);
 });
 
-test("dữ liệu mô phỏng: khách, thú cưng và giá khớp nhau", () => {
-  assert.equal(findMockCustomer("khong-co"), null);
-  assert.equal(findMockCustomer(null), null);
-  assert.equal(PETS.length, 3);
-  assert.equal(getMockPets("c2000000-0000-4000-8000-000000000002").length, 0);
-  for (const pet of PETS) {
-    assert.ok(MOCK_HOTEL_PRICING.some((row) => row.species === pet.species && row.sizeGroup === pet.sizeGroup));
-  }
-});
-
-test("mock kiểm tra còn chỗ: còn chỗ, hết chỗ từ 7 đêm, lỗi khi nhận thứ bảy", async () => {
-  const ok = await mockGetHotelAvailability({ petId: BAP.petId, from: STAY.from, to: STAY.to });
-  assert.deepEqual(ok, { available: true, nights: 2, estimatedAmount: 540000 });
-
-  const full = await mockGetHotelAvailability({
-    petId: BAP.petId,
-    from: "2026-10-08T09:00:00+07:00",
-    to: "2026-10-15T18:00:00+07:00",
-  });
-  assert.equal(full.available, false);
-  assert.equal(full.nights, 7);
-
-  await assert.rejects(
-    mockGetHotelAvailability({ petId: BAP.petId, from: "2026-10-10T09:00:00+07:00", to: "2026-10-12T18:00:00+07:00" }),
-    (error) => error.status === 400,
-  );
-});
-
-test("mock tạo lịch lưu trú: thành công và từng lỗi theo giờ trả", async () => {
-  const request = toHotelBookingRequest(CUSTOMER.customerId, BAP.petId, STAY);
-  const created = await mockCreateHotelAppointment(request);
-  assert.equal(created.status, "Pending");
-  assert.equal(created.nights, 2);
-  assert.equal(created.estimatedAmount, 540000);
-
-  const withCheckOut = (time) =>
-    toHotelBookingRequest(CUSTOMER.customerId, BAP.petId, { from: STAY.from, to: `2026-10-10T${time}:00+07:00` });
-  await assert.rejects(mockCreateHotelAppointment(withCheckOut("11:00")), (error) => error.kind === "network");
-  await assert.rejects(mockCreateHotelAppointment(withCheckOut("15:00")), (error) => error.status === 400);
-  await assert.rejects(mockCreateHotelAppointment(withCheckOut("16:00")), (error) => error.status === 429);
-  await assert.rejects(mockCreateHotelAppointment(withCheckOut("17:00")), (error) => error.status === 500);
-
-  const noCapacity = withCheckOut("12:00");
-  await assert.rejects(mockCreateHotelAppointment(noCapacity), (error) => isNoCapacityError(error));
-  const after = await mockGetHotelAvailability({
-    petId: BAP.petId,
-    from: noCapacity.plannedCheckIn,
-    to: noCapacity.plannedCheckOut,
-  });
-  assert.equal(after.available, false);
-
-  await assert.rejects(
-    mockCreateHotelAppointment({ ...request, customerId: "c2000000-0000-4000-8000-000000000002" }),
-    (error) => error.status === 400,
-  );
+test("findPricingRow: đúng loài và nhóm kích cỡ, không có thì null", () => {
+  assert.equal(findPricingRow([RATE], BAP), RATE);
+  assert.equal(findPricingRow([RATE], MUOP) ?? null, null);
+  assert.equal(findPricingRow([], BAP) ?? null, null);
 });
 
 test("ServingCustomerBar: chữ cái đầu, tên, số điện thoại, nút Đổi khách bị vô hiệu hóa", () => {
@@ -167,7 +138,7 @@ test("HotelBookingSummary: giá, công thức, khóa nút kèm lý do và trạn
         checkInText: "T5 08/10, 09:00",
         checkOutText: "T7 10/10, 18:00",
         quote: { nights: 2, estimatedAmount: 540000 },
-        rate: MOCK_HOTEL_PRICING[0],
+        rate: RATE,
         lockReason: null,
         isSubmitting: false,
         submitError: null,
@@ -215,4 +186,19 @@ test("HotelStayForm: 4 ô bắt buộc, lỗi dưới ô và kết quả kiểm 
   assert.match(html, /Ngày trả phải sau ngày nhận\./);
   assert.match(html, /Còn chuồng phù hợp\./);
   assert.match(html, /Lưu trú không kèm dịch vụ spa/);
+});
+
+test("BookingPetCard: tiêu đề, liên kết thêm thú cưng và danh sách chọn", () => {
+  const html = renderToStaticMarkup(
+    createElement(BookingPetCard, {
+      pets: PETS,
+      selectedPetId: PETS[0].petId,
+      onSelect: () => {},
+      addPetHref: "/khach-hang/c2000000-0000-4000-8000-000000000001/thu-cung/them",
+    }),
+  );
+  assert.match(html, /<h2[^>]*>Thú cưng<\/h2>/);
+  assert.match(html, /href="\/khach-hang\/c2000000-0000-4000-8000-000000000001\/thu-cung\/them"/);
+  assert.match(html, /Thêm thú cưng/);
+  assert.equal((html.match(/type="radio"/g) ?? []).length, 3);
 });
