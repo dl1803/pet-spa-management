@@ -118,4 +118,17 @@ public class SpaAppointment : Appointment
     public void Start() => MoveTo(AppointmentStatus.InProgress);
 
     public void Complete() => MoveTo(AppointmentStatus.Completed);
+
+    public void EnsurePhotoAllowed(PhotoKind kind)
+    {
+        var requiredStatus = kind switch
+        {
+            PhotoKind.Before => AppointmentStatus.Received,
+            PhotoKind.After => AppointmentStatus.InProgress,
+            _ => throw new BusinessException(ErrorCodes.ValidationError, "Loại ảnh không hợp lệ."),
+        };
+
+        if (Status != requiredStatus)
+            throw new BusinessException(ErrorCodes.InvalidTransition);
+    }
 }

@@ -6436,6 +6436,224 @@ var tests = new (string Name, Func<Task> Run)[]
             "IPhotoStorage must resolve to the Supabase adapter.");
         return Task.CompletedTask;
     }),
+    ("PhotoRules.Detect recognises JPEG, PNG and WebP by signature and rejects everything else", () =>
+    {
+        Check(PhotoRules.Detect(PhotoFixture.JpegBytes) is { ContentType: "image/jpeg", Extension: "jpg" }, "JPEG must be recognised.");
+        Check(PhotoRules.Detect(PhotoFixture.PngBytes) is { ContentType: "image/png", Extension: "png" }, "PNG must be recognised.");
+        Check(PhotoRules.Detect(PhotoFixture.WebpBytes) is { ContentType: "image/webp", Extension: "webp" }, "WebP must be recognised.");
+
+        Check(PhotoRules.Detect(PhotoFixture.GifBytes) is null, "GIF must be rejected.");
+        Check(PhotoRules.Detect(Encoding.ASCII.GetBytes("<svg xmlns=\"http://www.w3.org/2000/svg\"/>")) is null, "SVG must be rejected.");
+        Check(PhotoRules.Detect(Encoding.ASCII.GetBytes("<html><body></body></html>")) is null, "HTML must be rejected.");
+        Check(PhotoRules.Detect(Encoding.ASCII.GetBytes("RIFF\0\0\0\0WAVEfmt ")) is null, "A RIFF file that is not WebP must be rejected.");
+        Check(PhotoRules.Detect(new byte[] { 0xFF, 0xD8 }) is null, "A truncated JPEG signature must be rejected.");
+        Check(PhotoRules.Detect(ReadOnlySpan<byte>.Empty) is null, "An empty header must be rejected.");
+
+        return Task.CompletedTask;
+    }),
+    ("AppointmentPhotoService.UploadAsync stores a photo bound to the appointment, kind and uploader inside the locked transaction", async () =>
+    {
+        var cases = new (PhotoKind Kind, AppointmentStatus Status, byte[] Bytes, string ContentType, string Extension)[]
+        {
+            (PhotoKind.Before, AppointmentStatus.Received, PhotoFixture.JpegBytes, "image/jpeg", "jpg"),
+            (PhotoKind.After, AppointmentStatus.InProgress, PhotoFixture.PngBytes, "image/png", "png"),
+            (PhotoKind.Before, AppointmentStatus.Received, PhotoFixture.WebpBytes, "image/webp", "webp"),
+        };
+
+        foreach (var c in cases)
+        {
+            var f = new PhotoFixture(c.Status);
+            var before = DateTimeOffset.UtcNow;
+
+            var photoId = await f.CreateService().UploadAsync(
+                f.SpaStaffUser, f.Spa.AppointmentId, c.Kind, new MemoryStream(c.Bytes));
+
+            var photo = f.Photos.Added.Single();
+            var expectedKey = $"appointments/{f.Spa.AppointmentId}/{c.Kind.ToString().ToLowerInvariant()}-{photoId}.{c.Extension}";
+            Check(photo.PhotoId == photoId && photo.AppointmentId == f.Spa.AppointmentId && photo.Kind == c.Kind,
+                "The row must carry the new id, the appointment and the kind.");
+            Check(photo.UploadedByStaffId == f.SpaStaffId, "The row must carry the uploading staff id.");
+            Check(photo.StorageKey == expectedKey, $"Unexpected storage key: {photo.StorageKey}");
+            Check(photo.UploadedAt >= before && photo.UploadedAt <= DateTimeOffset.UtcNow, "UploadedAt must be the current time.");
+
+            var upload = f.Storage.Uploads.Single();
+            Check(upload.Key == expectedKey && upload.ContentType == c.ContentType,
+                "The stored object must use the same key and the content type detected from the bytes.");
+            Check(upload.Bytes.SequenceEqual(c.Bytes), "The complete file, including the signature bytes, must be uploaded.");
+
+            Check(f.Guard.RunCalls == 1 && f.Guard.LockedAppointmentId == f.Spa.AppointmentId,
+                "The row must be written inside one transaction that locks the appointment.");
+            Check(f.Photos.InsideRunAtAdd == true, "The row must be added inside the transaction.");
+            Check(f.Storage.Deleted.Count == 0, "A successful upload must not delete anything.");
+        }
+    }),
+    ("AppointmentPhotoService.UploadAsync rejects out-of-scope, wrong-status and non-image uploads without touching storage or the database", async () =>
+    {
+        var cases = new (string Name, Action<PhotoFixture> Arrange, CurrentUser? User, PhotoKind Kind, byte[] Bytes, string Expected)[]
+        {
+            ("customer", _ => { }, new CurrentUser(Guid.NewGuid(), UserRole.Customer), PhotoKind.Before, PhotoFixture.JpegBytes, ErrorCodes.Forbidden),
+            ("manager", _ => { }, new CurrentUser(Guid.NewGuid(), UserRole.Manager), PhotoKind.Before, PhotoFixture.JpegBytes, ErrorCodes.Forbidden),
+            ("staff without a spa staff profile", f => f.Photos.SpaStaffId = null, null, PhotoKind.Before, PhotoFixture.JpegBytes, ErrorCodes.Forbidden),
+            ("appointment not found", f => f.Appointments.DetailResult = null, null, PhotoKind.Before, PhotoFixture.JpegBytes, ErrorCodes.NotFound),
+            ("not assigned to this staff", f => f.Appointments.AssignedResult = false, null, PhotoKind.Before, PhotoFixture.JpegBytes, ErrorCodes.Forbidden),
+            ("hotel appointment", f => f.Appointments.DetailResult = new AppointmentDetailData(
+                new HotelAppointment { AppointmentId = f.Spa.AppointmentId, Status = AppointmentStatus.Received }, f.OwnerUserId, "Milo", [], []),
+                null, PhotoKind.Before, PhotoFixture.JpegBytes, ErrorCodes.Forbidden),
+            ("before photo while confirmed", f => f.Spa.Status = AppointmentStatus.Confirmed, null, PhotoKind.Before, PhotoFixture.JpegBytes, ErrorCodes.InvalidTransition),
+            ("before photo while in progress", f => f.Spa.Status = AppointmentStatus.InProgress, null, PhotoKind.Before, PhotoFixture.JpegBytes, ErrorCodes.InvalidTransition),
+            ("before photo while completed", f => f.Spa.Status = AppointmentStatus.Completed, null, PhotoKind.Before, PhotoFixture.JpegBytes, ErrorCodes.InvalidTransition),
+            ("after photo while received", _ => { }, null, PhotoKind.After, PhotoFixture.JpegBytes, ErrorCodes.InvalidTransition),
+            ("after photo while completed", f => f.Spa.Status = AppointmentStatus.Completed, null, PhotoKind.After, PhotoFixture.JpegBytes, ErrorCodes.InvalidTransition),
+            ("GIF file", _ => { }, null, PhotoKind.Before, PhotoFixture.GifBytes, ErrorCodes.ValidationError),
+            ("empty file", _ => { }, null, PhotoKind.Before, Array.Empty<byte>(), ErrorCodes.ValidationError),
+        };
+
+        foreach (var c in cases)
+        {
+            var f = new PhotoFixture(AppointmentStatus.Received);
+            c.Arrange(f);
+
+            var code = await FailureCodeAsync(() => f.CreateService().UploadAsync(
+                c.User ?? f.SpaStaffUser, f.Spa.AppointmentId, c.Kind, new MemoryStream(c.Bytes)));
+
+            Check(code == c.Expected, $"{c.Name}: expected {c.Expected} but got {code ?? "no error"}.");
+            Check(f.Storage.Uploads.Count == 0 && f.Photos.Added.Count == 0 && f.Guard.RunCalls == 0,
+                $"{c.Name}: nothing may be uploaded, saved or locked.");
+        }
+    }),
+    ("AppointmentPhotoService.UploadAsync deletes the uploaded file when the database write fails or the appointment changed meanwhile", async () =>
+    {
+        var failing = new PhotoFixture(AppointmentStatus.Received);
+        failing.Photos.AddFailure = new InvalidOperationException("db down");
+        failing.Storage.ThrowOnDelete = true;
+
+        try
+        {
+            await failing.CreateService().UploadAsync(
+                failing.SpaStaffUser, failing.Spa.AppointmentId, PhotoKind.Before, new MemoryStream(PhotoFixture.JpegBytes));
+            throw new InvalidOperationException("The database failure must propagate.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            Check(ex.Message == "db down", "The original error must be preserved.");
+        }
+
+        Check(failing.Storage.Deleted.SequenceEqual(new[] { failing.Storage.Uploads.Single().Key }),
+            "The uploaded file must be deleted when the row cannot be saved.");
+
+        var changed = new PhotoFixture(AppointmentStatus.Received);
+        changed.Storage.OnUpload = () =>
+        {
+            changed.Spa.Status = AppointmentStatus.Completed;
+            return Task.CompletedTask;
+        };
+
+        var code = await FailureCodeAsync(() => changed.CreateService().UploadAsync(
+            changed.SpaStaffUser, changed.Spa.AppointmentId, PhotoKind.Before, new MemoryStream(PhotoFixture.JpegBytes)));
+
+        Check(code == ErrorCodes.InvalidTransition, "The re-check after the lock must reject the changed appointment.");
+        Check(changed.Photos.Added.Count == 0, "No row may be saved.");
+        Check(changed.Storage.Deleted.SequenceEqual(new[] { changed.Storage.Uploads.Single().Key }),
+            "The uploaded file must be deleted when the re-check fails.");
+    }),
+    ("UploadPhotoRequestValidator requires kind and a non-empty image file of at most 50 MB", () =>
+    {
+        var validator = new UploadPhotoRequestValidator();
+        static FormFile MakeFile(long length) => new(Stream.Null, 0, length, "file", "photo.jpg");
+
+        Check(validator.Validate(new UploadPhotoRequest { Kind = PhotoKind.Before, File = MakeFile(1) }).IsValid, "Before with a 1-byte file must be valid.");
+        Check(validator.Validate(new UploadPhotoRequest { Kind = PhotoKind.After, File = MakeFile(PhotoRules.MaxFileBytes) }).IsValid, "Exactly 50 MB must be valid.");
+        Check(!validator.Validate(new UploadPhotoRequest { Kind = PhotoKind.Before, File = MakeFile(PhotoRules.MaxFileBytes + 1) }).IsValid, "Over 50 MB must fail.");
+        Check(!validator.Validate(new UploadPhotoRequest { Kind = PhotoKind.Before, File = MakeFile(0) }).IsValid, "An empty file must fail.");
+        Check(!validator.Validate(new UploadPhotoRequest { Kind = null, File = MakeFile(1) }).IsValid, "A missing kind must fail.");
+        Check(!validator.Validate(new UploadPhotoRequest { Kind = (PhotoKind)99, File = MakeFile(1) }).IsValid, "An undefined kind must fail.");
+        Check(!validator.Validate(new UploadPhotoRequest { Kind = PhotoKind.Before, File = null }).IsValid, "A missing file must fail.");
+
+        return Task.CompletedTask;
+    }),
+    ("AppointmentPhotosController.Upload is a POST {id}/photos for SpaStaff with the 50 MB request limits and rejects a missing request", async () =>
+    {
+        var method = typeof(AppointmentPhotosController).GetMethod(nameof(AppointmentPhotosController.Upload));
+        var post = method?.GetCustomAttributes(typeof(HttpPostAttribute), true).OfType<HttpPostAttribute>().FirstOrDefault();
+        var authorize = method?.GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AuthorizeAttribute), true)
+            .OfType<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>().FirstOrDefault();
+        var sizeLimit = method?.GetCustomAttributes(typeof(RequestSizeLimitAttribute), true).Length;
+        var formLimits = method?.GetCustomAttributes(typeof(RequestFormLimitsAttribute), true)
+            .OfType<RequestFormLimitsAttribute>().FirstOrDefault();
+        var route = typeof(AppointmentPhotosController).GetCustomAttributes(typeof(RouteAttribute), true)
+            .OfType<RouteAttribute>().FirstOrDefault();
+
+        Check(route?.Template == "api/v1/appointments", "The controller must be routed under api/v1/appointments.");
+        Check(post?.Template == "{id}/photos", "Upload must be bound to POST {id}/photos.");
+        Check(authorize?.Policy == AuthorizationPolicies.SpaStaff, "Upload must require the SpaStaff policy.");
+        Check(sizeLimit == 1 && formLimits?.MultipartBodyLengthLimit == PhotoRules.MaxRequestBytes,
+            "Upload must set the request size and multipart limits.");
+
+        var controller = new AppointmentPhotosController(null!);
+        Check(await FailureCodeAsync(() => controller.Upload(Guid.NewGuid(), null, CancellationToken.None)) == ErrorCodes.ValidationError,
+            "A missing request must be rejected with VALIDATION_ERROR.");
+    }),
+    ("AppointmentPhotosController.Upload returns 201 with only the photo id", async () =>
+    {
+        var f = new PhotoFixture(AppointmentStatus.Received);
+        var controller = new AppointmentPhotosController(f.CreateService())
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [
+                        new Claim(TokenClaims.UserId, f.SpaStaffUser.UserId.ToString()),
+                        new Claim(TokenClaims.Role, "Staff"),
+                    ], "test")),
+                },
+            },
+        };
+
+        var file = new FormFile(new MemoryStream(PhotoFixture.JpegBytes), 0, PhotoFixture.JpegBytes.Length, "file", "photo.jpg");
+        var result = await controller.Upload(
+            f.Spa.AppointmentId, new UploadPhotoRequest { Kind = PhotoKind.Before, File = file }, CancellationToken.None) as ObjectResult;
+
+        var saved = f.Photos.Added.Single();
+        Check(result?.StatusCode == StatusCodes.Status201Created
+              && result.Value is PhotoCreatedResponse { PhotoId: var photoId } && photoId == saved.PhotoId,
+            "Upload must return 201 with the new photo id.");
+
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        Check(JsonSerializer.Serialize(result!.Value, options) == $"{{\"photoId\":\"{saved.PhotoId}\"}}",
+            "The response body must contain only photoId.");
+    }),
+    ("AddApplication registers AppointmentPhotoService into DI container", () =>
+    {
+        var services = new ServiceCollection();
+        services.AddApplication();
+        var descriptor = services.FirstOrDefault(d => d.ServiceType == typeof(AppointmentPhotoService));
+        Check(descriptor is not null && descriptor.Lifetime == ServiceLifetime.Scoped,
+            "AppointmentPhotoService must be registered as scoped in AddApplication.");
+        return Task.CompletedTask;
+    }),
+    ("AddInfrastructure registers the appointment photo repository", () =>
+    {
+        var settings = new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:Default"] = "Host=localhost;Database=petspa;Username=test;Password=test",
+            ["Jwt:SigningKey"] = "this-is-a-valid-32-byte-secret-key-12345",
+            ["Jwt:AccessTokenMinutes"] = "15",
+            ["Jwt:RefreshTokenDays"] = "7",
+        };
+
+        var services = new ServiceCollection();
+        PetSpa.Infrastructure.DependencyInjection.AddInfrastructure(
+            services, new ConfigurationBuilder().AddInMemoryCollection(settings).Build());
+
+        var descriptor = services.FirstOrDefault(d => d.ServiceType == typeof(IAppointmentPhotoRepository));
+        Check(descriptor is not null
+              && descriptor.Lifetime == ServiceLifetime.Scoped
+              && descriptor.ImplementationType == typeof(PetSpa.Infrastructure.Persistence.Repositories.AppointmentPhotoRepository),
+            "IAppointmentPhotoRepository must be registered as a scoped AppointmentPhotoRepository.");
+        return Task.CompletedTask;
+    }),
 };
 
 var failures = 0;
@@ -7829,4 +8047,81 @@ static class StorageTestKit
             return true;
         }
     }
+}
+
+sealed class TestPhotoStorage : IPhotoStorage
+{
+    public List<(string Key, string ContentType, byte[] Bytes)> Uploads { get; } = [];
+    public List<string> Deleted { get; } = [];
+    public Func<Task>? OnUpload { get; set; }
+    public bool ThrowOnDelete { get; set; }
+
+    public async Task UploadAsync(string storageKey, Stream content, string contentType, CancellationToken ct = default)
+    {
+        using var copy = new MemoryStream();
+        await content.CopyToAsync(copy, ct);
+        Uploads.Add((storageKey, contentType, copy.ToArray()));
+
+        if (OnUpload is not null)
+            await OnUpload();
+    }
+
+    public Task<IReadOnlyList<string>> CreateTemporaryUrlsAsync(
+        IReadOnlyList<string> storageKeys, TimeSpan lifetime, CancellationToken ct = default) =>
+        throw new NotSupportedException("Chưa dùng trong phạm vi tải lên.");
+
+    public Task DeleteAsync(string storageKey, CancellationToken ct = default)
+    {
+        Deleted.Add(storageKey);
+        return ThrowOnDelete ? throw new InvalidOperationException("delete failed") : Task.CompletedTask;
+    }
+}
+
+sealed class TestAppointmentPhotoRepo(TestConcurrencyGuard guard) : IAppointmentPhotoRepository
+{
+    public Guid? SpaStaffId { get; set; }
+    public List<AppointmentPhoto> Added { get; } = [];
+    public Exception? AddFailure { get; set; }
+    public bool? InsideRunAtAdd { get; private set; }
+
+    public Task<Guid?> FindSpaStaffIdByUserIdAsync(Guid userId, CancellationToken ct = default) =>
+        Task.FromResult(SpaStaffId);
+
+    public Task AddAsync(AppointmentPhoto photo, CancellationToken ct = default)
+    {
+        InsideRunAtAdd = guard.InsideRun;
+
+        if (AddFailure is not null)
+            throw AddFailure;
+
+        Added.Add(photo);
+        return Task.CompletedTask;
+    }
+}
+
+sealed class PhotoFixture
+{
+    public static readonly byte[] JpegBytes = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01];
+    public static readonly byte[] PngBytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48];
+    public static readonly byte[] WebpBytes = [0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50];
+    public static readonly byte[] GifBytes = [0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00];
+
+    public TestConcurrencyGuard Guard { get; } = new();
+    public TestAppointmentQueryRepo Appointments { get; } = new();
+    public TestAppointmentPhotoRepo Photos { get; }
+    public TestPhotoStorage Storage { get; } = new();
+    public SpaAppointment Spa { get; }
+    public Guid OwnerUserId { get; } = Guid.NewGuid();
+    public Guid SpaStaffId { get; } = Guid.NewGuid();
+    public CurrentUser SpaStaffUser { get; } = new(Guid.NewGuid(), UserRole.Staff);
+
+    public PhotoFixture(AppointmentStatus status)
+    {
+        Photos = new TestAppointmentPhotoRepo(Guard) { SpaStaffId = SpaStaffId };
+        Spa = new SpaAppointment { AppointmentId = Guid.NewGuid(), Status = status };
+        Appointments.DetailResult = new AppointmentDetailData(Spa, OwnerUserId, "Milo", [], []);
+        Appointments.AssignedResult = true;
+    }
+
+    public AppointmentPhotoService CreateService() => new(Appointments, Photos, Storage, Guard);
 }
