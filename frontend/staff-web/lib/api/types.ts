@@ -106,6 +106,13 @@ export type AppointmentDetail = Appointment & {
   pendingCostConfirmation?: CostConfirmation | null;
 };
 
+export type AppointmentPage = {
+  items: Appointment[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
 export type PhotoKind = "Before" | "After";
 
 export type Photo = {
