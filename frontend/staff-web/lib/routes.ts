@@ -2,6 +2,7 @@ export const ROUTES = {
   home: "/",
   login: "/dang-nhap",
   appointments: "/lich-hen",
+  appointmentDetail: (appointmentId: string) => `/lich-hen/${appointmentId}`,
   appointmentExecution: (appointmentId: string) => `/lich-hen/${appointmentId}/thuc-hien`,
   customers: "/khach-hang",
   customerPetNew: (customerId: string) => `/khach-hang/${customerId}/thu-cung/them`,
