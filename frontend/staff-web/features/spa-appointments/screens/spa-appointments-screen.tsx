@@ -2,7 +2,7 @@
 
 // SW-02 Lịch hẹn (Nhân viên spa, vùng 4 đến 6) – UI-Screens.md
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ErrorAlert } from "@/components/feedback/error-alert";
 import { ForbiddenState } from "@/components/feedback/forbidden-state";
 import { PageHeader } from "@/components/layout/page-header";
@@ -21,7 +21,16 @@ import { useAppointments } from "@/lib/queries/appointments";
 import { buildStoreDateTime, getStoreDateKey } from "@/lib/time";
 
 export function SpaAppointmentsScreen() {
-  const [todayKey] = useState(() => getStoreDateKey(new Date()));
+  const [todayKey, setTodayKey] = useState(() => getStoreDateKey(new Date()));
+
+  // Cập nhật lại todayKey khi qua nửa đêm (sau 00:00) theo chu kỳ làm mới để tránh stale date state
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const currentKey = getStoreDateKey(new Date());
+      setTodayKey((prev) => (prev !== currentKey ? currentKey : prev));
+    }, SPA_LIST_REFETCH_MS);
+    return () => clearInterval(timer);
+  }, []);
 
   const confirmed = useAppointments(buildSpaListParams("Confirmed"), {
     refetchInterval: SPA_LIST_REFETCH_MS,
@@ -34,8 +43,13 @@ export function SpaAppointmentsScreen() {
   });
 
   const queries = [confirmed, received, inProgress];
-  const hasAllData = queries.every((query) => query.data !== undefined);
+  const isForbidden = queries.some((query) => isForbiddenError(query.error));
+  const hasAnyData = queries.some((query) => query.data !== undefined);
   const error = queries.find((query) => query.error)?.error;
+
+  if (isForbidden) {
+    return <ForbiddenState />;
+  }
 
   return (
     <div>
@@ -44,26 +58,25 @@ export function SpaAppointmentsScreen() {
         description={`${formatLongDate(buildStoreDateTime(todayKey, "12:00"))}.`}
       />
 
-      {!hasAllData && error ? (
-        isForbiddenError(error) ? (
-          <ForbiddenState />
-        ) : (
-          <ErrorAlert error={error} />
-        )
-      ) : !hasAllData ? (
+      {!hasAnyData && error ? (
+        <ErrorAlert error={error} />
+      ) : !hasAnyData ? (
         <div>
           <Skeleton className="mb-3 h-[104px] w-full rounded-2xl" />
           <Skeleton className="h-[104px] w-full rounded-2xl" />
         </div>
       ) : (
         (() => {
-          const groups = groupSpaAppointments(
-            queries.map((query) => query.data?.items ?? []),
-            todayKey,
-          );
+          const successfulLists = queries
+            .filter((query) => query.data !== undefined)
+            .map((query) => query.data!.items);
+          const groups = groupSpaAppointments(successfulLists, todayKey);
 
           return (
             <>
+              {/* Cảnh báo suy giảm dữ liệu nếu có query bị lỗi mạng nhưng vẫn có dữ liệu từ query khác */}
+              {error && <ErrorAlert error={error} className="mb-6" />}
+
               {/* Khối Hôm nay */}
               <section aria-labelledby="spa-today-heading" className="mb-8">
                 <div className="mb-3 flex items-baseline justify-between">

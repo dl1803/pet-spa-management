@@ -149,7 +149,9 @@ export function AppointmentTicket({
   appointment: Appointment;
   variant: TicketVariant;
 }) {
-  const detail = useAppointment(appointment.appointmentId);
+  // Chỉ variant "today" mới cần chi tiết dịch vụ và chi phí chờ xác nhận; "upcoming" không hiển thị các trường này.
+  const detailId = variant === "today" ? appointment.appointmentId : null;
+  const detail = useAppointment(detailId);
   const pet = usePet(appointment.petId);
   const detailState =
     detail.isPending || pet.isPending ? "loading" : detail.isError || pet.isError ? "error" : "ready";
