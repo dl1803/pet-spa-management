@@ -3,6 +3,8 @@ import type {
   AppointmentDetail,
   AppointmentPage,
   AppointmentStatus,
+  HotelBookingCreated,
+  HotelBookingRequest,
   SpaBookingCreated,
   SpaBookingRequest,
   SpaSlots,
@@ -27,6 +29,12 @@ export async function getSpaSlots({ date, petId, serviceIds }: GetSpaSlotsParams
 // POST /appointments/spa: tạo lịch hẹn spa ở trạng thái Chờ xác nhận (201).
 export async function createSpaAppointment(request: SpaBookingRequest) {
   const { data } = await apiClient.post<SpaBookingCreated>("/appointments/spa", request);
+  return data;
+}
+
+// POST /appointments/hotel: tạo lịch hẹn lưu trú ở trạng thái Chờ xác nhận (201).
+export async function createHotelAppointment(request: HotelBookingRequest) {
+  const { data } = await apiClient.post<HotelBookingCreated>("/appointments/hotel", request);
   return data;
 }
 

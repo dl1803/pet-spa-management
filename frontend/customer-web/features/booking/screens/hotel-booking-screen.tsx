@@ -1,17 +1,18 @@
 "use client";
 
-import { skipToken, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { Alert } from "@/components/feedback/alert";
+import { ErrorAlert } from "@/components/feedback/error-alert";
 import { useToast } from "@/components/feedback/toast";
 import { Icon } from "@/components/icons";
 import { PageHeader } from "@/components/layout/page-header";
-import { ButtonLink, LinkButton } from "@/components/ui/button";
+import { Button, ButtonLink, LinkButton } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   HotelAvailabilityNotice,
   type HotelAvailabilityNoticeState,
@@ -35,15 +36,11 @@ import {
   toHotelBookingRequest,
   type HotelBookingFormValues,
 } from "@/features/booking/forms";
-import { MOCK_PETS } from "@/features/booking/mock-data";
-import {
-  HOTEL_AVAILABILITY_QUERY_KEY,
-  HOTEL_PRICING_QUERY_KEY,
-  mockCreateHotelAppointment,
-  mockGetHotelAvailability,
-  mockGetHotelPricing,
-} from "@/features/booking/mock-hotel";
+import type { Pet } from "@/lib/api/types";
 import { formatDayAndTime } from "@/lib/format";
+import { useCreateHotelAppointment } from "@/lib/queries/appointments";
+import { useHotelAvailability, useHotelPricing } from "@/lib/queries/hotel";
+import { usePets } from "@/lib/queries/pets";
 import { ROUTES } from "@/lib/routes";
 import { buildStoreDateTime, getStoreDateKey } from "@/lib/time";
 
@@ -52,12 +49,71 @@ const DESCRIPTION = "Bé ở chuồng riêng hợp loài và kích cỡ, có th�
 // Chờ người dùng ngừng chỉnh ngày giờ rồi mới kiểm tra chỗ.
 const AVAILABILITY_DELAY_MS = 400;
 
+function HotelBookingHeader() {
+  return <PageHeader title="Đặt lịch lưu trú" description={DESCRIPTION} />;
+}
+
+function HotelBookingSkeleton() {
+  return (
+    <div role="status" aria-busy="true">
+      <span className="sr-only">Đang tải thông tin đặt lịch…</span>
+      <div className="grid grid-cols-[minmax(0,1fr)_360px] items-start gap-6 max-[1180px]:grid-cols-1">
+        <div className="flex flex-col gap-4">
+          {[0, 1].map((index) => (
+            <Card key={index}>
+              <CardBody>
+                <Skeleton className="h-6 w-40 rounded-[10px]" />
+                <Skeleton className="mt-4 h-16 rounded-xl" />
+                <Skeleton className="mt-2 h-16 rounded-xl" />
+              </CardBody>
+            </Card>
+          ))}
+        </div>
+        <Card>
+          <CardBody>
+            <Skeleton className="h-6 w-32 rounded-[10px]" />
+            <Skeleton className="mt-4 h-24 rounded-xl" />
+          </CardBody>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 export function HotelBookingScreen() {
-  // Thú cưng giả, cùng nguồn với màn đặt lịch spa. Chờ nối API thật ở bước tích hợp.
-  const pets = MOCK_PETS;
+  const petsQuery = usePets();
+  const pets = petsQuery.data?.items;
+
+  if (pets === undefined) {
+    return (
+      <>
+        <HotelBookingHeader />
+        {petsQuery.error !== null ? (
+          <div>
+            <ErrorAlert error={petsQuery.error} />
+            <div className="mt-4">
+              <Button variant="secondary" onClick={() => void petsQuery.refetch()} loading={petsQuery.isFetching}>
+                Thử lại
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <HotelBookingSkeleton />
+        )}
+      </>
+    );
+  }
+
+  return <HotelBookingForm pets={pets} />;
+}
+
+type HotelBookingFormProps = {
+  pets: Pet[];
+};
+
+function HotelBookingForm({ pets }: HotelBookingFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const queryClient = useQueryClient();
   const { showSuccess } = useToast();
   const [todayKey] = useState(() => getStoreDateKey(new Date()));
   const [isBookingLocked, setIsBookingLocked] = useState(false);
@@ -100,51 +156,31 @@ export function HotelBookingScreen() {
   }, [stayKey]);
   const settledStay = stay !== null && stayKey === settledKey ? stay : null;
 
-  const availabilityQuery = useQuery({
-    queryKey: [...HOTEL_AVAILABILITY_QUERY_KEY, { petId, stayKey: getStayKey(settledStay) }],
-    queryFn:
-      pet !== undefined && settledStay !== null
-        ? () => mockGetHotelAvailability({ petId: pet.petId, from: settledStay.from, to: settledStay.to })
-        : skipToken,
-    refetchOnWindowFocus: false,
-  });
-  const pricingQuery = useQuery({ queryKey: HOTEL_PRICING_QUERY_KEY, queryFn: mockGetHotelPricing });
+  const availabilityQuery = useHotelAvailability(
+    pet !== undefined && settledStay !== null
+      ? { petId: pet.petId, from: settledStay.from, to: settledStay.to }
+      : null,
+  );
+  const pricingQuery = useHotelPricing();
 
-  const {
-    mutate,
-    isPending,
-    error: submitError,
-    reset: resetSubmit,
-  } = useMutation({
-    mutationFn: mockCreateHotelAppointment,
-    onSuccess: () => {
-      showSuccess("Đã gửi yêu cầu lưu trú");
-      void queryClient.invalidateQueries({ queryKey: HOTEL_AVAILABILITY_QUERY_KEY });
-      // Chi tiết lịch hẹn chưa có route, nên về danh sách lịch hẹn như luồng đặt lịch spa.
-      router.push(ROUTES.appointments);
-    },
-    onError: (failure) => {
-      if (isNoCapacityError(failure)) void queryClient.invalidateQueries({ queryKey: HOTEL_AVAILABILITY_QUERY_KEY });
-      if (isBookingLockedError(failure)) setIsBookingLocked(true);
-    },
-  });
+  const { mutate, isPending, isSuccess, error: submitError, reset: resetSubmit } = useCreateHotelAppointment();
 
-  // Đồng bộ petId khi danh sách thú cưng tải xong hoặc thay đổi.
+  // Thú cưng đang chọn không còn trong danh sách (ví dụ đã bị xóa ở nơi khác): chọn lại thú cưng đầu tiên.
   useEffect(() => {
-    if (getValues("petId") === "" && pets.length > 0) {
-      setValue("petId", getInitialPetId(pets, searchParams.get("petId")));
+    if (pets.length > 0 && !pets.some((item) => item.petId === petId)) {
+      setValue("petId", getInitialPetId(pets, null));
     }
-  }, [pets, searchParams, setValue, getValues]);
+  }, [pets, petId, setValue]);
 
   // Đổi thú cưng hoặc khoảng lưu trú thì bỏ lỗi của lần gửi trước.
   useEffect(() => {
     resetSubmit();
   }, [petId, stayKey, resetSubmit]);
 
-  if (pet === undefined) {
+  if (pets.length === 0) {
     return (
       <>
-        <PageHeader title="Đặt lịch lưu trú" description={DESCRIPTION} />
+        <HotelBookingHeader />
         <Card>
           <EmptyState
             icon="paw"
@@ -162,18 +198,20 @@ export function HotelBookingScreen() {
     );
   }
 
+  // Chờ effect chọn lại thú cưng hợp lệ ở trên chạy xong.
+  if (pet === undefined) return null;
+
   const availability = availabilityQuery.data;
   const isNoCapacity = submitError !== null && isNoCapacityError(submitError);
   const generalError =
-    submitError !== null &&
-    !isNoCapacityError(submitError) &&
-    !isBookingLockedError(submitError)
+    submitError !== null && !isNoCapacityError(submitError) && !isBookingLockedError(submitError)
       ? submitError
       : null;
 
+  // Kết quả cũ (placeholder) hoặc đang hỏi/bị treo vì mất mạng đều chưa phải kết quả kiểm tra cho khoảng đang chọn.
   const isChecking =
     stay !== null &&
-    (settledStay === null || availabilityQuery.isPending || (availabilityQuery.isError && availabilityQuery.isFetching));
+    (settledStay === null || availabilityQuery.fetchStatus !== "idle" || availabilityQuery.isPlaceholderData);
 
   let notice: HotelAvailabilityNoticeState = { kind: "idle" };
   if (isBookingLocked) {
@@ -219,14 +257,23 @@ export function HotelBookingScreen() {
   }
 
   function onSubmit() {
-    if (isPending || pet === undefined || stay === null) return;
-    if (notice.kind === "checking" || notice.kind === "full" || notice.kind === "locked" || notice.kind === "error") return;
-    mutate(toHotelBookingRequest(pet.petId, stay));
+    if (isPending || isSuccess || pet === undefined || stay === null) return;
+    // Chỉ gửi khi đã có kết quả "còn chỗ" cho đúng khoảng đang chọn.
+    if (notice.kind !== "available") return;
+    mutate(toHotelBookingRequest(pet.petId, stay), {
+      onSuccess: () => {
+        showSuccess("Đã gửi yêu cầu lưu trú");
+        router.push(ROUTES.appointments);
+      },
+      onError: (failure) => {
+        if (isBookingLockedError(failure)) setIsBookingLocked(true);
+      },
+    });
   }
 
   return (
     <>
-      <PageHeader title="Đặt lịch lưu trú" description={DESCRIPTION} />
+      <HotelBookingHeader />
       <form onSubmit={handleSubmit(onSubmit)} noValidate>
         <div className="grid grid-cols-[minmax(0,1fr)_360px] items-start gap-6 max-[1180px]:grid-cols-1">
           <div className="flex flex-col gap-4">
@@ -269,7 +316,7 @@ export function HotelBookingScreen() {
             checkOutInvalid={checkOutInvalid}
             quote={quote}
             submitError={generalError}
-            isSubmitting={isPending}
+            isSubmitting={isPending || isSuccess}
             pricingError={pricingQuery.isError}
             onRetryPricing={() => void pricingQuery.refetch()}
             lockReason={lockReason}
@@ -286,4 +333,3 @@ function toDayAndTime(date: string, time: string) {
   if (Number.isNaN(Date.parse(iso))) return null;
   return formatDayAndTime(iso);
 }
-
