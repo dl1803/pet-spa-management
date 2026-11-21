@@ -57,6 +57,8 @@ test("getApplicableServices và summarizeSelection: đúng dòng giá, tối thi
     staffRequired: 1,
   });
   assert.deepEqual(summarizeSelection(BAP, []), { totalPrice: 0, totalMinutes: 0, staffRequired: 2 });
+  const INACTIVE = { ...TAM, serviceId: "s4", isActive: false };
+  assert.deepEqual(getApplicableServices([INACTIVE], BAP), []);
 });
 
 test("ngày giờ: dải 7 ngày, nhãn ngày, khoảng giờ, thời lượng, mốc kết thúc", () => {

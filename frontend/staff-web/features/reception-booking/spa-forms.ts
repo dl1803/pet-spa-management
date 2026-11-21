@@ -22,13 +22,10 @@ export type ApplicableService = {
 
 export function getApplicableServices(services: Service[], pet: Pet): ApplicableService[] {
   return services.flatMap((service) => {
+    if (!service.isActive) return [];
     const pricing = service.pricing.find((row) => row.species === pet.species && row.sizeGroup === pet.sizeGroup);
     return pricing ? [{ service, pricing }] : [];
   });
-}
-
-export function keepApplicableServiceIds(serviceIds: string[], applicable: ApplicableService[]): string[] {
-  return serviceIds.filter((id) => applicable.some(({ service }) => service.serviceId === id));
 }
 
 export function summarizeSelection(pet: Pet, selected: ApplicableService[]) {

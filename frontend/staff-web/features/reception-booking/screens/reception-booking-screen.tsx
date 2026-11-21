@@ -145,9 +145,9 @@ function BookingContent({ customer, type, requestedPetId }: BookingContentProps)
           />
         </Card>
       ) : type === "Spa" ? (
-        <SpaBookingPanel customer={customer} pets={pets} pet={pet} onPetSelect={handlePetSelect} />
+        <SpaBookingPanel key={pet.petId} customer={customer} pets={pets} pet={pet} onPetSelect={handlePetSelect} />
       ) : (
-        <HotelBookingPanel customer={customer} pets={pets} pet={pet} onPetSelect={handlePetSelect} />
+        <HotelBookingPanel key={pet.petId} customer={customer} pets={pets} pet={pet} onPetSelect={handlePetSelect} />
       )}
     </>
   );

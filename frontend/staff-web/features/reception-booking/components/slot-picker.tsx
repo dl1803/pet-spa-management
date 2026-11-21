@@ -4,8 +4,11 @@ import type { SlotInfo, SlotStatus } from "@/lib/api/types";
 const GROUP_NAMES = ["Sáng", "Trưa", "Chiều, tối"] as const;
 type GroupName = (typeof GROUP_NAMES)[number];
 
-function getGroupName(time: string): GroupName {
-  const hour = Number(time.slice(0, 2));
+function getGroupName(slot: SlotInfo): GroupName {
+  if (slot.group === "Sáng" || slot.group === "Morning") return "Sáng";
+  if (slot.group === "Trưa" || slot.group === "Afternoon") return "Trưa";
+  if (slot.group === "Chiều" || slot.group === "Evening" || slot.group === "Chiều, tối") return "Chiều, tối";
+  const hour = Number(slot.time.slice(0, 2));
   if (hour < 12) return "Sáng";
   if (hour < 15) return "Trưa";
   return "Chiều, tối";
@@ -36,7 +39,7 @@ export function SlotPicker({ legend, slots, value, onChange, getEndTime, describ
     <fieldset aria-describedby={describedBy}>
       <legend className="sr-only">{legend}</legend>
       {GROUP_NAMES.map((name) => {
-        const groupSlots = slots.filter((slot) => getGroupName(slot.time) === name);
+        const groupSlots = slots.filter((slot) => getGroupName(slot) === name);
         if (groupSlots.length === 0) return null;
 
         return (

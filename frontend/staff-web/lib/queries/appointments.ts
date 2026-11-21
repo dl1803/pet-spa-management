@@ -13,10 +13,11 @@ export function useCreateSpaAppointment() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: createSpaAppointment,
-    // Lịch mới chiếm mốc giờ; mốc vừa kín (SLOT_FULL) cũng cần số liệu mới.
     onSuccess: () => queryClient.invalidateQueries({ queryKey: spaSlotKeys.all }),
     onError: (error) => {
-      if (isConflictWith(error, "SLOT_FULL")) void queryClient.invalidateQueries({ queryKey: spaSlotKeys.all });
+      if (isConflictWith(error, "SLOT_FULL")) {
+        return queryClient.invalidateQueries({ queryKey: spaSlotKeys.all });
+      }
     },
   });
 }
@@ -27,7 +28,9 @@ export function useCreateHotelAppointment() {
     mutationFn: createHotelAppointment,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: hotelKeys.availabilityAll }),
     onError: (error) => {
-      if (isConflictWith(error, "NO_CAPACITY")) void queryClient.invalidateQueries({ queryKey: hotelKeys.availabilityAll });
+      if (isConflictWith(error, "NO_CAPACITY")) {
+        return queryClient.invalidateQueries({ queryKey: hotelKeys.availabilityAll });
+      }
     },
   });
 }

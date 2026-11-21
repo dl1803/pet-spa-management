@@ -75,7 +75,7 @@ export function SpaScheduleCard({
           </div>
         </fieldset>
 
-        <div aria-live="polite" className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3">
           {!hasServices ? (
             <Alert tone="neutral">{NEED_SERVICE_MESSAGE}</Alert>
           ) : isLoading ? (
