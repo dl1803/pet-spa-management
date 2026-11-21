@@ -113,6 +113,31 @@ public class WeightComparisonServiceTests
     }
 
     [Fact]
+    public void RecordWeight_WithNewSizeGroup_UpdatesSizeGroupAndKeepsStatusAndSlot()
+    {
+        var slotStart = DateTimeOffset.UtcNow;
+        var appointment = new SpaAppointment
+        {
+            AppointmentId = Guid.NewGuid(),
+            Status = AppointmentStatus.Received,
+            SizeGroup = SizeGroup.Medium,
+            SlotStart = slotStart,
+            SlotEnd = slotStart.AddMinutes(120),
+            BusyUntil = slotStart.AddMinutes(135),
+            StaffRequired = 2,
+        };
+
+        appointment.RecordWeight(2.9m, SizeGroup.Small);
+
+        Assert.Equal(2.9m, appointment.ActualWeightKg);
+        Assert.Equal(SizeGroup.Small, appointment.SizeGroup);
+        Assert.Equal(AppointmentStatus.Received, appointment.Status);
+        Assert.Equal(slotStart.AddMinutes(120), appointment.SlotEnd);
+        Assert.Equal(slotStart.AddMinutes(135), appointment.BusyUntil);
+        Assert.Equal((short)2, appointment.StaffRequired);
+    }
+
+    [Fact]
     public void Dog_WhenNewGroupIsSmallerThanCurrentGroup_ReturnsPriceDecreasedEvenIfWeightNotSmaller()
     {
         var pet = NewPet(Species.Dog, 20.0, 40.0);

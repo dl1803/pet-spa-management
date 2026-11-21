@@ -44,9 +44,10 @@ public abstract class Appointment
 
     public virtual void ReturnToPending() => MoveTo(AppointmentStatus.Pending);
 
-    public void RecordWeight(decimal actualWeightKg)
+    public void RecordWeight(decimal actualWeightKg, SizeGroup? newSizeGroup = null)
     {
         ActualWeightKg = actualWeightKg;
+        if (newSizeGroup is not null) SizeGroup = newSizeGroup.Value;
         UpdatedAt = DateTimeOffset.UtcNow;
     }
 
