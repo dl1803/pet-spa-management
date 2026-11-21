@@ -23,6 +23,7 @@ using PetSpa.Application.Services.Payments;
 using PetSpa.Domain.Enums;
 using PetSpa.Infrastructure.Identity;
 using PetSpa.Infrastructure.Payments.Vnpay;
+using PetSpa.Infrastructure.Storage;
 using System.Text.Json;
 using System.Threading.RateLimiting;
 using FluentValidation;
@@ -6301,7 +6302,140 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(status == AppointmentStatus.Confirmed, "Status must be Confirmed.");
         Check(fixture.Notices.Created.Count == 0 && fixture.NotificationReader.Requested.Count == 0,
             "RescheduleAsync must not notify.");
-    })
+    }),
+    ("SupabasePhotoStorage rejects missing or invalid configuration", () =>
+    {
+        var invalid = new[]
+        {
+            new StorageOptions(),
+            new StorageOptions { Url = "https://proj.supabase.co", ServiceKey = "svc-key" },
+            new StorageOptions { Url = "https://proj.supabase.co", Bucket = "appointment-photos" },
+            new StorageOptions { ServiceKey = "svc-key", Bucket = "appointment-photos" },
+            new StorageOptions { Url = "not-a-url", ServiceKey = "svc-key", Bucket = "appointment-photos" },
+        };
+
+        foreach (var options in invalid)
+        {
+            AssertThrows<InvalidOperationException>(
+                () => new SupabasePhotoStorage(new HttpClient(), options),
+                "The adapter must refuse to start without a complete, valid Storage configuration.");
+        }
+
+        return Task.CompletedTask;
+    }),
+    ("SupabasePhotoStorage.UploadAsync posts the raw bytes to the private bucket with the service key", async () =>
+    {
+        var handler = new RecordingHttpHandler(_ => new HttpResponseMessage(System.Net.HttpStatusCode.OK));
+        var storage = StorageTestKit.Create(handler);
+        var bytes = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3 };
+
+        await storage.UploadAsync("appointments/a1/before-p1.jpg", new MemoryStream(bytes), "image/jpeg");
+
+        var request = handler.Requests.Single();
+        Check(request.Method == HttpMethod.Post, "Upload must be a POST.");
+        Check(request.Uri.ToString() == "https://proj.supabase.co/storage/v1/object/appointment-photos/appointments/a1/before-p1.jpg",
+            $"Unexpected upload URL: {request.Uri}");
+        Check(request.ApiKey == "svc-key" && request.Authorization == "Bearer svc-key",
+            "Upload must send the service key in both apikey and Authorization headers.");
+        Check(request.ContentType == "image/jpeg" && request.Body!.SequenceEqual(bytes),
+            "Upload must send the raw bytes with the given content type.");
+    }),
+    ("SupabasePhotoStorage.CreateTemporaryUrlsAsync signs all keys in one call and keeps the input order for both signedURL forms", async () =>
+    {
+        var handler = new RecordingHttpHandler(_ => StorageTestKit.Json(
+            "[{\"error\":null,\"path\":\"k2\",\"signedURL\":\"/object/sign/appointment-photos/k2?token=abc\"},"
+            + "{\"error\":null,\"path\":\"k1\",\"signedURL\":\"/storage/v1/object/sign/appointment-photos/k1?token=def\"}]"));
+        var storage = StorageTestKit.Create(handler);
+
+        var urls = await storage.CreateTemporaryUrlsAsync(["k1", "k2"], TimeSpan.FromMinutes(60));
+
+        var request = handler.Requests.Single();
+        Check(request.Method == HttpMethod.Post
+              && request.Uri.ToString() == "https://proj.supabase.co/storage/v1/object/sign/appointment-photos",
+            $"Unexpected sign request: {request.Method} {request.Uri}");
+
+        using var body = JsonDocument.Parse(request.Body!);
+        Check(body.RootElement.GetProperty("expiresIn").GetInt32() == 3600, "expiresIn must be the lifetime in seconds.");
+        Check(body.RootElement.GetProperty("paths").EnumerateArray().Select(e => e.GetString()).SequenceEqual(new[] { "k1", "k2" }),
+            "paths must list the keys in order.");
+
+        Check(urls.Count == 2
+              && urls[0] == "https://proj.supabase.co/storage/v1/object/sign/appointment-photos/k1?token=def"
+              && urls[1] == "https://proj.supabase.co/storage/v1/object/sign/appointment-photos/k2?token=abc",
+            "URLs must follow the input order and be absolute for both relative forms.");
+    }),
+    ("SupabasePhotoStorage.CreateTemporaryUrlsAsync fails when a key is missing, has an error, or the URL form is unknown; empty input makes no call", async () =>
+    {
+        var missing = new RecordingHttpHandler(_ => StorageTestKit.Json(
+            "[{\"error\":null,\"path\":\"k1\",\"signedURL\":\"/object/sign/appointment-photos/k1?token=a\"}]"));
+        Check(await StorageTestKit.ThrowsInvalidOperationAsync(
+                () => StorageTestKit.Create(missing).CreateTemporaryUrlsAsync(["k1", "k2"], TimeSpan.FromMinutes(1))),
+            "A key without a signed URL must fail.");
+
+        var withError = new RecordingHttpHandler(_ => StorageTestKit.Json(
+            "[{\"error\":\"Object not found\",\"path\":\"k1\",\"signedURL\":null}]"));
+        Check(await StorageTestKit.ThrowsInvalidOperationAsync(
+                () => StorageTestKit.Create(withError).CreateTemporaryUrlsAsync(["k1"], TimeSpan.FromMinutes(1))),
+            "A per-key error must fail.");
+
+        var unknownForm = new RecordingHttpHandler(_ => StorageTestKit.Json(
+            "[{\"error\":null,\"path\":\"k1\",\"signedURL\":\"object/sign/appointment-photos/k1?token=a\"}]"));
+        Check(await StorageTestKit.ThrowsInvalidOperationAsync(
+                () => StorageTestKit.Create(unknownForm).CreateTemporaryUrlsAsync(["k1"], TimeSpan.FromMinutes(1))),
+            "An unrecognised signed URL form must fail.");
+
+        var none = new RecordingHttpHandler(_ => new HttpResponseMessage(System.Net.HttpStatusCode.OK));
+        var empty = await StorageTestKit.Create(none).CreateTemporaryUrlsAsync([], TimeSpan.FromMinutes(1));
+        Check(empty.Count == 0 && none.Requests.Count == 0, "Empty input must return an empty list without any HTTP call.");
+    }),
+    ("SupabasePhotoStorage.DeleteAsync sends DELETE and non-success responses become a bounded InvalidOperationException", async () =>
+    {
+        var handler = new RecordingHttpHandler(_ => new HttpResponseMessage(System.Net.HttpStatusCode.OK));
+        await StorageTestKit.Create(handler).DeleteAsync("appointments/a1/after-p2.png");
+
+        var request = handler.Requests.Single();
+        Check(request.Method == HttpMethod.Delete
+              && request.Uri.ToString() == "https://proj.supabase.co/storage/v1/object/appointment-photos/appointments/a1/after-p2.png",
+            $"Unexpected delete request: {request.Method} {request.Uri}");
+
+        var failing = new RecordingHttpHandler(_ => new HttpResponseMessage(System.Net.HttpStatusCode.InternalServerError)
+        {
+            Content = new StringContent(new string('x', 1000)),
+        });
+
+        try
+        {
+            await StorageTestKit.Create(failing).DeleteAsync("k");
+            throw new InvalidOperationException("The failing response did not raise an error.");
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("500"))
+        {
+            Check(!ex.Message.Contains(new string('x', 301)), "The error message must truncate the response body to 300 characters.");
+            Check(!ex.Message.Contains("svc-key"), "The error message must never contain the service key.");
+        }
+    }),
+    ("AddInfrastructure registers the Supabase photo storage from Storage__* configuration", () =>
+    {
+        var settings = new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:Default"] = "Host=localhost;Database=petspa;Username=test;Password=test",
+            ["Jwt:SigningKey"] = "this-is-a-valid-32-byte-secret-key-12345",
+            ["Jwt:AccessTokenMinutes"] = "15",
+            ["Jwt:RefreshTokenDays"] = "7",
+            ["Storage:Url"] = "https://proj.supabase.co",
+            ["Storage:ServiceKey"] = "svc-key",
+            ["Storage:Bucket"] = "appointment-photos",
+        };
+
+        var services = new ServiceCollection();
+        PetSpa.Infrastructure.DependencyInjection.AddInfrastructure(
+            services, new ConfigurationBuilder().AddInMemoryCollection(settings).Build());
+        using var provider = services.BuildServiceProvider();
+
+        Check(provider.GetRequiredService<IPhotoStorage>() is SupabasePhotoStorage,
+            "IPhotoStorage must resolve to the Supabase adapter.");
+        return Task.CompletedTask;
+    }),
 };
 
 var failures = 0;
@@ -7644,4 +7778,55 @@ static class TestNotifiers
         new TestAppointmentNotificationReader(_ => null),
         new NotificationService(new TestNotificationRepo(() => false)),
         new ShopTimeZone(TimeZoneInfo.Utc));
+}
+
+sealed record RecordedRequest(
+    HttpMethod Method, Uri Uri, string? Authorization, string? ApiKey, string? ContentType, byte[]? Body);
+
+sealed class RecordingHttpHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
+{
+    public List<RecordedRequest> Requests { get; } = [];
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var body = request.Content is null ? null : await request.Content.ReadAsByteArrayAsync(cancellationToken);
+        var apiKey = request.Headers.TryGetValues("apikey", out var values) ? values.SingleOrDefault() : null;
+
+        Requests.Add(new RecordedRequest(
+            request.Method,
+            request.RequestUri!,
+            request.Headers.Authorization?.ToString(),
+            apiKey,
+            request.Content?.Headers.ContentType?.MediaType,
+            body));
+
+        return respond(request);
+    }
+}
+
+static class StorageTestKit
+{
+    public static SupabasePhotoStorage Create(HttpMessageHandler handler) =>
+        new(new HttpClient(handler), new StorageOptions
+        {
+            Url = "https://proj.supabase.co/",
+            ServiceKey = "svc-key",
+            Bucket = "appointment-photos",
+        });
+
+    public static HttpResponseMessage Json(string json) =>
+        new(System.Net.HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+
+    public static async Task<bool> ThrowsInvalidOperationAsync(Func<Task> action)
+    {
+        try
+        {
+            await action();
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return true;
+        }
+    }
 }
