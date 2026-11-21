@@ -7,12 +7,17 @@ using PetSpa.Domain.Exceptions;
 
 namespace PetSpa.Application.Services.Assignment;
 
+public sealed record AppointmentPhotoView(Guid PhotoId, PhotoKind Kind, string Url, DateTimeOffset UploadedAt);
+
 public sealed class AppointmentPhotoService(
     IAppointmentQueryRepository appointments,
     IAppointmentPhotoRepository photos,
     IPhotoStorage storage,
-    IConcurrencyGuard concurrency)
+    IConcurrencyGuard concurrency,
+    IStaffRoleReader staffRoles)
 {
+    private static readonly TimeSpan UrlLifetime = TimeSpan.FromMinutes(60);
+
     public async Task<Guid> UploadAsync(
         CurrentUser user, Guid appointmentId, PhotoKind kind, Stream content, CancellationToken ct = default)
     {
@@ -58,6 +63,43 @@ public sealed class AppointmentPhotoService(
         }
 
         return photoId;
+    }
+
+    public async Task<IReadOnlyList<AppointmentPhotoView>> ListAsync(
+        CurrentUser user, Guid appointmentId, CancellationToken ct = default)
+    {
+        if (user.Role == UserRole.Staff
+            && await staffRoles.GetStaffRoleAsync(user.UserId, ct) != StaffRole.SpaStaff)
+            throw new BusinessException(ErrorCodes.Forbidden);
+
+        var detail = await appointments.FindDetailAsync(appointmentId, ct)
+            ?? throw new BusinessException(ErrorCodes.NotFound);
+
+        switch (user.Role)
+        {
+            case UserRole.Manager:
+                break;
+            case UserRole.Customer:
+                OwnershipGuard.EnsureOwner(user, detail.OwnerUserId);
+                break;
+            case UserRole.Staff:
+                if (!await appointments.IsAssignedToSpaStaffAsync(appointmentId, user.UserId, ct))
+                    throw new BusinessException(ErrorCodes.Forbidden);
+                break;
+            default:
+                throw new BusinessException(ErrorCodes.Forbidden);
+        }
+
+        var rows = await photos.ListByAppointmentAsync(appointmentId, ct);
+        if (rows.Count == 0)
+            return [];
+
+        var urls = await storage.CreateTemporaryUrlsAsync(
+            rows.Select(r => r.StorageKey).ToList(), UrlLifetime, ct);
+
+        return rows
+            .Select((r, i) => new AppointmentPhotoView(r.PhotoId, r.Kind, urls[i], r.UploadedAt))
+            .ToList();
     }
 
     private async Task EnsureCanUploadAsync(CurrentUser user, Guid appointmentId, PhotoKind kind, CancellationToken ct)

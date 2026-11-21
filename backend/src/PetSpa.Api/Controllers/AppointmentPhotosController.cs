@@ -29,4 +29,14 @@ public sealed class AppointmentPhotosController(AppointmentPhotoService photoSer
 
         return StatusCode(StatusCodes.Status201Created, new PhotoCreatedResponse(photoId));
     }
+
+    [HttpGet("{id}/photos")]
+    [Authorize(Policy = AuthorizationPolicies.CustomerOrSpaStaffOrManager)]
+    [EndpointSummary("Xem ảnh trước và sau chăm sóc của một lịch hẹn")]
+    [EndpointDescription("Khách hàng chỉ xem ảnh của lịch của mình, nhân viên spa chỉ xem ảnh của lịch được phân công cho mình, quản lý xem mọi lịch; lễ tân không có quyền. Trả mảng [{ photoId, kind, url, uploadedAt }] theo thứ tự thời điểm tải lên, không phân trang. url là đường dẫn tạm thời có hiệu lực 60 phút; khóa lưu trữ không bao giờ được trả. Ngoài phạm vi trả 403 FORBIDDEN; không tìm thấy lịch trả 404 NOT_FOUND.")]
+    public async Task<IActionResult> List(Guid id, CancellationToken ct)
+    {
+        var photos = await photoService.ListAsync(User.ToCurrentUser(), id, ct);
+        return Ok(photos.Select(PhotoResponse.From).ToList());
+    }
 }

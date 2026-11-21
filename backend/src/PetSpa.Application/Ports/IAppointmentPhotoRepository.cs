@@ -7,4 +7,6 @@ public interface IAppointmentPhotoRepository
     Task<Guid?> FindSpaStaffIdByUserIdAsync(Guid userId, CancellationToken ct = default);
 
     Task AddAsync(AppointmentPhoto photo, CancellationToken ct = default);
+
+    Task<IReadOnlyList<AppointmentPhoto>> ListByAppointmentAsync(Guid appointmentId, CancellationToken ct = default);
 }

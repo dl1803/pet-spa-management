@@ -6654,6 +6654,121 @@ var tests = new (string Name, Func<Task> Run)[]
             "IAppointmentPhotoRepository must be registered as a scoped AppointmentPhotoRepository.");
         return Task.CompletedTask;
     }),
+    ("AppointmentPhotoService.ListAsync returns photos only to the owner customer, the assigned spa staff and the manager", async () =>
+    {
+        var cases = new (string Name, Action<PhotoFixture> Arrange, Func<PhotoFixture, CurrentUser> User, StaffRole? Role, string? Expected)[]
+        {
+            ("owner customer", _ => { }, f => new CurrentUser(f.OwnerUserId, UserRole.Customer), null, null),
+            ("another customer", _ => { }, _ => new CurrentUser(Guid.NewGuid(), UserRole.Customer), null, ErrorCodes.Forbidden),
+            ("customer of a walk-in appointment", f => f.Appointments.DetailResult = new AppointmentDetailData(f.Spa, null, "Milo", [], []),
+                _ => new CurrentUser(Guid.NewGuid(), UserRole.Customer), null, ErrorCodes.Forbidden),
+            ("assigned spa staff", _ => { }, f => f.SpaStaffUser, StaffRole.SpaStaff, null),
+            ("spa staff not assigned", f => f.Appointments.AssignedResult = false, f => f.SpaStaffUser, StaffRole.SpaStaff, ErrorCodes.Forbidden),
+            ("receptionist", _ => { }, f => f.SpaStaffUser, StaffRole.Receptionist, ErrorCodes.Forbidden),
+            ("staff without a profile", _ => { }, f => f.SpaStaffUser, null, ErrorCodes.Forbidden),
+            ("manager", _ => { }, _ => new CurrentUser(Guid.NewGuid(), UserRole.Manager), null, null),
+            ("appointment not found for a manager", f => f.Appointments.DetailResult = null,
+                _ => new CurrentUser(Guid.NewGuid(), UserRole.Manager), null, ErrorCodes.NotFound),
+            ("appointment not found for a customer", f => f.Appointments.DetailResult = null,
+                _ => new CurrentUser(Guid.NewGuid(), UserRole.Customer), null, ErrorCodes.NotFound),
+        };
+
+        foreach (var c in cases)
+        {
+            var f = new PhotoFixture(AppointmentStatus.Completed);
+            f.AddPhoto(PhotoKind.Before, DateTimeOffset.UtcNow.AddHours(-1));
+            c.Arrange(f);
+
+            IReadOnlyList<AppointmentPhotoView>? result = null;
+            var code = await FailureCodeAsync(async () =>
+                result = await f.CreateService(c.Role).ListAsync(c.User(f), f.Spa.AppointmentId));
+
+            Check(code == c.Expected, $"{c.Name}: expected {c.Expected ?? "success"} but got {code ?? "success"}.");
+
+            if (c.Expected is null)
+                Check(result?.Count == 1, $"{c.Name}: the photo of the appointment must be returned.");
+            else
+                Check(result is null && f.Storage.UrlRequests.Count == 0, $"{c.Name}: no photo and no URL may be produced.");
+        }
+    }),
+    ("AppointmentPhotoService.ListAsync returns only this appointment's photos in order, with temporary URLs and no storage key", async () =>
+    {
+        var f = new PhotoFixture(AppointmentStatus.Completed);
+        var t0 = DateTimeOffset.UtcNow.AddHours(-2);
+        var first = f.AddPhoto(PhotoKind.Before, t0);
+        var second = f.AddPhoto(PhotoKind.After, t0.AddHours(1));
+        f.AddPhoto(PhotoKind.Before, t0, Guid.NewGuid());
+
+        var views = await f.CreateService(null).ListAsync(new CurrentUser(Guid.NewGuid(), UserRole.Manager), f.Spa.AppointmentId);
+
+        Check(views.Select(v => v.PhotoId).SequenceEqual(new[] { first.PhotoId, second.PhotoId }),
+            "Only this appointment's photos must be returned, in repository order.");
+        Check(views[0].Kind == PhotoKind.Before && views[0].UploadedAt == t0
+              && views[0].Url == $"https://files.test/{first.StorageKey}?token=t",
+            "Each view must carry its own kind, time and temporary URL.");
+        Check(views[1].Kind == PhotoKind.After && views[1].Url == $"https://files.test/{second.StorageKey}?token=t",
+            "The second view must carry the URL of the second photo.");
+
+        var request = f.Storage.UrlRequests.Single();
+        Check(request.Lifetime == TimeSpan.FromMinutes(60), "URLs must be valid for 60 minutes.");
+        Check(request.Keys.SequenceEqual(new[] { first.StorageKey, second.StorageKey }),
+            "All keys must be signed in one call, in order.");
+
+        Check(typeof(AppointmentPhotoView).GetProperty("StorageKey") is null && typeof(PhotoResponse).GetProperty("StorageKey") is null,
+            "The storage key must never be part of the returned models.");
+    }),
+    ("AppointmentPhotoService.ListAsync returns an empty list without calling storage when there are no photos, including for a hotel appointment", async () =>
+    {
+        var spa = new PhotoFixture(AppointmentStatus.Received);
+        var empty = await spa.CreateService().ListAsync(new CurrentUser(spa.OwnerUserId, UserRole.Customer), spa.Spa.AppointmentId);
+        Check(empty.Count == 0 && spa.Storage.UrlRequests.Count == 0, "No photos must give an empty list and no storage call.");
+
+        var hotel = new PhotoFixture(AppointmentStatus.InStay);
+        hotel.Appointments.DetailResult = new AppointmentDetailData(
+            new HotelAppointment { AppointmentId = hotel.Spa.AppointmentId, Status = AppointmentStatus.InStay }, hotel.OwnerUserId, "Milo", [], []);
+        var hotelResult = await hotel.CreateService().ListAsync(new CurrentUser(hotel.OwnerUserId, UserRole.Customer), hotel.Spa.AppointmentId);
+        Check(hotelResult.Count == 0 && hotel.Storage.UrlRequests.Count == 0, "A hotel appointment has no photos.");
+    }),
+    ("AppointmentPhotosController.List is a GET {id}/photos for customers, spa staff and managers and returns only the public fields", async () =>
+    {
+        var method = typeof(AppointmentPhotosController).GetMethod(nameof(AppointmentPhotosController.List));
+        var get = method?.GetCustomAttributes(typeof(HttpGetAttribute), true).OfType<HttpGetAttribute>().FirstOrDefault();
+        var authorize = method?.GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AuthorizeAttribute), true)
+            .OfType<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>().FirstOrDefault();
+
+        Check(get?.Template == "{id}/photos", "List must be bound to GET {id}/photos.");
+        Check(authorize?.Policy == AuthorizationPolicies.CustomerOrSpaStaffOrManager,
+            "List must require the CustomerOrSpaStaffOrManager policy.");
+
+        var f = new PhotoFixture(AppointmentStatus.Completed);
+        var photo = f.AddPhoto(PhotoKind.After, DateTimeOffset.UtcNow);
+        var controller = new AppointmentPhotosController(f.CreateService(null))
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [
+                        new Claim(TokenClaims.UserId, Guid.NewGuid().ToString()),
+                        new Claim(TokenClaims.Role, "Manager"),
+                    ], "test")),
+                },
+            },
+        };
+
+        var ok = await controller.List(f.Spa.AppointmentId, CancellationToken.None) as OkObjectResult;
+        Check(ok?.Value is List<PhotoResponse> { Count: 1 } list && list[0].PhotoId == photo.PhotoId,
+            "List must return 200 with a plain array of photos.");
+
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+        var json = JsonSerializer.Serialize(ok!.Value, options);
+        Check(json.Contains("\"photoId\"") && json.Contains("\"kind\":\"After\"") && json.Contains("\"url\"") && json.Contains("\"uploadedAt\""),
+            "The array items must expose photoId, kind, url and uploadedAt.");
+        Check(!json.Contains("storageKey", StringComparison.OrdinalIgnoreCase),
+            "The response must never contain the storage key.");
+    }),
 };
 
 var failures = 0;
@@ -8053,6 +8168,7 @@ sealed class TestPhotoStorage : IPhotoStorage
 {
     public List<(string Key, string ContentType, byte[] Bytes)> Uploads { get; } = [];
     public List<string> Deleted { get; } = [];
+    public List<(IReadOnlyList<string> Keys, TimeSpan Lifetime)> UrlRequests { get; } = [];
     public Func<Task>? OnUpload { get; set; }
     public bool ThrowOnDelete { get; set; }
 
@@ -8067,8 +8183,12 @@ sealed class TestPhotoStorage : IPhotoStorage
     }
 
     public Task<IReadOnlyList<string>> CreateTemporaryUrlsAsync(
-        IReadOnlyList<string> storageKeys, TimeSpan lifetime, CancellationToken ct = default) =>
-        throw new NotSupportedException("Chưa dùng trong phạm vi tải lên.");
+        IReadOnlyList<string> storageKeys, TimeSpan lifetime, CancellationToken ct = default)
+    {
+        UrlRequests.Add((storageKeys, lifetime));
+        return Task.FromResult<IReadOnlyList<string>>(
+            storageKeys.Select(key => $"https://files.test/{key}?token=t").ToList());
+    }
 
     public Task DeleteAsync(string storageKey, CancellationToken ct = default)
     {
@@ -8081,6 +8201,7 @@ sealed class TestAppointmentPhotoRepo(TestConcurrencyGuard guard) : IAppointment
 {
     public Guid? SpaStaffId { get; set; }
     public List<AppointmentPhoto> Added { get; } = [];
+    public List<AppointmentPhoto> Existing { get; } = [];
     public Exception? AddFailure { get; set; }
     public bool? InsideRunAtAdd { get; private set; }
 
@@ -8097,6 +8218,9 @@ sealed class TestAppointmentPhotoRepo(TestConcurrencyGuard guard) : IAppointment
         Added.Add(photo);
         return Task.CompletedTask;
     }
+
+    public Task<IReadOnlyList<AppointmentPhoto>> ListByAppointmentAsync(Guid appointmentId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<AppointmentPhoto>>(Existing.Where(p => p.AppointmentId == appointmentId).ToList());
 }
 
 sealed class PhotoFixture
@@ -8123,5 +8247,24 @@ sealed class PhotoFixture
         Appointments.AssignedResult = true;
     }
 
-    public AppointmentPhotoService CreateService() => new(Appointments, Photos, Storage, Guard);
+    public AppointmentPhotoService CreateService(StaffRole? staffRole = StaffRole.SpaStaff) =>
+        new(Appointments, Photos, Storage, Guard, new TestStaffRoleReader(staffRole));
+
+    public AppointmentPhoto AddPhoto(PhotoKind kind, DateTimeOffset uploadedAt, Guid? appointmentId = null)
+    {
+        var id = Guid.NewGuid();
+        var ownerAppointmentId = appointmentId ?? Spa.AppointmentId;
+        var photo = new AppointmentPhoto
+        {
+            PhotoId = id,
+            AppointmentId = ownerAppointmentId,
+            Kind = kind,
+            StorageKey = $"appointments/{ownerAppointmentId}/{kind.ToString().ToLowerInvariant()}-{id}.jpg",
+            UploadedByStaffId = SpaStaffId,
+            UploadedAt = uploadedAt,
+        };
+
+        Photos.Existing.Add(photo);
+        return photo;
+    }
 }

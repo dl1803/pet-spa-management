@@ -19,4 +19,12 @@ public sealed class AppointmentPhotoRepository(AppDbContext db) : IAppointmentPh
         db.Set<AppointmentPhoto>().Add(photo);
         await db.SaveChangesAsync(ct);
     }
+
+    public async Task<IReadOnlyList<AppointmentPhoto>> ListByAppointmentAsync(Guid appointmentId, CancellationToken ct = default) =>
+        await db.Set<AppointmentPhoto>()
+            .AsNoTracking()
+            .Where(p => p.AppointmentId == appointmentId)
+            .OrderBy(p => p.UploadedAt)
+            .ThenBy(p => p.PhotoId)
+            .ToListAsync(ct);
 }
