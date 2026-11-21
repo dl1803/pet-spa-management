@@ -46,6 +46,9 @@ public sealed class CheckInService(
             if (now > appointment.SlotStart.AddMinutes(holdMinutes) || now < appointment.SlotStart.AddMinutes(-EarlyCheckInWindowMinutes))
                 throw new BusinessException(ErrorCodes.InvalidTransition);
 
+            if (costConfirmations is not null && await costConfirmations.HasPendingAsync(appointmentId, ct))
+                throw new BusinessException(ErrorCodes.CostConfirmationPending);
+
             appointment.Receive();
             var weightCheck = await RecordWeightAsync(
                 appointment,
@@ -102,8 +105,16 @@ public sealed class CheckInService(
         var tolerances = await pets.GetWeightTolerancesAsync(pet.Species, ct);
 
         var currentGroup = appointment.SizeGroup;
-        var comparison = WeightComparisonService.Compare(
-            pet, currentGroup, actualWeightKg, sizeRules, tolerances);
+        WeightComparison comparison;
+        try
+        {
+            comparison = WeightComparisonService.Compare(
+                pet, currentGroup, actualWeightKg, sizeRules, tolerances);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new BusinessException(ErrorCodes.ValidationError, ex.Message);
+        }
 
         if (comparison.Result == WeightCheckResult.OK)
         {
@@ -199,7 +210,7 @@ public sealed class CheckInService(
                 PricingService.StayAmount(species, oldGroup, checkInDate, checkOutDate, pricing),
                 PricingService.StayAmount(species, newGroup, checkInDate, checkOutDate, pricing));
         }
-        catch (InvalidOperationException ex)
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
             throw new BusinessException(ErrorCodes.ValidationError, ex.Message);
         }

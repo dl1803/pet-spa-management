@@ -1355,6 +1355,86 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(okOutcome.Result == WeightCheckResult.OK && okOutcome.ExpiresAt is null && okConfirmations.Items.Count == 0,
             "OK must not create a confirmation.");
     }),
+    ("CheckInService: từ chối khi lịch spa có CostConfirmation Pending hoặc thiếu dung sai hoặc ngày lưu trú không hợp lệ", async () =>
+    {
+        var staffUser = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+        var now = DateTimeOffset.UtcNow;
+
+        // 1. Spa has pending confirmation -> COST_CONFIRMATION_PENDING
+        var pet = WeightTestCat(2.8m, SizeGroup.Small);
+        var spa = WeightTestSpa(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed, now.AddMinutes(-5));
+        var confirmations = new TestCostConfirmationRepo();
+        confirmations.Add(new CostConfirmation
+        {
+            ConfirmationId = Guid.NewGuid(),
+            AppointmentId = spa.AppointmentId,
+            Status = ConfirmationStatus.Pending,
+        });
+        var spaService = new CheckInService(
+            new TestAssignmentRepo(spa, [], [], new Dictionary<Guid, int>())
+            {
+                AmountInput = WeightTestSpaAmountInput(Guid.NewGuid()),
+            },
+            new TestConcurrencyGuard(), new TestStaffRoleReader(StaffRole.Receptionist), WeightTestPetRepo(pet),
+            null!, null!, null!, confirmations);
+
+        string? pendingCode = null;
+        try
+        {
+            await spaService.CheckInSpaAsync(staffUser, spa.AppointmentId, 3.4m);
+        }
+        catch (BusinessException ex)
+        {
+            pendingCode = ex.Code;
+        }
+        Check(pendingCode == ErrorCodes.CostConfirmationPending, "CheckInSpaAsync must reject when a Pending cost confirmation already exists.");
+
+        // 2. Missing weight tolerance -> VALIDATION_ERROR
+        var emptyTolerancePetRepo = new TestPetRepo(pet, null)
+        {
+            SizeRules = [new SizeRule { Species = Species.Cat, Criterion = SizeCriterion.Weight, SmallUpper = 3m, MediumUpper = 5m }],
+            Tolerances = [],
+        };
+        var noToleranceService = new CheckInService(
+            new TestAssignmentRepo(spa, [], [], new Dictionary<Guid, int>())
+            {
+                AmountInput = WeightTestSpaAmountInput(Guid.NewGuid()),
+            },
+            new TestConcurrencyGuard(), new TestStaffRoleReader(StaffRole.Receptionist), emptyTolerancePetRepo,
+            null!, null!, null!, new TestCostConfirmationRepo());
+
+        string? toleranceCode = null;
+        try
+        {
+            await noToleranceService.CheckInSpaAsync(staffUser, spa.AppointmentId, 3.4m);
+        }
+        catch (BusinessException ex)
+        {
+            toleranceCode = ex.Code;
+        }
+        Check(toleranceCode == ErrorCodes.ValidationError, "RecordWeightAsync must throw VALIDATION_ERROR when weight tolerance rule is missing.");
+
+        // 3. Hotel checkOutDate <= checkInDate -> VALIDATION_ERROR
+        var invalidDatesStay = WeightTestHotel(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed);
+        invalidDatesStay.PlannedCheckIn = now.AddDays(2);
+        invalidDatesStay.PlannedCheckOut = now.AddDays(1);
+        var invalidHotelRepo = new TestHotelAssignmentRepo(null, [], []) { Appointment = invalidDatesStay, AppointmentSpecies = Species.Cat };
+        var dateService = new CheckInService(
+            new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()),
+            new TestConcurrencyGuard(), new TestStaffRoleReader(StaffRole.Receptionist), WeightTestPetRepo(pet),
+            invalidHotelRepo, WeightTestHotelCatalog(), new ShopTimeZone(TimeZoneInfo.Utc), new TestCostConfirmationRepo());
+
+        string? dateCode = null;
+        try
+        {
+            await dateService.CheckHotelWeightAsync(staffUser, invalidDatesStay.AppointmentId, 3.4m);
+        }
+        catch (BusinessException ex)
+        {
+            dateCode = ex.Code;
+        }
+        Check(dateCode == ErrorCodes.ValidationError, "QuoteStayAsync must throw VALIDATION_ERROR when checkOutDate <= checkInDate.");
+    }),
     ("CheckInService.CheckHotelWeightAsync: từ chối vai trò không được phép, lịch không phải lưu trú, sai trạng thái", async () =>
     {
         var pet = WeightTestCat(2.8m, SizeGroup.Small);
