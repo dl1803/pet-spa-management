@@ -979,7 +979,7 @@ var tests = new (string Name, Func<Task> Run)[]
         var lateRepo = new TestAssignmentRepo(late, [], [], new Dictionary<Guid, int>());
         var lateGuard = new TestConcurrencyGuard();
         var receptionistService = new CheckInService(
-            lateRepo, lateGuard, new TestStaffRoleReader(StaffRole.Receptionist), petRepo, null!);
+            lateRepo, lateGuard, new TestStaffRoleReader(StaffRole.Receptionist), petRepo, null!, null!, null!, null!);
         var lateResult = await receptionistService.CheckInSpaAsync(
             new CurrentUser(Guid.NewGuid(), UserRole.Staff), late.AppointmentId, 2.8m);
         Check(lateResult.Status == AppointmentStatus.Received && late.Status == AppointmentStatus.Received,
@@ -992,7 +992,7 @@ var tests = new (string Name, Func<Task> Run)[]
         var early = WeightTestSpa(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed, now.AddMinutes(30));
         var managerService = new CheckInService(
             new TestAssignmentRepo(early, [], [], new Dictionary<Guid, int>()),
-            new TestConcurrencyGuard(), new TestStaffRoleReader(null), petRepo, null!);
+            new TestConcurrencyGuard(), new TestStaffRoleReader(null), petRepo, null!, null!, null!, null!);
         var earlyResult = await managerService.CheckInSpaAsync(
             new CurrentUser(Guid.NewGuid(), UserRole.Manager), early.AppointmentId, 2.8m);
         Check(earlyResult.Status == AppointmentStatus.Received, "Manager must be able to check in, also before the slot start.");
@@ -1000,7 +1000,7 @@ var tests = new (string Name, Func<Task> Run)[]
         var extended = WeightTestSpa(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed, now.AddMinutes(-20));
         var extendedRepo = new TestAssignmentRepo(extended, [], [], new Dictionary<Guid, int>()) { HoldMinutes = 30 };
         var extendedService = new CheckInService(
-            extendedRepo, new TestConcurrencyGuard(), new TestStaffRoleReader(StaffRole.Receptionist), petRepo, null!);
+            extendedRepo, new TestConcurrencyGuard(), new TestStaffRoleReader(StaffRole.Receptionist), petRepo, null!, null!, null!, null!);
         var extendedResult = await extendedService.CheckInSpaAsync(
             new CurrentUser(Guid.NewGuid(), UserRole.Staff), extended.AppointmentId, 2.8m);
         Check(extendedResult.Status == AppointmentStatus.Received, "The configured Booking.HoldMinutes must be used.");
@@ -1030,7 +1030,7 @@ var tests = new (string Name, Func<Task> Run)[]
                 guard ?? new TestConcurrencyGuard(),
                 new TestStaffRoleReader(staffRole),
                 WeightTestPetRepo(pet),
-                null!);
+                null!, null!, null!, null!);
 
         var staffUser = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
 
@@ -1093,8 +1093,11 @@ var tests = new (string Name, Func<Task> Run)[]
         var pet = WeightTestCat(2.8m, SizeGroup.Small);
         var spa = WeightTestSpa(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed, DateTimeOffset.UtcNow.AddMinutes(-5));
         var service = new CheckInService(
-            new TestAssignmentRepo(spa, [], [], new Dictionary<Guid, int>()),
-            new TestConcurrencyGuard(), new TestStaffRoleReader(null), WeightTestPetRepo(pet), null!);
+            new TestAssignmentRepo(spa, [], [], new Dictionary<Guid, int>())
+            {
+                AmountInput = WeightTestSpaAmountInput(Guid.NewGuid()),
+            },
+            new TestConcurrencyGuard(), new TestStaffRoleReader(null), WeightTestPetRepo(pet), null!, null!, null!, new TestCostConfirmationRepo());
         var controller = new AppointmentsController(null!, checkInService: service)
         {
             ControllerContext = WeightTestManagerContext(),
@@ -1104,7 +1107,7 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(result?.Value is CheckInResponse
             {
                 Status: AppointmentStatus.Received,
-                WeightCheck: { Result: WeightCheckResult.NEEDS_CONFIRMATION, NewSizeGroup: SizeGroup.Medium },
+                WeightCheck: { Result: WeightCheckResult.NEEDS_CONFIRMATION, NewSizeGroup: SizeGroup.Medium, OldAmount: 100000L, NewAmount: 150000L, ExpiresAt: not null },
             },
             "CheckIn must return Received with a NEEDS_CONFIRMATION weight check and the new size group.");
         Check(spa.ActualWeightKg == 3.4m && spa.SizeGroup == SizeGroup.Small && pet.WeightKg == 2.8m && pet.SizeGroup == SizeGroup.Small,
@@ -1134,7 +1137,7 @@ var tests = new (string Name, Func<Task> Run)[]
 
         Check(threwNullWeight, "CheckIn must throw ValidationError when actualWeightKg is null.");
     }),
-    ("CheckInService.CheckInSpaAsync: đối chiếu cân nặng OK, NEEDS_CONFIRMATION, PRICE_DECREASED và chỉ ghi cân nặng thực tế", async () =>
+    ("CheckInService.CheckInSpaAsync: đối chiếu cân nặng OK, NEEDS_CONFIRMATION, PRICE_DECREASED, tính lại chi phí, cập nhật nhóm kích cỡ và hồ sơ thú cưng", async () =>
     {
         var now = DateTimeOffset.UtcNow;
         var staffUser = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
@@ -1145,57 +1148,212 @@ var tests = new (string Name, Func<Task> Run)[]
             var pet = WeightTestCat(declaredKg, currentGroup);
             var appointment = WeightTestSpa(pet.PetId, currentGroup, AppointmentStatus.Confirmed, now.AddMinutes(-5));
             var service = new CheckInService(
-                new TestAssignmentRepo(appointment, [], [], new Dictionary<Guid, int>()),
-                new TestConcurrencyGuard(), new TestStaffRoleReader(StaffRole.Receptionist), WeightTestPetRepo(pet), null!);
+                new TestAssignmentRepo(appointment, [], [], new Dictionary<Guid, int>())
+                {
+                    AmountInput = WeightTestSpaAmountInput(Guid.NewGuid()),
+                },
+                new TestConcurrencyGuard(), new TestStaffRoleReader(StaffRole.Receptionist), WeightTestPetRepo(pet), null!, null!, null!, new TestCostConfirmationRepo());
             var result = await service.CheckInSpaAsync(staffUser, appointment.AppointmentId, actualKg);
             return (result, appointment, pet);
         }
 
         var within = await RunAsync(2.8m, SizeGroup.Small, 3.3m);
         Check(within.Result.WeightCheck == new WeightCheckOutcome(WeightCheckResult.OK, null),
-            "A heavier weight within the tolerance must be OK without a new size group.");
-        Check(within.Appointment.ActualWeightKg == 3.3m && within.Appointment.SizeGroup == SizeGroup.Small
-            && within.Pet.WeightKg == 2.8m && within.Pet.SizeGroup == SizeGroup.Small,
-            "OK must only record the actual weight.");
+            "A heavier weight within the tolerance must be OK without a new size group or amounts.");
+        Check(within.Appointment.ActualWeightKg == 3.3m && within.Appointment.SizeGroup == SizeGroup.Small,
+            "OK must record the actual weight and keep the appointment size group so that the cost does not change.");
+        Check(within.Pet.WeightKg == 3.3m && within.Pet.SizeGroup == SizeGroup.Medium,
+            "OK must update the pet profile with the actual weight and its size group.");
 
         var heavier = await RunAsync(2.8m, SizeGroup.Small, 3.4m);
         Check(heavier.Result.Status == AppointmentStatus.Received
-            && heavier.Result.WeightCheck == new WeightCheckOutcome(WeightCheckResult.NEEDS_CONFIRMATION, SizeGroup.Medium),
-            "A heavier weight beyond the tolerance and into a bigger group must need confirmation and keep the Received status.");
+            && (heavier.Result.WeightCheck with { ExpiresAt = null }) == new WeightCheckOutcome(WeightCheckResult.NEEDS_CONFIRMATION, SizeGroup.Medium, 100000m, 150000m),
+            "A heavier weight beyond the tolerance and into a bigger group must need confirmation with the recalculated amounts and keep the Received status.");
         Check(heavier.Appointment.ActualWeightKg == 3.4m && heavier.Appointment.SizeGroup == SizeGroup.Small
             && heavier.Pet.WeightKg == 2.8m && heavier.Pet.SizeGroup == SizeGroup.Small,
-            "NEEDS_CONFIRMATION must only record the actual weight.");
+            "NEEDS_CONFIRMATION must only record the actual weight; the size group and the pet profile change only after the customer confirms.");
 
         var lighter = await RunAsync(4.0m, SizeGroup.Medium, 2.9m);
-        Check(lighter.Result.WeightCheck == new WeightCheckOutcome(WeightCheckResult.PRICE_DECREASED, SizeGroup.Small),
-            "A lighter weight into a smaller group must be PRICE_DECREASED with the new size group.");
-        Check(lighter.Appointment.ActualWeightKg == 2.9m && lighter.Appointment.SizeGroup == SizeGroup.Medium
-            && lighter.Pet.WeightKg == 4.0m && lighter.Pet.SizeGroup == SizeGroup.Medium,
-            "PRICE_DECREASED must only record the actual weight.");
+        Check(lighter.Result.WeightCheck == new WeightCheckOutcome(WeightCheckResult.PRICE_DECREASED, SizeGroup.Small, 150000m, 100000m),
+            "A lighter weight into a smaller group must be PRICE_DECREASED with the new size group and a lower amount.");
+        Check(lighter.Appointment.ActualWeightKg == 2.9m && lighter.Appointment.SizeGroup == SizeGroup.Small
+            && lighter.Pet.WeightKg == 2.9m && lighter.Pet.SizeGroup == SizeGroup.Small,
+            "PRICE_DECREASED must lower the appointment size group and update the pet profile.");
+        Check(lighter.Appointment.SlotEnd == lighter.Appointment.SlotStart.AddMinutes(120)
+            && lighter.Appointment.BusyUntil == lighter.Appointment.SlotStart.AddMinutes(135)
+            && lighter.Appointment.StaffRequired == 1,
+            "A size group change must keep the spa slot end, busy-until and staff required.");
     }),
-    ("CheckInService.CheckHotelWeightAsync: ghi nhận cân nặng lịch lưu trú Đã xác nhận và giữ nguyên trạng thái", async () =>
+    ("CheckInService.CheckInSpaAsync: thiếu giá của nhóm kích cỡ mới trả VALIDATION_ERROR và không lưu thay đổi", async () =>
     {
+        var pet = WeightTestCat(2.8m, SizeGroup.Small);
+        var appointment = WeightTestSpa(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed, DateTimeOffset.UtcNow.AddMinutes(-5));
+        var serviceId = Guid.NewGuid();
+        var repo = new TestAssignmentRepo(appointment, [], [], new Dictionary<Guid, int>())
+        {
+            AmountInput = new SpaAmountInput(
+                Species.Cat,
+                [serviceId],
+                [new ServicePricing { ServiceId = serviceId, Species = Species.Cat, SizeGroup = SizeGroup.Small, Price = 100000m }]),
+        };
+        var service = new CheckInService(
+            repo, new TestConcurrencyGuard(), new TestStaffRoleReader(StaffRole.Receptionist), WeightTestPetRepo(pet), null!, null!, null!, new TestCostConfirmationRepo());
+
+        string? code = null;
+        try
+        {
+            await service.CheckInSpaAsync(new CurrentUser(Guid.NewGuid(), UserRole.Staff), appointment.AppointmentId, 3.4m);
+        }
+        catch (BusinessException ex)
+        {
+            code = ex.Code;
+        }
+
+        Check(code == ErrorCodes.ValidationError, "A missing price for the new size group must be reported as ValidationError.");
+        Check(repo.SaveCalls == 0 && appointment.ActualWeightKg is null && pet.WeightKg == 2.8m && pet.SizeGroup == SizeGroup.Small,
+            "A failed price lookup must not save or record anything.");
+    }),
+    ("CheckInService.CheckHotelWeightAsync: ghi nhận cân nặng lịch lưu trú Đã xác nhận, tính lại tiền lưu trú, cập nhật nhóm kích cỡ, hồ sơ thú cưng và giữ nguyên trạng thái", async () =>
+    {
+        var staffUser = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+
+        (CheckInService Service, HotelAppointment Stay, Pet Pet, TestHotelAssignmentRepo Repo, TestConcurrencyGuard Guard) Create(
+            decimal declaredKg, SizeGroup currentGroup)
+        {
+            var pet = WeightTestCat(declaredKg, currentGroup);
+            var stay = WeightTestHotel(pet.PetId, currentGroup, AppointmentStatus.Confirmed);
+            var hotelRepo = new TestHotelAssignmentRepo(null, [], []) { Appointment = stay, AppointmentSpecies = Species.Cat };
+            var guard = new TestConcurrencyGuard();
+            var service = new CheckInService(
+                new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()),
+                guard, new TestStaffRoleReader(StaffRole.Receptionist), WeightTestPetRepo(pet), hotelRepo,
+                WeightTestHotelCatalog(), new ShopTimeZone(TimeZoneInfo.Utc), new TestCostConfirmationRepo());
+            return (service, stay, pet, hotelRepo, guard);
+        }
+
+        static int NightsOf(HotelAppointment stay) =>
+            DateOnly.FromDateTime(stay.PlannedCheckOut.UtcDateTime).DayNumber
+            - DateOnly.FromDateTime(stay.PlannedCheckIn.UtcDateTime).DayNumber;
+
+        var within = Create(2.8m, SizeGroup.Small);
+        var withinResult = await within.Service.CheckHotelWeightAsync(staffUser, within.Stay.AppointmentId, 3.2m);
+        Check(withinResult == new WeightCheckOutcome(WeightCheckResult.OK, null), "A weight within the tolerance must be OK.");
+        Check(within.Stay.ActualWeightKg == 3.2m && within.Stay.Status == AppointmentStatus.Confirmed
+            && within.Stay.SizeGroup == SizeGroup.Small && within.Repo.SaveCalls == 1
+            && within.Guard.LockedAppointmentId == within.Stay.AppointmentId,
+            "OK must record the weight once under the appointment lock, keep the Confirmed status and the stay size group.");
+        Check(within.Pet.WeightKg == 3.2m && within.Pet.SizeGroup == SizeGroup.Medium,
+            "OK must update the pet profile with the actual weight and its size group.");
+
+        var heavier = Create(2.8m, SizeGroup.Small);
+        var heavierNights = NightsOf(heavier.Stay);
+        var heavierResult = await heavier.Service.CheckHotelWeightAsync(staffUser, heavier.Stay.AppointmentId, 3.4m);
+        Check((heavierResult with { ExpiresAt = null }) == new WeightCheckOutcome(WeightCheckResult.NEEDS_CONFIRMATION, SizeGroup.Medium, heavierNights * 120000m, heavierNights * 180000m),
+            "A weight beyond the tolerance into a bigger group must need confirmation with the recalculated stay amounts.");
+        Check(heavier.Stay.ActualWeightKg == 3.4m && heavier.Stay.SizeGroup == SizeGroup.Small
+            && heavier.Stay.Status == AppointmentStatus.Confirmed
+            && heavier.Pet.WeightKg == 2.8m && heavier.Pet.SizeGroup == SizeGroup.Small,
+            "NEEDS_CONFIRMATION must only record the weight; the stay size group, status and pet profile must not change.");
+
+        var lighter = Create(4.0m, SizeGroup.Medium);
+        var lighterNights = NightsOf(lighter.Stay);
+        var lighterResult = await lighter.Service.CheckHotelWeightAsync(staffUser, lighter.Stay.AppointmentId, 2.9m);
+        Check(lighterResult == new WeightCheckOutcome(WeightCheckResult.PRICE_DECREASED, SizeGroup.Small, lighterNights * 180000m, lighterNights * 120000m),
+            "A lighter weight into a smaller group must be PRICE_DECREASED with a lower stay amount.");
+        Check(lighter.Stay.ActualWeightKg == 2.9m && lighter.Stay.SizeGroup == SizeGroup.Small
+            && lighter.Stay.Status == AppointmentStatus.Confirmed
+            && lighter.Pet.WeightKg == 2.9m && lighter.Pet.SizeGroup == SizeGroup.Small,
+            "PRICE_DECREASED must lower the stay size group and update the pet profile.");
+    }),
+    ("CheckInService.CheckInSpaAsync: NEEDS_CONFIRMATION tạo một CostConfirmation Pending gắn đúng lịch với cân nặng, nhóm và chi phí đã tính; OK và PRICE_DECREASED không tạo", async () =>
+    {
+        var now = DateTimeOffset.UtcNow;
+        var staffUser = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+
+        async Task<(SpaCheckInResult Result, SpaAppointment Appointment, TestCostConfirmationRepo Confirmations)> RunAsync(
+            decimal declaredKg, SizeGroup currentGroup, decimal actualKg)
+        {
+            var pet = WeightTestCat(declaredKg, currentGroup);
+            var appointment = WeightTestSpa(pet.PetId, currentGroup, AppointmentStatus.Confirmed, now.AddMinutes(-5));
+            var confirmations = new TestCostConfirmationRepo { TimeoutMinutes = 45 };
+            var service = new CheckInService(
+                new TestAssignmentRepo(appointment, [], [], new Dictionary<Guid, int>())
+                {
+                    AmountInput = WeightTestSpaAmountInput(Guid.NewGuid()),
+                },
+                new TestConcurrencyGuard(), new TestStaffRoleReader(StaffRole.Receptionist), WeightTestPetRepo(pet), null!, null!, null!, confirmations);
+            var result = await service.CheckInSpaAsync(staffUser, appointment.AppointmentId, actualKg);
+            return (result, appointment, confirmations);
+        }
+
+        var heavier = await RunAsync(2.8m, SizeGroup.Small, 3.4m);
+        var created = heavier.Confirmations.Items.Single();
+        Check(created.ConfirmationId != Guid.Empty && created.AppointmentId == heavier.Appointment.AppointmentId
+            && created.Status == ConfirmationStatus.Pending && created.RespondedAt is null,
+            "NEEDS_CONFIRMATION must create one Pending confirmation bound to the appointment.");
+        Check(created.ActualWeightKg == 3.4m && created.NewSizeGroup == SizeGroup.Medium
+            && created.OldAmount == 100000m && created.NewAmount == 150000m,
+            "The confirmation must carry the actual weight, the new size group and the recalculated amounts.");
+        Check(created.ExpiresAt == created.CreatedAt.AddMinutes(45) && heavier.Result.WeightCheck.ExpiresAt == created.ExpiresAt,
+            "ExpiresAt must be CreatedAt plus the configured timeout and be returned in the weight check.");
+        Check(heavier.Result.Status == AppointmentStatus.Received, "The appointment must stay Received.");
+
+        var within = await RunAsync(2.8m, SizeGroup.Small, 3.3m);
+        Check(within.Confirmations.Items.Count == 0 && within.Result.WeightCheck.ExpiresAt is null,
+            "OK must not create a confirmation.");
+
+        var lighter = await RunAsync(4.0m, SizeGroup.Medium, 2.9m);
+        Check(lighter.Confirmations.Items.Count == 0 && lighter.Result.WeightCheck.ExpiresAt is null,
+            "PRICE_DECREASED must not create a confirmation.");
+    }),
+    ("CheckInService.CheckHotelWeightAsync: NEEDS_CONFIRMATION tạo CostConfirmation Pending và từ chối ghi nhận cân nặng lại khi đang chờ xác nhận chi phí", async () =>
+    {
+        var staffUser = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
         var pet = WeightTestCat(2.8m, SizeGroup.Small);
         var stay = WeightTestHotel(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed);
         var hotelRepo = new TestHotelAssignmentRepo(null, [], []) { Appointment = stay, AppointmentSpecies = Species.Cat };
-        var guard = new TestConcurrencyGuard();
+        var confirmations = new TestCostConfirmationRepo();
         var service = new CheckInService(
             new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()),
-            guard, new TestStaffRoleReader(StaffRole.Receptionist), WeightTestPetRepo(pet), hotelRepo);
-        var staffUser = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+            new TestConcurrencyGuard(), new TestStaffRoleReader(StaffRole.Receptionist), WeightTestPetRepo(pet), hotelRepo,
+            WeightTestHotelCatalog(), new ShopTimeZone(TimeZoneInfo.Utc), confirmations);
 
-        var within = await service.CheckHotelWeightAsync(staffUser, stay.AppointmentId, 3.2m);
-        Check(within == new WeightCheckOutcome(WeightCheckResult.OK, null), "A weight within the tolerance must be OK.");
-        Check(stay.ActualWeightKg == 3.2m && stay.Status == AppointmentStatus.Confirmed && hotelRepo.SaveCalls == 1
-            && guard.LockedAppointmentId == stay.AppointmentId,
-            "The weight must be recorded once under the appointment lock and the status must stay Confirmed.");
+        var outcome = await service.CheckHotelWeightAsync(staffUser, stay.AppointmentId, 3.4m);
+        var created = confirmations.Items.Single();
+        Check(created.AppointmentId == stay.AppointmentId && created.Status == ConfirmationStatus.Pending
+            && created.ActualWeightKg == 3.4m && created.NewSizeGroup == SizeGroup.Medium
+            && created.OldAmount == outcome.OldAmount && created.NewAmount == outcome.NewAmount
+            && created.OldAmount < created.NewAmount,
+            "NEEDS_CONFIRMATION must create one Pending confirmation bound to the stay with the recalculated amounts.");
+        Check(created.ExpiresAt == created.CreatedAt.AddMinutes(30) && outcome.ExpiresAt == created.ExpiresAt
+            && stay.Status == AppointmentStatus.Confirmed,
+            "ExpiresAt must use the default timeout and the stay must stay Confirmed.");
 
-        var heavier = await service.CheckHotelWeightAsync(staffUser, stay.AppointmentId, 3.4m);
-        Check(heavier == new WeightCheckOutcome(WeightCheckResult.NEEDS_CONFIRMATION, SizeGroup.Medium),
-            "A weight beyond the tolerance into a bigger group must need confirmation.");
-        Check(stay.ActualWeightKg == 3.4m && stay.SizeGroup == SizeGroup.Small && stay.Status == AppointmentStatus.Confirmed
-            && pet.WeightKg == 2.8m && pet.SizeGroup == SizeGroup.Small,
-            "Only the actual weight may be recorded; the stay size group, status and pet profile must not change.");
+        string? code = null;
+        try
+        {
+            await service.CheckHotelWeightAsync(staffUser, stay.AppointmentId, 3.2m);
+        }
+        catch (BusinessException ex)
+        {
+            code = ex.Code;
+        }
+
+        Check(code == ErrorCodes.CostConfirmationPending, "A weight check on a stay with a Pending confirmation must be rejected.");
+        Check(confirmations.Items.Count == 1 && stay.ActualWeightKg == 3.4m && hotelRepo.SaveCalls == 1,
+            "A rejected weight check must not create a second confirmation or change the recorded weight.");
+
+        var okPet = WeightTestCat(2.8m, SizeGroup.Small);
+        var okStay = WeightTestHotel(okPet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed);
+        var okConfirmations = new TestCostConfirmationRepo();
+        var okService = new CheckInService(
+            new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()),
+            new TestConcurrencyGuard(), new TestStaffRoleReader(StaffRole.Receptionist), WeightTestPetRepo(okPet),
+            new TestHotelAssignmentRepo(null, [], []) { Appointment = okStay, AppointmentSpecies = Species.Cat },
+            WeightTestHotelCatalog(), new ShopTimeZone(TimeZoneInfo.Utc), okConfirmations);
+        var okOutcome = await okService.CheckHotelWeightAsync(staffUser, okStay.AppointmentId, 3.2m);
+        Check(okOutcome.Result == WeightCheckResult.OK && okOutcome.ExpiresAt is null && okConfirmations.Items.Count == 0,
+            "OK must not create a confirmation.");
     }),
     ("CheckInService.CheckHotelWeightAsync: từ chối vai trò không được phép, lịch không phải lưu trú, sai trạng thái", async () =>
     {
@@ -1221,7 +1379,7 @@ var tests = new (string Name, Func<Task> Run)[]
                 guard ?? new TestConcurrencyGuard(),
                 new TestStaffRoleReader(staffRole),
                 WeightTestPetRepo(pet),
-                new TestHotelAssignmentRepo(null, [], []) { Appointment = stay, AppointmentSpecies = Species.Cat });
+                new TestHotelAssignmentRepo(null, [], []) { Appointment = stay, AppointmentSpecies = Species.Cat }, null!, null!, new TestCostConfirmationRepo());
 
         var confirmed = WeightTestHotel(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed);
         var rejectedGuard = new TestConcurrencyGuard();
@@ -1255,7 +1413,7 @@ var tests = new (string Name, Func<Task> Run)[]
         var service = new CheckInService(
             new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()),
             new TestConcurrencyGuard(), new TestStaffRoleReader(null), WeightTestPetRepo(pet),
-            new TestHotelAssignmentRepo(null, [], []) { Appointment = stay, AppointmentSpecies = Species.Cat });
+            new TestHotelAssignmentRepo(null, [], []) { Appointment = stay, AppointmentSpecies = Species.Cat }, null!, null!, new TestCostConfirmationRepo());
         var controller = new AppointmentsController(null!, checkInService: service)
         {
             ControllerContext = WeightTestManagerContext(),
@@ -6261,6 +6419,24 @@ static HotelAppointment WeightTestHotel(Guid petId, SizeGroup sizeGroup, Appoint
     PlannedCheckOut = DateTimeOffset.UtcNow.AddDays(3),
 };
 
+static SpaAmountInput WeightTestSpaAmountInput(Guid serviceId) => new(
+    Species.Cat,
+    [serviceId],
+    [
+        new ServicePricing { ServiceId = serviceId, Species = Species.Cat, SizeGroup = SizeGroup.Small, Price = 100000m },
+        new ServicePricing { ServiceId = serviceId, Species = Species.Cat, SizeGroup = SizeGroup.Medium, Price = 150000m },
+        new ServicePricing { ServiceId = serviceId, Species = Species.Cat, SizeGroup = SizeGroup.Large, Price = 200000m },
+    ]);
+
+static TestHotelCatalogRepo WeightTestHotelCatalog() => new()
+{
+    Prices =
+    [
+        new HotelPricing { Species = Species.Cat, SizeGroup = SizeGroup.Small, PricePerNight = 100000m, FoodPerNight = 20000m },
+        new HotelPricing { Species = Species.Cat, SizeGroup = SizeGroup.Medium, PricePerNight = 150000m, FoodPerNight = 30000m },
+    ],
+};
+
 static ControllerContext WeightTestManagerContext() => new()
 {
     HttpContext = new DefaultHttpContext
@@ -6562,6 +6738,19 @@ sealed class TestHotelCatalogRepo : IHotelCatalogRepository
         LateFee = lateFeePerBlock;
         return Task.CompletedTask;
     }
+}
+
+sealed class TestCostConfirmationRepo : ICostConfirmationRepository
+{
+    public int TimeoutMinutes { get; set; } = 30;
+    public List<CostConfirmation> Items { get; } = [];
+
+    public Task<int> GetTimeoutMinutesAsync(CancellationToken ct = default) => Task.FromResult(TimeoutMinutes);
+
+    public Task<bool> HasPendingAsync(Guid appointmentId, CancellationToken ct = default) =>
+        Task.FromResult(Items.Any(c => c.AppointmentId == appointmentId && c.Status == ConfirmationStatus.Pending));
+
+    public void Add(CostConfirmation confirmation) => Items.Add(confirmation);
 }
 
 sealed class TestAppointmentQueryRepo : IAppointmentQueryRepository

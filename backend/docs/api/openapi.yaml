@@ -768,7 +768,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: "INVALID_TRANSITION."
+          description: "INVALID_TRANSITION; COST_CONFIRMATION_PENDING (lịch đang có yêu cầu xác nhận chi phí Pending)."
           content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
   /appointments/{id}/cost-confirmation/respond:
     post:
