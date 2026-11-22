@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useRef, useState, type ReactNode } from "react";
+import { useParams, useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AppointmentErrorState } from "@/components/domain/appointment-error-state";
 import { useToast } from "@/components/feedback/toast";
 import { Icon } from "@/components/icons";
@@ -19,7 +19,7 @@ import { PaymentResultAlert } from "@/features/appointments/components/payment-r
 import type { Payment } from "@/lib/api/types";
 import { isChangeWindowClosedError } from "@/lib/appointments";
 import { formatAppointmentCode } from "@/lib/format";
-import { findSpaPayment, getPaymentResultState, ONLINE_PAYMENT_GATEWAY } from "@/lib/payments";
+import { findSpaPayment, getPaymentResultState, ONLINE_PAYMENT_GATEWAY, rememberPaymentAppointment } from "@/lib/payments";
 import { useAppointment, useCancelAppointment } from "@/lib/queries/appointments";
 import { useAppointmentPayments, usePayOnline } from "@/lib/queries/payments";
 import { usePet } from "@/lib/queries/pets";
@@ -53,7 +53,6 @@ function AppointmentDetailSkeleton() {
 export function AppointmentDetailScreen() {
   const { appointmentId } = useParams<{ appointmentId?: string }>();
   const id = typeof appointmentId === "string" ? appointmentId : "";
-  const router = useRouter();
   const searchParams = useSearchParams();
   const { showSuccess } = useToast();
 
@@ -76,6 +75,19 @@ export function AppointmentDetailScreen() {
   const [isWindowClosedByCancel, setIsWindowClosedByCancel] = useState(false);
   const [dialogPayment, setDialogPayment] = useState<Payment | null>(null);
   const breadcrumbRef = useRef<HTMLAnchorElement>(null);
+
+  // Khách bấm Back từ cổng: trình duyệt khôi phục trang từ bộ nhớ đệm với hộp thoại đang chờ chuyển trang,
+  // nên đóng hộp thoại và đặt lại thao tác để khách có thể thử lại.
+  const { reset: resetPayOnline } = payOnline;
+  useEffect(() => {
+    function handlePageShow(event: PageTransitionEvent) {
+      if (!event.persisted) return;
+      resetPayOnline();
+      setDialogPayment(null);
+    }
+    window.addEventListener("pageshow", handlePageShow);
+    return () => window.removeEventListener("pageshow", handlePageShow);
+  }, [resetPayOnline]);
 
   // Quá hạn khi API vừa trả 409 CHANGE_WINDOW_CLOSED: ở thao tác hủy tại đây, hoặc ở màn đổi lịch (chuyển về kèm tham số).
   const isWindowClosed =
@@ -124,15 +136,14 @@ export function AppointmentDetailScreen() {
   }
 
   function confirmPayOnline() {
-    if (payOnline.isPending || dialogPayment === null) return;
+    if (payOnline.isPending || payOnline.isSuccess || dialogPayment === null) return;
     payOnline.mutate(
       { paymentId: dialogPayment.paymentId, request: { gateway: ONLINE_PAYMENT_GATEWAY } },
       {
-        onSuccess: ({ paymentUrl }) => {
-          setDialogPayment(null);
-          // Chờ nối API thật: paymentUrl là địa chỉ cổng thanh toán, đổi thành window.location.assign(paymentUrl) (UI-Screens CW-09·D3).
-          // Hiện là đường dẫn trong web nên dùng router.push để giữ dữ liệu giả trong bộ nhớ.
-          router.push(paymentUrl);
+        onSuccess: ({ paymentUrl, txnRef }) => {
+          // Giữ hộp thoại ở trạng thái đang xử lý cho đến khi trình duyệt rời trang để khách không bấm lặp.
+          rememberPaymentAppointment(txnRef, id);
+          window.location.assign(paymentUrl);
         },
       },
     );
@@ -197,7 +208,7 @@ export function AppointmentDetailScreen() {
         <OnlinePaymentDialog
           appointmentLabel={`Lịch spa ${formatAppointmentCode(appointment.appointmentId)} của ${petName}`}
           amount={dialogPayment.amount}
-          isPaying={payOnline.isPending}
+          isPaying={payOnline.isPending || payOnline.isSuccess}
           error={payOnline.error}
           onConfirm={confirmPayOnline}
           onClose={closePaymentDialog}

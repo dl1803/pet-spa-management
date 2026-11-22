@@ -27,3 +27,31 @@ export function isHttpsUrl(value: string): boolean {
     return false;
   }
 }
+
+// Tham số cổng VNPAY gắn vào địa chỉ trả về: mã giao dịch, trùng txnRef backend trả khi khởi tạo.
+export const GATEWAY_TXN_REF_PARAM = "vnp_TxnRef";
+
+// Backend đặt một địa chỉ trả về cố định (không chứa appointmentId), nên trước khi chuyển sang cổng, web ghi nhớ
+// appointmentId theo txnRef để trang trả về biết lịch hẹn nào vừa thanh toán. Chỉ lưu appointmentId (không phải token
+// hay bí mật), chỉ trong sessionStorage của tab. Quyền xem lịch hẹn vẫn do backend kiểm tra (BR-16).
+const TXN_APPOINTMENT_KEY_PREFIX = "ps_payment_txn:";
+const TXN_REF_PATTERN = /^[A-Za-z0-9]{1,64}$/;
+
+export function rememberPaymentAppointment(txnRef: string, appointmentId: string): void {
+  if (!TXN_REF_PATTERN.test(txnRef)) return;
+  try {
+    window.sessionStorage.setItem(`${TXN_APPOINTMENT_KEY_PREFIX}${txnRef}`, appointmentId);
+  } catch {
+    // Trình duyệt chặn lưu trữ: trang trả về sẽ đưa khách về danh sách lịch hẹn.
+  }
+}
+
+export function readPaymentAppointment(txnRef: string): string | null {
+  if (!TXN_REF_PATTERN.test(txnRef)) return null;
+  try {
+    return window.sessionStorage.getItem(`${TXN_APPOINTMENT_KEY_PREFIX}${txnRef}`);
+  } catch {
+    return null;
+  }
+}
+
