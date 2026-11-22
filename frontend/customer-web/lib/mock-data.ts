@@ -1,4 +1,4 @@
-import type { AppointmentDetail, Notification, Payment, Pet } from "@/lib/api/types";
+import type { AppointmentDetail, Notification, Pet } from "@/lib/api/types";
 
 const CUSTOMER_ID = "c0000000-0000-4000-8000-000000000001";
 
@@ -258,74 +258,6 @@ export const MOCK_APPOINTMENTS: AppointmentDetail[] = [
     updatedAt: "2026-11-10T08:30:00+07:00",
     services: [{ ...SERVICE_BATH, isDone: false }],
     staff: [STAFF_HANH, STAFF_QUYEN],
-  },
-];
-
-export const MOCK_PAYMENTS: Payment[] = [
-  {
-    paymentId: "a0000000-0000-4000-8000-000000000001",
-    appointmentId: "d2f07b48-0000-4000-8000-000000000006",
-    kind: "Spa",
-    amount: 210000,
-    status: "Paid",
-    method: "Cash",
-    receivedAmount: 210000,
-    paidAt: "2026-09-12T11:30:00+07:00",
-  },
-  {
-    paymentId: "a0000000-0000-4000-8000-000000000002",
-    appointmentId: "e9b3a1c5-0000-4000-8000-000000000007",
-    kind: "Stay",
-    amount: 440000,
-    status: "Paid",
-    method: "BankQR",
-    paidAt: "2026-08-18T08:40:00+07:00",
-  },
-  {
-    paymentId: "a0000000-0000-4000-8000-000000000003",
-    appointmentId: "f06c8d27-0000-4000-8000-000000000008",
-    kind: "Spa",
-    amount: 120000,
-    status: "Paid",
-    method: "Online",
-    paidAt: "2026-07-30T16:20:00+07:00",
-  },
-  {
-    paymentId: "a0000000-0000-4000-8000-000000000004",
-    appointmentId: "1a7d4e93-0000-4000-8000-000000000009",
-    kind: "Spa",
-    amount: 170000,
-    status: "Paid",
-    method: "Cash",
-    receivedAmount: 200000,
-    paidAt: "2026-09-05T15:10:00+07:00",
-  },
-  {
-    paymentId: "a0000000-0000-4000-8000-000000000005",
-    appointmentId: "2b8e5f04-0000-4000-8000-000000000010",
-    kind: "Spa",
-    amount: 160000,
-    status: "Unpaid",
-  },
-  {
-    paymentId: "a0000000-0000-4000-8000-000000000006",
-    appointmentId: "4d0a7b26-0000-4000-8000-000000000011",
-    kind: "Stay",
-    amount: 360000,
-    status: "Paid",
-    method: "Cash",
-    receivedAmount: 360000,
-    paidAt: "2026-09-26T09:10:00+07:00",
-  },
-  {
-    paymentId: "a0000000-0000-4000-8000-000000000007",
-    appointmentId: "4d0a7b26-0000-4000-8000-000000000011",
-    kind: "LateFee",
-    amount: 50000,
-    status: "Paid",
-    method: "Cash",
-    receivedAmount: 50000,
-    paidAt: "2026-09-28T18:15:00+07:00",
   },
 ];
 

@@ -18,3 +18,12 @@ export function getPaymentResultState(payment: Payment | undefined, checkCount: 
   if (payment?.status === "Paid") return "success";
   return checkCount > PAYMENT_RESULT_MAX_CHECKS ? "failed" : "checking";
 }
+
+// paymentUrl backend trả được đưa thẳng vào window.location.assign nên chỉ chấp nhận địa chỉ https tuyệt đối.
+export function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
