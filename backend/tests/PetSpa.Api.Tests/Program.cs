@@ -7021,6 +7021,33 @@ var tests = new (string Name, Func<Task> Run)[]
         Check((await stayFixture.Service.RespondAsync(user, stay.AppointmentId, false)).CageSuitable is null,
             "Rejecting must not check the cage.");
     }),
+    ("AppointmentPhotoService.ListAsync keeps showing photos older than the validity window", async () =>
+    {
+        var f = new PhotoFixture(AppointmentStatus.Completed);
+        f.AddPhoto(PhotoKind.Before, DateTimeOffset.UtcNow.AddDays(-30));
+        f.AddPhoto(PhotoKind.After, DateTimeOffset.UtcNow.AddDays(-29));
+
+        var owner = new CurrentUser(f.OwnerUserId, UserRole.Customer);
+        var result = await f.CreateService().ListAsync(owner, f.Spa.AppointmentId);
+
+        Check(result.Count == 2, "Photos older than Photo.ValidityDays must still be listed for the owner.");
+    }),
+    ("TestAppointmentPhotoRepo latest before photo is per pet and ignores after photos", async () =>
+    {
+        var f = new PhotoFixture(AppointmentStatus.Received);
+        var older = DateTimeOffset.UtcNow.AddDays(-3);
+        var newer = DateTimeOffset.UtcNow.AddHours(-1);
+        f.AddPhoto(PhotoKind.Before, older);
+        f.AddPhoto(PhotoKind.Before, newer, Guid.NewGuid(), f.Spa.PetId);
+        f.AddPhoto(PhotoKind.After, DateTimeOffset.UtcNow);
+        f.AddPhoto(PhotoKind.Before, DateTimeOffset.UtcNow, Guid.NewGuid(), Guid.NewGuid());
+
+        Check(await f.Photos.FindLatestBeforePhotoUploadedAtByPetAsync(f.Spa.PetId) == newer,
+            "The latest Before photo of the pet must win over older, After and other-pet photos.");
+        Check(await f.Photos.HasPhotoAsync(f.Spa.AppointmentId, PhotoKind.After)
+              && !await f.Photos.HasPhotoAsync(Guid.NewGuid(), PhotoKind.Before),
+            "HasPhotoAsync must match appointment and kind.");
+    }),
 };
 
 var failures = 0;
@@ -8536,12 +8563,28 @@ sealed class TestAppointmentPhotoRepo(TestConcurrencyGuard guard) : IAppointment
 
     public Task<IReadOnlyList<AppointmentPhoto>> ListByAppointmentAsync(Guid appointmentId, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<AppointmentPhoto>>(Existing.Where(p => p.AppointmentId == appointmentId).ToList());
+
+    public Dictionary<Guid, Guid> PetByAppointment { get; } = [];
+    public int ValidityDays { get; set; } = 7;
+
+    public Task<DateTimeOffset?> FindLatestBeforePhotoUploadedAtByPetAsync(Guid petId, CancellationToken ct = default) =>
+        Task.FromResult(Existing
+            .Where(p => p.Kind == PhotoKind.Before
+                && PetByAppointment.TryGetValue(p.AppointmentId, out var owner) && owner == petId)
+            .Select(p => (DateTimeOffset?)p.UploadedAt)
+            .OrderByDescending(t => t)
+            .FirstOrDefault());
+
+    public Task<bool> HasPhotoAsync(Guid appointmentId, PhotoKind kind, CancellationToken ct = default) =>
+        Task.FromResult(Existing.Any(p => p.AppointmentId == appointmentId && p.Kind == kind));
+
+    public Task<int> GetValidityDaysAsync(CancellationToken ct = default) => Task.FromResult(ValidityDays);
 }
 
 sealed class PhotoFixture
 {
     public static readonly byte[] JpegBytes = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01];
-    public static readonly byte[] PngBytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48];
+    public static readonly byte[] PngBytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x0D, 0x49, 0x48];
     public static readonly byte[] WebpBytes = [0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50];
     public static readonly byte[] GifBytes = [0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00];
 
@@ -8557,7 +8600,7 @@ sealed class PhotoFixture
     public PhotoFixture(AppointmentStatus status)
     {
         Photos = new TestAppointmentPhotoRepo(Guard) { SpaStaffId = SpaStaffId };
-        Spa = new SpaAppointment { AppointmentId = Guid.NewGuid(), Status = status };
+        Spa = new SpaAppointment { AppointmentId = Guid.NewGuid(), PetId = Guid.NewGuid(), Status = status };
         Appointments.DetailResult = new AppointmentDetailData(Spa, OwnerUserId, "Milo", [], []);
         Appointments.AssignedResult = true;
     }
@@ -8565,7 +8608,7 @@ sealed class PhotoFixture
     public AppointmentPhotoService CreateService(StaffRole? staffRole = StaffRole.SpaStaff) =>
         new(Appointments, Photos, Storage, Guard, new TestStaffRoleReader(staffRole));
 
-    public AppointmentPhoto AddPhoto(PhotoKind kind, DateTimeOffset uploadedAt, Guid? appointmentId = null)
+    public AppointmentPhoto AddPhoto(PhotoKind kind, DateTimeOffset uploadedAt, Guid? appointmentId = null, Guid? petId = null)
     {
         var id = Guid.NewGuid();
         var ownerAppointmentId = appointmentId ?? Spa.AppointmentId;
@@ -8578,6 +8621,11 @@ sealed class PhotoFixture
             UploadedByStaffId = SpaStaffId,
             UploadedAt = uploadedAt,
         };
+
+        if (petId is { } explicitPetId)
+            Photos.PetByAppointment[ownerAppointmentId] = explicitPetId;
+        else
+            Photos.PetByAppointment.TryAdd(ownerAppointmentId, ownerAppointmentId == Spa.AppointmentId ? Spa.PetId : Guid.NewGuid());
 
         Photos.Existing.Add(photo);
         return photo;
