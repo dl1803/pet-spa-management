@@ -157,4 +157,10 @@ public class SpaAppointment : Appointment
         if (!hasAfterPhoto)
             throw new BusinessException(ErrorCodes.PhotoRequired, "Cần có ít nhất một ảnh sau chăm sóc của lịch hẹn.");
     }
+
+    public void EnsureServiceProgressAllowed()
+    {
+        if (Status != AppointmentStatus.InProgress)
+            throw new BusinessException(ErrorCodes.InvalidTransition);
+    }
 }
