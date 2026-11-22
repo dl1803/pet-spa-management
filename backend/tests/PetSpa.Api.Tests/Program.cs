@@ -6769,6 +6769,258 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(!json.Contains("storageKey", StringComparison.OrdinalIgnoreCase),
             "The response must never contain the storage key.");
     }),
+    ("AddApplication registers CostConfirmationService into DI container", () =>
+    {
+        var services = new ServiceCollection();
+        services.AddApplication();
+        var descriptor = services.FirstOrDefault(d => d.ServiceType == typeof(CostConfirmationService));
+        Check(descriptor is not null && descriptor.Lifetime == ServiceLifetime.Scoped,
+            "CostConfirmationService must be registered as scoped in AddApplication.");
+        return Task.CompletedTask;
+    }),
+    ("CostConfirmationRespondRequestValidator yêu cầu trường accept", () =>
+    {
+        var validator = new CostConfirmationRespondRequestValidator();
+        Check(!validator.Validate(new CostConfirmationRespondRequest(null)).IsValid,
+            "A missing accept must be invalid.");
+        Check(validator.Validate(new CostConfirmationRespondRequest(true)).IsValid
+            && validator.Validate(new CostConfirmationRespondRequest(false)).IsValid,
+            "accept = true and accept = false must be valid.");
+        return Task.CompletedTask;
+    }),
+    ("CostConfirmationService.RespondAsync: khách xác nhận chi phí mới lịch spa cập nhật nhóm kích cỡ của lịch và hồ sơ thú cưng, giữ nguyên Đã tiếp nhận và khung giờ", async () =>
+    {
+        var ownerId = Guid.NewGuid();
+        var pet = WeightTestCat(2.8m, SizeGroup.Small);
+        var spa = WeightTestSpa(pet.PetId, SizeGroup.Small, AppointmentStatus.Received, DateTimeOffset.UtcNow.AddMinutes(-5));
+        var slotStart = spa.SlotStart;
+        var slotEnd = spa.SlotEnd;
+        var fixture = new CostConfirmationFixture(spa, pet, ownerId);
+
+        var result = await fixture.Service.RespondAsync(new CurrentUser(ownerId, UserRole.Customer), spa.AppointmentId, true);
+
+        Check(result.Status == AppointmentStatus.Received && spa.Status == AppointmentStatus.Received,
+            "Accepting must keep the spa appointment Received.");
+        Check(fixture.Confirmation.Status == ConfirmationStatus.Accepted
+            && fixture.Confirmation.RespondedByUserId == ownerId && fixture.Confirmation.RespondedAt is not null,
+            "The confirmation must be Accepted and record the responder.");
+        Check(spa.SizeGroup == SizeGroup.Medium && spa.ActualWeightKg == 3.4m,
+            "The appointment size group must follow the confirmed group.");
+        Check(pet.WeightKg == 3.4m && pet.SizeGroup == SizeGroup.Medium,
+            "The pet profile must follow the actual weight.");
+        Check(spa.SlotStart == slotStart && spa.SlotEnd == slotEnd && spa.StaffRequired == 1,
+            "The spa slot and staff count must not change (BR-23).");
+        Check(fixture.Confirmations.SaveCalls == 1 && fixture.Changes.SavedCancellations.Count == 0,
+            "Accepting must save once and must not cancel.");
+        Check(fixture.Guard.RunCalls == 1 && fixture.Guard.LockedAppointmentId == spa.AppointmentId,
+            "The response must run in one transaction holding the appointment lock.");
+    }),
+    ("CostConfirmationService.RespondAsync: khách từ chối chi phí mới hủy lịch spa với lý do CostNotConfirmed và không đổi hồ sơ thú cưng", async () =>
+    {
+        var ownerId = Guid.NewGuid();
+        var pet = WeightTestCat(2.8m, SizeGroup.Small);
+        var spa = WeightTestSpa(pet.PetId, SizeGroup.Small, AppointmentStatus.Received, DateTimeOffset.UtcNow.AddMinutes(-5));
+        var fixture = new CostConfirmationFixture(spa, pet, ownerId);
+
+        var result = await fixture.Service.RespondAsync(new CurrentUser(ownerId, UserRole.Customer), spa.AppointmentId, false);
+
+        Check(result.Status == AppointmentStatus.Cancelled && spa.Status == AppointmentStatus.Cancelled
+            && spa.CancelReason == CancelReason.CostNotConfirmed,
+            "Rejecting must cancel the spa appointment with CostNotConfirmed.");
+        Check(fixture.Confirmation.Status == ConfirmationStatus.Rejected && fixture.Confirmation.RespondedByUserId == ownerId,
+            "The confirmation must be Rejected and record the responder.");
+        Check(fixture.Changes.SavedCancellations.Single() == spa && fixture.Confirmations.SaveCalls == 0,
+            "Rejecting must persist through SaveCancellationAsync.");
+        Check(spa.SizeGroup == SizeGroup.Small && pet.WeightKg == 2.8m && pet.SizeGroup == SizeGroup.Small,
+            "Rejecting must not change the appointment size group or the pet profile.");
+    }),
+    ("CostConfirmationService.RespondAsync: khách từ chối chi phí mới hủy lịch lưu trú Đã xác nhận với lý do CostNotConfirmed", async () =>
+    {
+        var ownerId = Guid.NewGuid();
+        var pet = WeightTestCat(2.8m, SizeGroup.Small);
+        var stay = WeightTestHotel(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed);
+        var fixture = new CostConfirmationFixture(stay, pet, ownerId);
+
+        var result = await fixture.Service.RespondAsync(new CurrentUser(ownerId, UserRole.Customer), stay.AppointmentId, false);
+
+        Check(result.Status == AppointmentStatus.Cancelled && stay.CancelReason == CancelReason.CostNotConfirmed
+            && fixture.Confirmation.Status == ConfirmationStatus.Rejected,
+            "Rejecting must cancel the hotel appointment with CostNotConfirmed.");
+        Check(pet.WeightKg == 2.8m && pet.SizeGroup == SizeGroup.Small, "The pet profile must not change.");
+    }),
+    ("CostConfirmationService.RespondAsync: chỉ chủ lịch (khách) hoặc lễ tân được phản hồi; khách khác, khách vãng lai, quản lý, nhân viên spa bị 403", async () =>
+    {
+        var ownerId = Guid.NewGuid();
+
+        CostConfirmationFixture Create(Guid? owner, StaffRole? role = null)
+        {
+            var pet = WeightTestCat(2.8m, SizeGroup.Small);
+            var spa = WeightTestSpa(pet.PetId, SizeGroup.Small, AppointmentStatus.Received, DateTimeOffset.UtcNow.AddMinutes(-5));
+            return new CostConfirmationFixture(spa, pet, owner, role);
+        }
+
+        var other = Create(ownerId);
+        var otherCode = await FailureCodeAsync(() => other.Service.RespondAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Customer), other.Appointment.AppointmentId, true));
+        Check(otherCode == ErrorCodes.Forbidden && other.Confirmation.Status == ConfirmationStatus.Pending
+            && other.Guard.RunCalls == 0,
+            "Another customer must be rejected before any transaction and the confirmation must stay Pending.");
+
+        var walkIn = Create(null);
+        var walkInCode = await FailureCodeAsync(() => walkIn.Service.RespondAsync(
+            new CurrentUser(ownerId, UserRole.Customer), walkIn.Appointment.AppointmentId, true));
+        Check(walkInCode == ErrorCodes.Forbidden, "A customer must not respond for a walk-in appointment.");
+
+        var manager = Create(ownerId);
+        var managerCode = await FailureCodeAsync(() => manager.Service.RespondAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Manager), manager.Appointment.AppointmentId, true));
+        Check(managerCode == ErrorCodes.Forbidden, "A manager must be rejected.");
+
+        var spaStaff = Create(ownerId, StaffRole.SpaStaff);
+        var spaStaffCode = await FailureCodeAsync(() => spaStaff.Service.RespondAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Staff), spaStaff.Appointment.AppointmentId, true));
+        Check(spaStaffCode == ErrorCodes.Forbidden, "A spa staff member must be rejected.");
+
+        var receptionistId = Guid.NewGuid();
+        var receptionist = Create(null, StaffRole.Receptionist);
+        var result = await receptionist.Service.RespondAsync(
+            new CurrentUser(receptionistId, UserRole.Staff), receptionist.Appointment.AppointmentId, true);
+        Check(result.Status == AppointmentStatus.Received
+            && receptionist.Confirmation.Status == ConfirmationStatus.Accepted
+            && receptionist.Confirmation.RespondedByUserId == receptionistId,
+            "A receptionist must respond for a walk-in appointment and be recorded as the responder.");
+    }),
+    ("CostConfirmationService.RespondAsync: không tìm thấy lịch, không có yêu cầu Pending, quá hạn, lịch sai trạng thái và phản hồi lặp", async () =>
+    {
+        var ownerId = Guid.NewGuid();
+        var user = new CurrentUser(ownerId, UserRole.Customer);
+
+        CostConfirmationFixture Create(AppointmentStatus status = AppointmentStatus.Received, bool withPending = true, int expiresInMinutes = 20)
+        {
+            var pet = WeightTestCat(2.8m, SizeGroup.Small);
+            var spa = WeightTestSpa(pet.PetId, SizeGroup.Small, status, DateTimeOffset.UtcNow.AddMinutes(-5));
+            return new CostConfirmationFixture(spa, pet, ownerId, null, withPending, expiresInMinutes);
+        }
+
+        var missing = Create();
+        Check(await FailureCodeAsync(() => missing.Service.RespondAsync(user, Guid.NewGuid(), true)) == ErrorCodes.NotFound,
+            "A missing appointment must return NOT_FOUND.");
+
+        var noPending = Create(withPending: false);
+        Check(await FailureCodeAsync(() => noPending.Service.RespondAsync(user, noPending.Appointment.AppointmentId, true)) == ErrorCodes.NotFound,
+            "An appointment without a Pending confirmation must return NOT_FOUND.");
+
+        foreach (var accept in new[] { true, false })
+        {
+            var expired = Create(expiresInMinutes: -1);
+            var expiredCode = await FailureCodeAsync(() => expired.Service.RespondAsync(user, expired.Appointment.AppointmentId, accept));
+            Check(expiredCode == ErrorCodes.CostConfirmationExpired, "An expired confirmation must return COST_CONFIRMATION_EXPIRED.");
+            Check(expired.Confirmation.Status == ConfirmationStatus.Pending && expired.Appointment.Status == AppointmentStatus.Received
+                && expired.Pet.WeightKg == 2.8m && expired.Confirmations.SaveCalls == 0 && expired.Changes.SavedCancellations.Count == 0,
+                "An expired response must change nothing.");
+
+            var wrongStatus = Create(AppointmentStatus.Confirmed);
+            var wrongStatusCode = await FailureCodeAsync(() => wrongStatus.Service.RespondAsync(user, wrongStatus.Appointment.AppointmentId, accept));
+            Check(wrongStatusCode == ErrorCodes.InvalidTransition && wrongStatus.Confirmation.Status == ConfirmationStatus.Pending
+                && wrongStatus.Pet.WeightKg == 2.8m,
+                "A spa appointment that is not Received must return INVALID_TRANSITION and change nothing.");
+        }
+
+        var twice = Create();
+        await twice.Service.RespondAsync(user, twice.Appointment.AppointmentId, true);
+        Check(await FailureCodeAsync(() => twice.Service.RespondAsync(user, twice.Appointment.AppointmentId, false)) == ErrorCodes.NotFound,
+            "A second response must return NOT_FOUND because no Pending confirmation is left.");
+    }),
+    ("AppointmentsController.RespondCostConfirmation trả AppointmentStatusResponse và từ chối thiếu accept", async () =>
+    {
+        var ownerId = Guid.NewGuid();
+        var pet = WeightTestCat(2.8m, SizeGroup.Small);
+        var spa = WeightTestSpa(pet.PetId, SizeGroup.Small, AppointmentStatus.Received, DateTimeOffset.UtcNow.AddMinutes(-5));
+        var fixture = new CostConfirmationFixture(spa, pet, ownerId);
+        var controller = new AppointmentsController(null!, costConfirmationService: fixture.Service)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [
+                        new Claim(TokenClaims.UserId, ownerId.ToString()),
+                        new Claim(TokenClaims.Role, "Customer"),
+                    ], "test")),
+                },
+            },
+        };
+
+        var missingBody = await FailureCodeAsync(() => controller.RespondCostConfirmation(spa.AppointmentId, null, CancellationToken.None));
+        var missingAccept = await FailureCodeAsync(() => controller.RespondCostConfirmation(
+            spa.AppointmentId, new CostConfirmationRespondRequest(null), CancellationToken.None));
+        Check(missingBody == ErrorCodes.ValidationError && missingAccept == ErrorCodes.ValidationError,
+            "A missing body or accept must throw VALIDATION_ERROR.");
+
+        var result = await controller.RespondCostConfirmation(
+            spa.AppointmentId, new CostConfirmationRespondRequest(false), CancellationToken.None) as OkObjectResult;
+        Check(result?.Value is AppointmentStatusResponse { Status: AppointmentStatus.Cancelled },
+            "The action must return Ok with the appointment status.");
+    }),
+    ("CostConfirmationService.RespondAsync: lịch lưu trú chấp nhận chi phí mới kiểm tra lại chuồng đã gán theo trạng thái sử dụng, loài và nhóm kích cỡ mới", async () =>
+    {
+        var ownerId = Guid.NewGuid();
+
+        Cage CatCage(SizeGroup group, bool active = true, Species species = Species.Cat) => new()
+        {
+            CageId = Guid.NewGuid(),
+            Code = "A1",
+            Species = species,
+            SizeGroup = group,
+            IsActive = active,
+        };
+
+        async Task<(CostConfirmationResult Result, HotelAppointment Stay)> RunAsync(Cage? cage)
+        {
+            var pet = WeightTestCat(2.8m, SizeGroup.Small);
+            var stay = WeightTestHotel(pet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed);
+            stay.CageId = cage?.CageId;
+            var fixture = new CostConfirmationFixture(
+                stay, pet, ownerId, cages: cage is null ? Array.Empty<Cage>() : new[] { cage });
+            var result = await fixture.Service.RespondAsync(
+                new CurrentUser(ownerId, UserRole.Customer), stay.AppointmentId, true);
+            return (result, stay);
+        }
+
+        var oldGroupCage = CatCage(SizeGroup.Small);
+        var stale = await RunAsync(oldGroupCage);
+        Check(stale.Result.CageSuitable == false && stale.Result.Status == AppointmentStatus.Confirmed,
+            "A cage of the old size group must be reported as not suitable and the status must stay Confirmed.");
+        Check(stale.Stay.SizeGroup == SizeGroup.Medium && stale.Stay.CageId == oldGroupCage.CageId,
+            "The stay size group must follow the confirmed group and the assigned cage must not change.");
+
+        Check((await RunAsync(CatCage(SizeGroup.Medium))).Result.CageSuitable == true,
+            "A cage of the new size group must be reported as suitable.");
+        Check((await RunAsync(CatCage(SizeGroup.Medium, active: false))).Result.CageSuitable == false,
+            "An inactive cage must be reported as not suitable.");
+        Check((await RunAsync(CatCage(SizeGroup.Medium, species: Species.Dog))).Result.CageSuitable == false,
+            "A cage of another species must be reported as not suitable.");
+        Check((await RunAsync(null)).Result.CageSuitable == false,
+            "A stay without an assigned cage must be reported as not suitable.");
+    }),
+    ("CostConfirmationService.RespondAsync: lịch spa và nhánh từ chối không có kết quả kiểm tra chuồng", async () =>
+    {
+        var ownerId = Guid.NewGuid();
+        var user = new CurrentUser(ownerId, UserRole.Customer);
+
+        var spaPet = WeightTestCat(2.8m, SizeGroup.Small);
+        var spa = WeightTestSpa(spaPet.PetId, SizeGroup.Small, AppointmentStatus.Received, DateTimeOffset.UtcNow.AddMinutes(-5));
+        var spaFixture = new CostConfirmationFixture(spa, spaPet, ownerId);
+        Check((await spaFixture.Service.RespondAsync(user, spa.AppointmentId, true)).CageSuitable is null,
+            "A spa appointment has no cage to check.");
+
+        var stayPet = WeightTestCat(2.8m, SizeGroup.Small);
+        var stay = WeightTestHotel(stayPet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed);
+        var stayFixture = new CostConfirmationFixture(stay, stayPet, ownerId);
+        Check((await stayFixture.Service.RespondAsync(user, stay.AppointmentId, false)).CageSuitable is null,
+            "Rejecting must not check the cage.");
+    }),
 };
 
 var failures = 0;
@@ -7291,13 +7543,76 @@ sealed class TestCostConfirmationRepo : ICostConfirmationRepository
 {
     public int TimeoutMinutes { get; set; } = 30;
     public List<CostConfirmation> Items { get; } = [];
+    public int SaveCalls { get; private set; }
 
     public Task<int> GetTimeoutMinutesAsync(CancellationToken ct = default) => Task.FromResult(TimeoutMinutes);
 
     public Task<bool> HasPendingAsync(Guid appointmentId, CancellationToken ct = default) =>
         Task.FromResult(Items.Any(c => c.AppointmentId == appointmentId && c.Status == ConfirmationStatus.Pending));
 
+    public Task<CostConfirmation?> FindPendingAsync(Guid appointmentId, CancellationToken ct = default) =>
+        Task.FromResult(Items.FirstOrDefault(c => c.AppointmentId == appointmentId && c.Status == ConfirmationStatus.Pending));
+
     public void Add(CostConfirmation confirmation) => Items.Add(confirmation);
+
+    public Task SaveChangesAsync(CancellationToken ct = default)
+    {
+        SaveCalls++;
+        return Task.CompletedTask;
+    }
+}
+
+sealed class CostConfirmationFixture
+{
+    public CostConfirmationFixture(
+        Appointment appointment,
+        Pet pet,
+        Guid? ownerUserId,
+        StaffRole? staffRole = null,
+        bool withPending = true,
+        int expiresInMinutes = 20,
+        IReadOnlyList<Cage>? cages = null)
+    {
+        Appointment = appointment;
+        Pet = pet;
+        Changes = new TestAppointmentChangeRepo(appointment, ownerUserId, 60);
+        Confirmations = new TestCostConfirmationRepo();
+        Guard = new TestConcurrencyGuard();
+
+        if (withPending)
+        {
+            Confirmations.Add(new CostConfirmation
+            {
+                ConfirmationId = Guid.NewGuid(),
+                AppointmentId = appointment.AppointmentId,
+                ActualWeightKg = 3.4m,
+                NewSizeGroup = SizeGroup.Medium,
+                OldAmount = 100000m,
+                NewAmount = 150000m,
+                Status = ConfirmationStatus.Pending,
+                CreatedAt = DateTimeOffset.UtcNow,
+                ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(expiresInMinutes),
+            });
+        }
+
+        var petRepo = new TestPetRepo(pet, ownerUserId)
+        {
+            SizeRules = [new SizeRule { Species = Species.Cat, Criterion = SizeCriterion.Weight, SmallUpper = 3m, MediumUpper = 5m }],
+        };
+
+        Service = new CostConfirmationService(
+            Changes, Confirmations, petRepo, new TestHotelAssignmentRepo(null, cages ?? [], []), Guard,
+            new TestStaffRoleReader(staffRole));
+    }
+
+    public Appointment Appointment { get; }
+    public Pet Pet { get; }
+    public TestAppointmentChangeRepo Changes { get; }
+    public TestCostConfirmationRepo Confirmations { get; }
+    public TestConcurrencyGuard Guard { get; }
+    public CostConfirmationService Service { get; }
+
+    public CostConfirmation Confirmation => Confirmations.Items.Single();
 }
 
 sealed class TestAppointmentQueryRepo : IAppointmentQueryRepository

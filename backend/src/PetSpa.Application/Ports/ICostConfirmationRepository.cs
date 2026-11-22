@@ -8,6 +8,9 @@ public interface ICostConfirmationRepository
 
     Task<bool> HasPendingAsync(Guid appointmentId, CancellationToken ct = default);
 
-    void Add(CostConfirmation confirmation);
-}
+    Task<CostConfirmation?> FindPendingAsync(Guid appointmentId, CancellationToken ct = default);
 
+    void Add(CostConfirmation confirmation);
+
+    Task SaveChangesAsync(CancellationToken ct = default);
+}

@@ -26,7 +26,13 @@ public sealed class CostConfirmationRepository(AppDbContext db) : ICostConfirmat
         db.Set<CostConfirmation>().AsNoTracking()
             .AnyAsync(c => c.AppointmentId == appointmentId && c.Status == ConfirmationStatus.Pending, ct);
 
+    public Task<CostConfirmation?> FindPendingAsync(Guid appointmentId, CancellationToken ct = default) =>
+        db.Set<CostConfirmation>()
+            .FirstOrDefaultAsync(c => c.AppointmentId == appointmentId && c.Status == ConfirmationStatus.Pending, ct);
+
     public void Add(CostConfirmation confirmation) =>
         db.Set<CostConfirmation>().Add(confirmation);
+
+    public Task SaveChangesAsync(CancellationToken ct = default) => db.SaveChangesAsync(ct);
 }
 
