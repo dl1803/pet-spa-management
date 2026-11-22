@@ -8,6 +8,7 @@ export const ROUTES = {
   appointments: "/lich-hen",
   appointmentDetail: (appointmentId: string) => `/lich-hen/${encodeURIComponent(appointmentId)}`,
   appointmentChange: (appointmentId: string) => `/lich-hen/${encodeURIComponent(appointmentId)}/doi-lich`,
+  paymentReturn: "/thanh-toan/ket-qua",
   history: "/lich-su",
   notifications: "/thong-bao",
   profile: "/ho-so",
