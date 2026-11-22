@@ -11,6 +11,7 @@ public sealed class AppointmentProgressService(
     IAssignmentRepository assignments,
     IAppointmentPhotoRepository photos,
     IAppointmentProgressRepository progress,
+    ICostConfirmationRepository costConfirmations,
     IConcurrencyGuard concurrency,
     IStaffRoleReader staffRoles)
 {
@@ -25,6 +26,9 @@ public sealed class AppointmentProgressService(
 
             var appointment = await assignments.FindSpaAppointmentAsync(appointmentId, ct)
                 ?? throw new BusinessException(ErrorCodes.NotFound);
+
+            if (await costConfirmations.HasPendingAsync(appointmentId, ct))
+                throw new BusinessException(ErrorCodes.CostConfirmationPending);
 
             var validityDays = await photos.GetValidityDaysAsync(ct);
             var latestBeforePhoto = await photos.FindLatestBeforePhotoUploadedAtByPetAsync(appointment.PetId, ct);

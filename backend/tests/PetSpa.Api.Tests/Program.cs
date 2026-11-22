@@ -7126,6 +7126,24 @@ var tests = new (string Name, Func<Task> Run)[]
             Check(f.Spa.Status == status && f.Assignments.SaveCalls == 0, $"{status}: nothing may change.");
         }
     }),
+    ("AppointmentProgressService.StartAsync rejects when cost confirmation is pending", async () =>
+    {
+        var f = new ProgressFixture(AppointmentStatus.Received);
+        f.Base.AddPhoto(PhotoKind.Before, DateTimeOffset.UtcNow.AddHours(-1));
+        f.CostConfirmations.Add(new CostConfirmation
+        {
+            ConfirmationId = Guid.NewGuid(),
+            AppointmentId = f.Spa.AppointmentId,
+            Status = ConfirmationStatus.Pending,
+        });
+
+        var code = await FailureCodeAsync(() => f.CreateService().StartAsync(f.Base.SpaStaffUser, f.Spa.AppointmentId));
+
+        Check(code == ErrorCodes.CostConfirmationPending,
+            $"Expected COST_CONFIRMATION_PENDING but got {code ?? "success"}.");
+        Check(f.Spa.Status == AppointmentStatus.Received && f.Assignments.SaveCalls == 0,
+            "A pending cost confirmation must not change or save the appointment.");
+    }),
     ("AppointmentProgressService rejects callers outside the allowed scope before taking any lock or writing", async () =>
     {
         var cases = new (string Name, Action<ProgressFixture> Arrange, Func<ProgressFixture, CurrentUser> User, StaffRole? Role, string Expected)[]
@@ -8894,6 +8912,7 @@ sealed class ProgressFixture
     public PhotoFixture Base { get; }
     public TestAssignmentRepo Assignments { get; }
     public TestAppointmentProgressRepo Progress { get; } = new();
+    public TestCostConfirmationRepo CostConfirmations { get; } = new();
     public Guid ServiceId { get; } = Guid.NewGuid();
     public CurrentUser ManagerUser { get; } = new(Guid.NewGuid(), UserRole.Manager);
     public SpaAppointment Spa => Base.Spa;
@@ -8908,5 +8927,5 @@ sealed class ProgressFixture
     }
 
     public AppointmentProgressService CreateService(StaffRole? staffRole = StaffRole.SpaStaff) =>
-        new(Base.Appointments, Assignments, Base.Photos, Progress, Base.Guard, new TestStaffRoleReader(staffRole));
+        new(Base.Appointments, Assignments, Base.Photos, Progress, CostConfirmations, Base.Guard, new TestStaffRoleReader(staffRole));
 }
