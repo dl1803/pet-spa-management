@@ -110,6 +110,7 @@ public static class DependencyInjection
         services.AddScoped<IAppointmentQueryRepository, AppointmentQueryRepository>();
         services.AddScoped<IPaymentRepository, PaymentRepository>();
         services.AddScoped<IAppointmentPhotoRepository, AppointmentPhotoRepository>();
+        services.AddScoped<IAppointmentProgressRepository, AppointmentProgressRepository>();
         services.AddScoped<IPaymentGateway>(_ => new VnpayPaymentGateway(
             config.GetSection("Payment:Vnpay").Get<VnpayOptions>() ?? new VnpayOptions()));
         services.AddSingleton(config.GetSection("Storage").Get<StorageOptions>() ?? new StorageOptions());

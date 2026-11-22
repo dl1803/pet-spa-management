@@ -7021,6 +7021,292 @@ var tests = new (string Name, Func<Task> Run)[]
         Check((await stayFixture.Service.RespondAsync(user, stay.AppointmentId, false)).CageSuitable is null,
             "Rejecting must not check the cage.");
     }),
+    ("AppointmentPhotoService.ListAsync keeps showing photos older than the validity window", async () =>
+    {
+        var f = new PhotoFixture(AppointmentStatus.Completed);
+        f.AddPhoto(PhotoKind.Before, DateTimeOffset.UtcNow.AddDays(-30));
+        f.AddPhoto(PhotoKind.After, DateTimeOffset.UtcNow.AddDays(-29));
+
+        var owner = new CurrentUser(f.OwnerUserId, UserRole.Customer);
+        var result = await f.CreateService().ListAsync(owner, f.Spa.AppointmentId);
+
+        Check(result.Count == 2, "Photos older than Photo.ValidityDays must still be listed for the owner.");
+    }),
+    ("TestAppointmentPhotoRepo latest before photo is per pet and ignores after photos", async () =>
+    {
+        var f = new PhotoFixture(AppointmentStatus.Received);
+        var older = DateTimeOffset.UtcNow.AddDays(-3);
+        var newer = DateTimeOffset.UtcNow.AddHours(-1);
+        f.AddPhoto(PhotoKind.Before, older);
+        f.AddPhoto(PhotoKind.Before, newer, Guid.NewGuid(), f.Spa.PetId);
+        f.AddPhoto(PhotoKind.After, DateTimeOffset.UtcNow);
+        f.AddPhoto(PhotoKind.Before, DateTimeOffset.UtcNow, Guid.NewGuid(), Guid.NewGuid());
+
+        Check(await f.Photos.FindLatestBeforePhotoUploadedAtByPetAsync(f.Spa.PetId) == newer,
+            "The latest Before photo of the pet must win over older, After and other-pet photos.");
+        Check(await f.Photos.HasPhotoAsync(f.Spa.AppointmentId, PhotoKind.After)
+              && !await f.Photos.HasPhotoAsync(Guid.NewGuid(), PhotoKind.Before),
+            "HasPhotoAsync must match appointment and kind.");
+    }),
+    ("AppointmentProgressService.StartAsync moves a received spa appointment to in progress for the assigned spa staff and the manager", async () =>
+    {
+        foreach (var asManager in new[] { false, true })
+        {
+            var f = new ProgressFixture(AppointmentStatus.Received);
+            f.Base.AddPhoto(PhotoKind.Before, DateTimeOffset.UtcNow.AddHours(-1));
+            if (asManager) f.Base.Appointments.AssignedResult = false;
+            var user = asManager ? f.ManagerUser : f.Base.SpaStaffUser;
+
+            var status = await f.CreateService().StartAsync(user, f.Spa.AppointmentId);
+
+            Check(status == AppointmentStatus.InProgress && f.Spa.Status == AppointmentStatus.InProgress,
+                $"asManager={asManager}: the appointment must be in progress.");
+            Check(f.Base.Guard.RunCalls == 1 && f.Base.Guard.LockedAppointmentId == f.Spa.AppointmentId,
+                $"asManager={asManager}: the write must run in one transaction after locking the appointment.");
+            Check(f.Assignments.SaveCalls == 1, $"asManager={asManager}: the appointment must be saved once.");
+        }
+    }),
+    ("AppointmentProgressService.StartAsync enforces the before photo validity window per pet", async () =>
+    {
+        var now = DateTimeOffset.UtcNow;
+        var cases = new (string Name, Action<ProgressFixture> Arrange, bool Allowed)[]
+        {
+            ("no photo", _ => { }, false),
+            ("only an after photo", f => f.Base.AddPhoto(PhotoKind.After, now.AddHours(-1)), false),
+            ("before photo 8 days old", f => f.Base.AddPhoto(PhotoKind.Before, now.AddDays(-8)), false),
+            ("before photo 6 days old", f => f.Base.AddPhoto(PhotoKind.Before, now.AddDays(-6)), true),
+            ("newer photo wins over an expired one", f =>
+            {
+                f.Base.AddPhoto(PhotoKind.Before, now.AddDays(-20));
+                f.Base.AddPhoto(PhotoKind.Before, now.AddHours(-2));
+            }, true),
+            ("recent photo of another pet", f => f.Base.AddPhoto(PhotoKind.Before, now.AddHours(-1), Guid.NewGuid(), Guid.NewGuid()), false),
+            ("recent photo from an earlier appointment of the same pet", f => f.Base.AddPhoto(PhotoKind.Before, now.AddDays(-2), Guid.NewGuid(), f.Spa.PetId), true),
+            ("10 days old with a 30 day window", f =>
+            {
+                f.Base.Photos.ValidityDays = 30;
+                f.Base.AddPhoto(PhotoKind.Before, now.AddDays(-10));
+            }, true),
+            ("4 days old with a 3 day window", f =>
+            {
+                f.Base.Photos.ValidityDays = 3;
+                f.Base.AddPhoto(PhotoKind.Before, now.AddDays(-4));
+            }, false),
+        };
+
+        foreach (var c in cases)
+        {
+            var f = new ProgressFixture(AppointmentStatus.Received);
+            c.Arrange(f);
+
+            var code = await FailureCodeAsync(() => f.CreateService().StartAsync(f.Base.SpaStaffUser, f.Spa.AppointmentId));
+
+            if (c.Allowed)
+            {
+                Check(code is null && f.Spa.Status == AppointmentStatus.InProgress, $"{c.Name}: start must succeed.");
+            }
+            else
+            {
+                Check(code == ErrorCodes.PhotoRequired, $"{c.Name}: expected PHOTO_REQUIRED but got {code ?? "success"}.");
+                Check(f.Spa.Status == AppointmentStatus.Received && f.Assignments.SaveCalls == 0,
+                    $"{c.Name}: a rejected start must not change or save the appointment.");
+            }
+        }
+    }),
+    ("AppointmentProgressService.StartAsync rejects a wrong status without saving", async () =>
+    {
+        foreach (var status in new[] { AppointmentStatus.Confirmed, AppointmentStatus.InProgress, AppointmentStatus.Completed })
+        {
+            var f = new ProgressFixture(status);
+            f.Base.AddPhoto(PhotoKind.Before, DateTimeOffset.UtcNow.AddHours(-1));
+
+            var code = await FailureCodeAsync(() => f.CreateService().StartAsync(f.Base.SpaStaffUser, f.Spa.AppointmentId));
+
+            Check(code == ErrorCodes.InvalidTransition, $"{status}: expected INVALID_TRANSITION but got {code ?? "success"}.");
+            Check(f.Spa.Status == status && f.Assignments.SaveCalls == 0, $"{status}: nothing may change.");
+        }
+    }),
+    ("AppointmentProgressService.StartAsync rejects when cost confirmation is pending", async () =>
+    {
+        var f = new ProgressFixture(AppointmentStatus.Received);
+        f.Base.AddPhoto(PhotoKind.Before, DateTimeOffset.UtcNow.AddHours(-1));
+        f.CostConfirmations.Add(new CostConfirmation
+        {
+            ConfirmationId = Guid.NewGuid(),
+            AppointmentId = f.Spa.AppointmentId,
+            Status = ConfirmationStatus.Pending,
+        });
+
+        var code = await FailureCodeAsync(() => f.CreateService().StartAsync(f.Base.SpaStaffUser, f.Spa.AppointmentId));
+
+        Check(code == ErrorCodes.CostConfirmationPending,
+            $"Expected COST_CONFIRMATION_PENDING but got {code ?? "success"}.");
+        Check(f.Spa.Status == AppointmentStatus.Received && f.Assignments.SaveCalls == 0,
+            "A pending cost confirmation must not change or save the appointment.");
+    }),
+    ("AppointmentProgressService rejects callers outside the allowed scope before taking any lock or writing", async () =>
+    {
+        var cases = new (string Name, Action<ProgressFixture> Arrange, Func<ProgressFixture, CurrentUser> User, StaffRole? Role, string Expected)[]
+        {
+            ("customer", _ => { }, _ => new CurrentUser(Guid.NewGuid(), UserRole.Customer), null, ErrorCodes.Forbidden),
+            ("receptionist", _ => { }, f => f.Base.SpaStaffUser, StaffRole.Receptionist, ErrorCodes.Forbidden),
+            ("staff without a profile", _ => { }, f => f.Base.SpaStaffUser, null, ErrorCodes.Forbidden),
+            ("spa staff not assigned", f => f.Base.Appointments.AssignedResult = false, f => f.Base.SpaStaffUser, StaffRole.SpaStaff, ErrorCodes.Forbidden),
+            ("appointment not found", f => f.Base.Appointments.DetailResult = null, f => f.ManagerUser, null, ErrorCodes.NotFound),
+            ("hotel appointment", f => f.Base.Appointments.DetailResult = new AppointmentDetailData(
+                new HotelAppointment { AppointmentId = Guid.NewGuid() }, null, "Milo", [], []), f => f.ManagerUser, null, ErrorCodes.NotFound),
+        };
+
+        foreach (var c in cases)
+        {
+            foreach (var operation in new[] { "start", "service" })
+            {
+                var f = new ProgressFixture(AppointmentStatus.InProgress);
+                f.Base.AddPhoto(PhotoKind.Before, DateTimeOffset.UtcNow.AddHours(-1));
+                c.Arrange(f);
+                var service = f.CreateService(c.Role);
+                var user = c.User(f);
+
+                var code = await FailureCodeAsync(async () =>
+                {
+                    if (operation == "start")
+                        await service.StartAsync(user, f.Spa.AppointmentId);
+                    else
+                        await service.UpdateServiceAsync(user, f.Spa.AppointmentId, f.ServiceId, true, null);
+                });
+
+                Check(code == c.Expected, $"{c.Name}/{operation}: expected {c.Expected} but got {code ?? "success"}.");
+                Check(f.Base.Guard.RunCalls == 0 && f.Assignments.SaveCalls == 0 && f.Progress.SaveCalls == 0,
+                    $"{c.Name}/{operation}: no transaction and no write may happen.");
+                Check(f.Spa.Status == AppointmentStatus.InProgress && !f.Line.IsDone, $"{c.Name}/{operation}: nothing may change.");
+            }
+        }
+    }),
+    ("AppointmentProgressService.UpdateServiceAsync marks, unmarks and annotates a service of an in-progress appointment", async () =>
+    {
+        foreach (var asManager in new[] { false, true })
+        {
+            var f = new ProgressFixture(AppointmentStatus.InProgress);
+            if (asManager) f.Base.Appointments.AssignedResult = false;
+            var user = asManager ? f.ManagerUser : f.Base.SpaStaffUser;
+            var service = f.CreateService();
+            var before = DateTimeOffset.UtcNow;
+
+            await service.UpdateServiceAsync(user, f.Spa.AppointmentId, f.ServiceId, true, "  Đã tắm xong ");
+            Check(f.Line.IsDone && f.Line.DoneAt >= before && f.Line.DoneAt <= DateTimeOffset.UtcNow && f.Line.Note == "Đã tắm xong",
+                $"asManager={asManager}: the service must be done with a trimmed note.");
+            Check(f.Base.Guard.LockedAppointmentId == f.Spa.AppointmentId && f.Progress.SaveCalls == 1,
+                $"asManager={asManager}: the write must run after locking the appointment and save once.");
+
+            await service.UpdateServiceAsync(user, f.Spa.AppointmentId, f.ServiceId, false, null);
+            Check(!f.Line.IsDone && f.Line.DoneAt is null && f.Line.Note == "Đã tắm xong",
+                $"asManager={asManager}: unmarking must clear DoneAt and keep the note.");
+            Check(f.Spa.Status == AppointmentStatus.InProgress, $"asManager={asManager}: the appointment status must not change.");
+        }
+    }),
+    ("AppointmentProgressService.UpdateServiceAsync rejects a wrong appointment status or an unknown service without writing", async () =>
+    {
+        foreach (var status in new[] { AppointmentStatus.Confirmed, AppointmentStatus.Received, AppointmentStatus.Completed })
+        {
+            var f = new ProgressFixture(status);
+
+            var code = await FailureCodeAsync(() =>
+                f.CreateService().UpdateServiceAsync(f.Base.SpaStaffUser, f.Spa.AppointmentId, f.ServiceId, true, null));
+
+            Check(code == ErrorCodes.InvalidTransition, $"{status}: expected INVALID_TRANSITION but got {code ?? "success"}.");
+            Check(!f.Line.IsDone && f.Progress.SaveCalls == 0, $"{status}: nothing may change.");
+        }
+
+        var unknown = new ProgressFixture(AppointmentStatus.InProgress);
+        var unknownCode = await FailureCodeAsync(() =>
+            unknown.CreateService().UpdateServiceAsync(unknown.Base.SpaStaffUser, unknown.Spa.AppointmentId, Guid.NewGuid(), true, null));
+        Check(unknownCode == ErrorCodes.NotFound && unknown.Progress.SaveCalls == 0, "A service that is not in the appointment must be NOT_FOUND.");
+    }),
+    ("ServiceProgressRequestValidator requires isDone and limits the note to 1000 characters", () =>
+    {
+        var validator = new ServiceProgressRequestValidator();
+
+        Check(validator.Validate(new ServiceProgressRequest(true, null)).IsValid, "isDone alone must be valid.");
+        Check(validator.Validate(new ServiceProgressRequest(false, new string('a', 1000))).IsValid, "A 1000 character note must be valid.");
+        Check(!validator.Validate(new ServiceProgressRequest(null, "x")).IsValid, "A missing isDone must fail.");
+        Check(!validator.Validate(new ServiceProgressRequest(true, new string('a', 1001))).IsValid, "A 1001 character note must fail.");
+
+        return Task.CompletedTask;
+    }),
+    ("AppointmentProgressController exposes POST start and PATCH services for SpaStaffOrManager and returns the documented responses", async () =>
+    {
+        var type = typeof(AppointmentProgressController);
+        var route = type.GetCustomAttributes(typeof(RouteAttribute), true).OfType<RouteAttribute>().FirstOrDefault();
+        Check(route?.Template == "api/v1/appointments", "The controller must be routed under api/v1/appointments.");
+
+        var start = type.GetMethod(nameof(AppointmentProgressController.Start));
+        var update = type.GetMethod(nameof(AppointmentProgressController.UpdateService));
+        Check(start?.GetCustomAttributes(typeof(HttpPostAttribute), true).OfType<HttpPostAttribute>().FirstOrDefault()?.Template == "{id}/start",
+            "Start must be bound to POST {id}/start.");
+        Check(update?.GetCustomAttributes(typeof(HttpPatchAttribute), true).OfType<HttpPatchAttribute>().FirstOrDefault()?.Template == "{id}/services/{serviceId}",
+            "UpdateService must be bound to PATCH {id}/services/{serviceId}.");
+        foreach (var method in new[] { start, update })
+        {
+            var authorize = method?.GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AuthorizeAttribute), true)
+                .OfType<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>().FirstOrDefault();
+            Check(authorize?.Policy == AuthorizationPolicies.SpaStaffOrManager, "Both actions must require the SpaStaffOrManager policy.");
+        }
+
+        var f = new ProgressFixture(AppointmentStatus.Received);
+        f.Base.AddPhoto(PhotoKind.Before, DateTimeOffset.UtcNow.AddHours(-1));
+        var controller = new AppointmentProgressController(f.CreateService())
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [
+                        new Claim(TokenClaims.UserId, f.Base.SpaStaffUser.UserId.ToString()),
+                        new Claim(TokenClaims.Role, "Staff"),
+                    ], "test")),
+                },
+            },
+        };
+
+        var started = await controller.Start(f.Spa.AppointmentId, CancellationToken.None) as OkObjectResult;
+        Check(started?.Value is AppointmentStatusResponse { Status: AppointmentStatus.InProgress }, "Start must return 200 with status InProgress.");
+
+        var updated = await controller.UpdateService(f.Spa.AppointmentId, f.ServiceId, new ServiceProgressRequest(true, null), CancellationToken.None);
+        Check(updated is OkResult, "UpdateService must return 200 without a body.");
+
+        Check(await FailureCodeAsync(() => controller.UpdateService(f.Spa.AppointmentId, f.ServiceId, null, CancellationToken.None)) == ErrorCodes.ValidationError,
+            "A missing body must be VALIDATION_ERROR.");
+        Check(await FailureCodeAsync(() => controller.UpdateService(f.Spa.AppointmentId, f.ServiceId, new ServiceProgressRequest(null, null), CancellationToken.None)) == ErrorCodes.ValidationError,
+            "A missing isDone must be VALIDATION_ERROR.");
+    }),
+    ("AddApplication and AddInfrastructure register the appointment progress service and repository", () =>
+    {
+        var applicationServices = new ServiceCollection();
+        applicationServices.AddApplication();
+        var service = applicationServices.FirstOrDefault(d => d.ServiceType == typeof(AppointmentProgressService));
+        Check(service is not null && service.Lifetime == ServiceLifetime.Scoped,
+            "AppointmentProgressService must be registered as scoped.");
+
+        var settings = new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:Default"] = "Host=localhost;Database=petspa;Username=test;Password=test",
+            ["Jwt:SigningKey"] = "this-is-a-valid-32-byte-secret-key-12345",
+            ["Jwt:AccessTokenMinutes"] = "15",
+            ["Jwt:RefreshTokenDays"] = "7",
+        };
+        var infrastructureServices = new ServiceCollection();
+        PetSpa.Infrastructure.DependencyInjection.AddInfrastructure(
+            infrastructureServices, new ConfigurationBuilder().AddInMemoryCollection(settings).Build());
+
+        var repository = infrastructureServices.FirstOrDefault(d => d.ServiceType == typeof(IAppointmentProgressRepository));
+        Check(repository is not null
+              && repository.Lifetime == ServiceLifetime.Scoped
+              && repository.ImplementationType == typeof(PetSpa.Infrastructure.Persistence.Repositories.AppointmentProgressRepository),
+            "IAppointmentProgressRepository must be registered as a scoped AppointmentProgressRepository.");
+
+        return Task.CompletedTask;
+    }),
 };
 
 var failures = 0;
@@ -8536,12 +8822,28 @@ sealed class TestAppointmentPhotoRepo(TestConcurrencyGuard guard) : IAppointment
 
     public Task<IReadOnlyList<AppointmentPhoto>> ListByAppointmentAsync(Guid appointmentId, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<AppointmentPhoto>>(Existing.Where(p => p.AppointmentId == appointmentId).ToList());
+
+    public Dictionary<Guid, Guid> PetByAppointment { get; } = [];
+    public int ValidityDays { get; set; } = 7;
+
+    public Task<DateTimeOffset?> FindLatestBeforePhotoUploadedAtByPetAsync(Guid petId, CancellationToken ct = default) =>
+        Task.FromResult(Existing
+            .Where(p => p.Kind == PhotoKind.Before
+                && PetByAppointment.TryGetValue(p.AppointmentId, out var owner) && owner == petId)
+            .Select(p => (DateTimeOffset?)p.UploadedAt)
+            .OrderByDescending(t => t)
+            .FirstOrDefault());
+
+    public Task<bool> HasPhotoAsync(Guid appointmentId, PhotoKind kind, CancellationToken ct = default) =>
+        Task.FromResult(Existing.Any(p => p.AppointmentId == appointmentId && p.Kind == kind));
+
+    public Task<int> GetValidityDaysAsync(CancellationToken ct = default) => Task.FromResult(ValidityDays);
 }
 
 sealed class PhotoFixture
 {
     public static readonly byte[] JpegBytes = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01];
-    public static readonly byte[] PngBytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48];
+    public static readonly byte[] PngBytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x0D, 0x49, 0x48];
     public static readonly byte[] WebpBytes = [0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50];
     public static readonly byte[] GifBytes = [0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00];
 
@@ -8557,7 +8859,7 @@ sealed class PhotoFixture
     public PhotoFixture(AppointmentStatus status)
     {
         Photos = new TestAppointmentPhotoRepo(Guard) { SpaStaffId = SpaStaffId };
-        Spa = new SpaAppointment { AppointmentId = Guid.NewGuid(), Status = status };
+        Spa = new SpaAppointment { AppointmentId = Guid.NewGuid(), PetId = Guid.NewGuid(), Status = status };
         Appointments.DetailResult = new AppointmentDetailData(Spa, OwnerUserId, "Milo", [], []);
         Appointments.AssignedResult = true;
     }
@@ -8565,7 +8867,7 @@ sealed class PhotoFixture
     public AppointmentPhotoService CreateService(StaffRole? staffRole = StaffRole.SpaStaff) =>
         new(Appointments, Photos, Storage, Guard, new TestStaffRoleReader(staffRole));
 
-    public AppointmentPhoto AddPhoto(PhotoKind kind, DateTimeOffset uploadedAt, Guid? appointmentId = null)
+    public AppointmentPhoto AddPhoto(PhotoKind kind, DateTimeOffset uploadedAt, Guid? appointmentId = null, Guid? petId = null)
     {
         var id = Guid.NewGuid();
         var ownerAppointmentId = appointmentId ?? Spa.AppointmentId;
@@ -8579,7 +8881,51 @@ sealed class PhotoFixture
             UploadedAt = uploadedAt,
         };
 
+        if (petId is { } explicitPetId)
+            Photos.PetByAppointment[ownerAppointmentId] = explicitPetId;
+        else
+            Photos.PetByAppointment.TryAdd(ownerAppointmentId, ownerAppointmentId == Spa.AppointmentId ? Spa.PetId : Guid.NewGuid());
+
         Photos.Existing.Add(photo);
         return photo;
     }
+}
+
+sealed class TestAppointmentProgressRepo : IAppointmentProgressRepository
+{
+    public List<PetSpa.Domain.Entities.AppointmentService> Lines { get; } = [];
+    public int SaveCalls { get; private set; }
+
+    public Task<PetSpa.Domain.Entities.AppointmentService?> FindServiceLineAsync(
+        Guid appointmentId, Guid serviceId, CancellationToken ct = default) =>
+        Task.FromResult(Lines.FirstOrDefault(l => l.AppointmentId == appointmentId && l.ServiceId == serviceId));
+
+    public Task SaveChangesAsync(CancellationToken ct = default)
+    {
+        SaveCalls++;
+        return Task.CompletedTask;
+    }
+}
+
+sealed class ProgressFixture
+{
+    public PhotoFixture Base { get; }
+    public TestAssignmentRepo Assignments { get; }
+    public TestAppointmentProgressRepo Progress { get; } = new();
+    public TestCostConfirmationRepo CostConfirmations { get; } = new();
+    public Guid ServiceId { get; } = Guid.NewGuid();
+    public CurrentUser ManagerUser { get; } = new(Guid.NewGuid(), UserRole.Manager);
+    public SpaAppointment Spa => Base.Spa;
+    public PetSpa.Domain.Entities.AppointmentService Line { get; }
+
+    public ProgressFixture(AppointmentStatus status)
+    {
+        Base = new PhotoFixture(status);
+        Assignments = new TestAssignmentRepo(Base.Spa, [], [], new Dictionary<Guid, int>());
+        Line = new PetSpa.Domain.Entities.AppointmentService { AppointmentId = Base.Spa.AppointmentId, ServiceId = ServiceId };
+        Progress.Lines.Add(Line);
+    }
+
+    public AppointmentProgressService CreateService(StaffRole? staffRole = StaffRole.SpaStaff) =>
+        new(Base.Appointments, Assignments, Base.Photos, Progress, CostConfirmations, Base.Guard, new TestStaffRoleReader(staffRole));
 }

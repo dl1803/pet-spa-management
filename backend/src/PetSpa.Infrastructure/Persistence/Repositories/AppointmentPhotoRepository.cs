@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using PetSpa.Application.Ports;
 using PetSpa.Domain.Entities;
@@ -27,4 +28,31 @@ public sealed class AppointmentPhotoRepository(AppDbContext db) : IAppointmentPh
             .OrderBy(p => p.UploadedAt)
             .ThenBy(p => p.PhotoId)
             .ToListAsync(ct);
+
+    public Task<DateTimeOffset?> FindLatestBeforePhotoUploadedAtByPetAsync(Guid petId, CancellationToken ct = default) =>
+        (from photo in db.Set<AppointmentPhoto>().AsNoTracking()
+         join appointment in db.Set<Appointment>().AsNoTracking() on photo.AppointmentId equals appointment.AppointmentId
+         where appointment.PetId == petId && photo.Kind == PhotoKind.Before
+         orderby photo.UploadedAt descending
+         select (DateTimeOffset?)photo.UploadedAt)
+        .FirstOrDefaultAsync(ct);
+
+    public Task<bool> HasPhotoAsync(Guid appointmentId, PhotoKind kind, CancellationToken ct = default) =>
+        db.Set<AppointmentPhoto>()
+            .AsNoTracking()
+            .AnyAsync(p => p.AppointmentId == appointmentId && p.Kind == kind, ct);
+
+    public async Task<int> GetValidityDaysAsync(CancellationToken ct = default)
+    {
+        const int defaultValidityDays = 7;
+
+        var value = await db.Set<SystemConfig>().AsNoTracking()
+            .Where(c => c.ConfigKey == "Photo.ValidityDays")
+            .Select(c => c.ConfigValue)
+            .FirstOrDefaultAsync(ct);
+
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var days) && days > 0
+            ? days
+            : defaultValidityDays;
+    }
 }

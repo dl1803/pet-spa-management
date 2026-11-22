@@ -131,4 +131,36 @@ public class SpaAppointment : Appointment
         if (Status != requiredStatus)
             throw new BusinessException(ErrorCodes.InvalidTransition);
     }
+
+    public void StartWithValidBeforePhoto(
+        DateTimeOffset? latestBeforePhotoUploadedAt, int validityDays, DateTimeOffset startedAt)
+    {
+        GetLifecycle().EnsureTransition(Status, AppointmentStatus.InProgress);
+        EnsureBeforePhotoValid(latestBeforePhotoUploadedAt, validityDays, startedAt);
+        Start();
+    }
+
+    public void EnsureBeforePhotoValid(
+        DateTimeOffset? latestBeforePhotoUploadedAt, int validityDays, DateTimeOffset startedAt)
+    {
+        if (latestBeforePhotoUploadedAt is null
+            || latestBeforePhotoUploadedAt.Value < startedAt.AddDays(-validityDays))
+        {
+            throw new BusinessException(
+                ErrorCodes.PhotoRequired,
+                $"Cần có ảnh trước chăm sóc của thú cưng được tải lên trong vòng {validityDays} ngày gần nhất.");
+        }
+    }
+
+    public void EnsureAfterPhotoPresent(bool hasAfterPhoto)
+    {
+        if (!hasAfterPhoto)
+            throw new BusinessException(ErrorCodes.PhotoRequired, "Cần có ít nhất một ảnh sau chăm sóc của lịch hẹn.");
+    }
+
+    public void EnsureServiceProgressAllowed()
+    {
+        if (Status != AppointmentStatus.InProgress)
+            throw new BusinessException(ErrorCodes.InvalidTransition);
+    }
 }
