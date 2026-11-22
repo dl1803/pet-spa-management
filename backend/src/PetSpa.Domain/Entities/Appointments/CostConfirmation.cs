@@ -1,4 +1,5 @@
 using PetSpa.Domain.Enums;
+using PetSpa.Domain.Exceptions;
 
 namespace PetSpa.Domain.Entities;
 
@@ -15,5 +16,23 @@ public class CostConfirmation
     public DateTimeOffset ExpiresAt { get; set; }
     public DateTimeOffset? RespondedAt { get; set; }
     public Guid? RespondedByUserId { get; set; }
-}
 
+    public void Accept(Guid respondedByUserId, DateTimeOffset now) =>
+        Respond(ConfirmationStatus.Accepted, respondedByUserId, now);
+
+    public void Reject(Guid respondedByUserId, DateTimeOffset now) =>
+        Respond(ConfirmationStatus.Rejected, respondedByUserId, now);
+
+    private void Respond(ConfirmationStatus status, Guid respondedByUserId, DateTimeOffset now)
+    {
+        if (Status != ConfirmationStatus.Pending)
+            throw new BusinessException(ErrorCodes.InvalidTransition);
+
+        if (now > ExpiresAt)
+            throw new BusinessException(ErrorCodes.CostConfirmationExpired);
+
+        Status = status;
+        RespondedAt = now;
+        RespondedByUserId = respondedByUserId;
+    }
+}
