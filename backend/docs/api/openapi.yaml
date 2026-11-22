@@ -796,7 +796,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: "COST_CONFIRMATION_EXPIRED (đề xuất) — phản hồi sau ExpiresAt. Không có yêu cầu Pending → 404."
+          description: "COST_CONFIRMATION_EXPIRED (đề xuất) — phản hồi sau ExpiresAt; INVALID_TRANSITION (đề xuất) — lịch không còn ở trạng thái chờ phản hồi (spa: Received, lưu trú: Confirmed). Không có yêu cầu Pending → 404."
           content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
   /appointments/{id}/start:
     post:
