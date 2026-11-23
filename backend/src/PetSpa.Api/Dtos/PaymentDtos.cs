@@ -31,3 +31,8 @@ public sealed record VnpayIpnResponse(
         _ => Unprocessed,
     };
 }
+
+public sealed record CounterPaymentRequest(PaymentMethod? Method, long? ReceivedAmount);
+
+public sealed record PaymentStatusResponse(PaymentStatus Status);
+
