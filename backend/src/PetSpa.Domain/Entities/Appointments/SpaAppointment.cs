@@ -163,4 +163,27 @@ public class SpaAppointment : Appointment
         if (Status != AppointmentStatus.InProgress)
             throw new BusinessException(ErrorCodes.InvalidTransition);
     }
+
+    public void EnsureCanComplete(
+        bool hasPendingCostConfirmation,
+        IReadOnlyCollection<AppointmentService> services,
+        bool hasAfterPhoto)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        GetLifecycle().EnsureTransition(Status, AppointmentStatus.Completed);
+
+        if (hasPendingCostConfirmation)
+            throw new BusinessException(ErrorCodes.CostConfirmationPending);
+
+        EnsureAllServicesDone(services);
+        EnsureAfterPhotoPresent(hasAfterPhoto);
+    }
+
+    private static void EnsureAllServicesDone(IReadOnlyCollection<AppointmentService> services)
+    {
+        if (services.Count == 0 || services.Any(s => !s.IsDone))
+            throw new BusinessException(ErrorCodes.ServicesIncomplete, "Cần hoàn tất tất cả dịch vụ của lịch hẹn trước khi hoàn tất lịch.");
+    }
 }
+
