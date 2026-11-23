@@ -6931,7 +6931,7 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(await FailureCodeAsync(() => twice.Service.RespondAsync(user, twice.Appointment.AppointmentId, false)) == ErrorCodes.NotFound,
             "A second response must return NOT_FOUND because no Pending confirmation is left.");
     }),
-    ("AppointmentsController.RespondCostConfirmation trả AppointmentStatusResponse và từ chối thiếu accept", async () =>
+    ("AppointmentsController.RespondCostConfirmation trả CostConfirmationRespondResponse và từ chối thiếu accept", async () =>
     {
         var ownerId = Guid.NewGuid();
         var pet = WeightTestCat(2.8m, SizeGroup.Small);
@@ -6960,8 +6960,8 @@ var tests = new (string Name, Func<Task> Run)[]
 
         var result = await controller.RespondCostConfirmation(
             spa.AppointmentId, new CostConfirmationRespondRequest(false), CancellationToken.None) as OkObjectResult;
-        Check(result?.Value is AppointmentStatusResponse { Status: AppointmentStatus.Cancelled },
-            "The action must return Ok with the appointment status.");
+        Check(result?.Value is CostConfirmationRespondResponse { Status: AppointmentStatus.Cancelled, CageSuitable: null },
+            "The action must return Ok with the appointment status and no cageSuitable when rejecting.");
     }),
     ("CostConfirmationService.RespondAsync: lịch lưu trú chấp nhận chi phí mới kiểm tra lại chuồng đã gán theo trạng thái sử dụng, loài và nhóm kích cỡ mới", async () =>
     {
@@ -7306,6 +7306,275 @@ var tests = new (string Name, Func<Task> Run)[]
             "IAppointmentProgressRepository must be registered as a scoped AppointmentProgressRepository.");
 
         return Task.CompletedTask;
+    }),
+    ("AppointmentsController.RespondCostConfirmation: lịch lưu trú chấp nhận trả cageSuitable trong JSON, lịch spa không có cageSuitable", async () =>
+    {
+        var ownerId = Guid.NewGuid();
+
+        AppointmentsController ControllerFor(CostConfirmationFixture fixture) =>
+            new AppointmentsController(null!, costConfirmationService: fixture.Service)
+            {
+                ControllerContext = new ControllerContext
+                {
+                    HttpContext = new DefaultHttpContext
+                    {
+                        User = new ClaimsPrincipal(new ClaimsIdentity(
+                        [
+                            new Claim(TokenClaims.UserId, ownerId.ToString()),
+                            new Claim(TokenClaims.Role, "Customer"),
+                        ], "test")),
+                    },
+                },
+            };
+
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+
+        var cage = new Cage
+        {
+            CageId = Guid.NewGuid(),
+            Code = "A1",
+            Species = Species.Cat,
+            SizeGroup = SizeGroup.Small,
+            IsActive = true,
+        };
+        var stayPet = WeightTestCat(2.8m, SizeGroup.Small);
+        var stay = WeightTestHotel(stayPet.PetId, SizeGroup.Small, AppointmentStatus.Confirmed);
+        stay.CageId = cage.CageId;
+        var stayController = ControllerFor(new CostConfirmationFixture(stay, stayPet, ownerId, cages: new[] { cage }));
+
+        var stayResult = await stayController.RespondCostConfirmation(
+            stay.AppointmentId, new CostConfirmationRespondRequest(true), CancellationToken.None) as OkObjectResult;
+        Check(stayResult?.Value is CostConfirmationRespondResponse { Status: AppointmentStatus.Confirmed, CageSuitable: false },
+            "A stay whose assigned cage is of the old size group must return cageSuitable = false.");
+        Check(JsonSerializer.Serialize(stayResult!.Value, options) == "{\"status\":\"Confirmed\",\"cageSuitable\":false}",
+            "The stay response must carry cageSuitable in camelCase.");
+
+        var spaPet = WeightTestCat(2.8m, SizeGroup.Small);
+        var spa = WeightTestSpa(spaPet.PetId, SizeGroup.Small, AppointmentStatus.Received, DateTimeOffset.UtcNow.AddMinutes(-5));
+        var spaController = ControllerFor(new CostConfirmationFixture(spa, spaPet, ownerId));
+
+        var spaResult = await spaController.RespondCostConfirmation(
+            spa.AppointmentId, new CostConfirmationRespondRequest(true), CancellationToken.None) as OkObjectResult;
+        Check(JsonSerializer.Serialize(spaResult!.Value, options) == "{\"status\":\"Received\"}",
+            "A spa response must not carry cageSuitable.");
+    }),
+    ("PaymentService.RecordCounterAsync: lễ tân và quản lý ghi nhận thanh toán tại quầy, khóa Payment trước khi đọc, lưu một lần", async () =>
+    {
+        async Task RunAsync(CurrentUser user, StaffRole? role, PaymentMethod method, decimal received)
+        {
+            var payment = OnlinePayment(PaymentKind.Spa, 150000m);
+            var events = new List<string>();
+            var repo = new TestPaymentRepo(null)
+            {
+                Events = events,
+                ForUpdate = new PaymentForUpdate(payment, AppointmentStatus.Completed),
+            };
+            var guard = new TestConcurrencyGuard { Events = events };
+            var service = new PaymentService(
+                repo, new TestPaymentGateway(), guard, new TestStaffRoleReader(role), new TestCostConfirmationRepo());
+
+            var status = await service.RecordCounterAsync(user, payment.PaymentId, method, received);
+
+            Check(status == PaymentStatus.Paid && payment.Status == PaymentStatus.Paid,
+                "An exact or higher amount at the due time must mark the payment Paid.");
+            Check(payment.Method == method && payment.ReceivedAmount == received && payment.PaidAt is not null
+                    && payment.ConfirmedByUserId == user.UserId,
+                "The method, received amount, time and confirmer must be recorded.");
+            Check(guard.LockedPaymentId == payment.PaymentId, "The Payment row must be locked.");
+            Check(events.SequenceEqual(new[] { "run", "lock-payment", "find-for-update", "save" }),
+                $"The payment must be read inside the transaction after the lock and saved once, got: {string.Join(",", events)}.");
+        }
+
+        await RunAsync(new CurrentUser(Guid.NewGuid(), UserRole.Staff), StaffRole.Receptionist, PaymentMethod.BankQR, 150000m);
+        await RunAsync(new CurrentUser(Guid.NewGuid(), UserRole.Manager), null, PaymentMethod.Cash, 200000m);
+    }),
+    ("PaymentService.RecordCounterAsync từ chối khách hàng, nhân viên spa, nhân viên không có hồ sơ và không đụng tới dữ liệu", async () =>
+    {
+        foreach (var (user, role) in new (CurrentUser User, StaffRole? Role)[]
+        {
+            (new CurrentUser(Guid.NewGuid(), UserRole.Customer), null),
+            (new CurrentUser(Guid.NewGuid(), UserRole.Staff), StaffRole.SpaStaff),
+            (new CurrentUser(Guid.NewGuid(), UserRole.Staff), null),
+        })
+        {
+            var payment = OnlinePayment(PaymentKind.Spa, 150000m);
+            var events = new List<string>();
+            var repo = new TestPaymentRepo(null)
+            {
+                Events = events,
+                ForUpdate = new PaymentForUpdate(payment, AppointmentStatus.Completed),
+            };
+            var service = new PaymentService(
+                repo, new TestPaymentGateway(), new TestConcurrencyGuard { Events = events },
+                new TestStaffRoleReader(role), new TestCostConfirmationRepo());
+
+            var code = await FailureCodeAsync(() => service.RecordCounterAsync(user, payment.PaymentId, PaymentMethod.Cash, 150000m));
+
+            Check(code == ErrorCodes.Forbidden, $"{user.Role}/{role} must be rejected with FORBIDDEN.");
+            Check(events.Count == 0 && payment.Status == PaymentStatus.Unpaid,
+                "A rejected role must not open a transaction or change the payment.");
+        }
+    }),
+    ("PaymentService.RecordCounterAsync từ chối method Online và khoản không tồn tại", async () =>
+    {
+        var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+        var payment = OnlinePayment(PaymentKind.Spa, 150000m);
+        var repo = new TestPaymentRepo(null) { ForUpdate = new PaymentForUpdate(payment, AppointmentStatus.Completed) };
+        var service = new PaymentService(
+            repo, new TestPaymentGateway(), new TestConcurrencyGuard(), new TestStaffRoleReader(null), new TestCostConfirmationRepo());
+
+        var online = await FailureCodeAsync(() => service.RecordCounterAsync(manager, payment.PaymentId, PaymentMethod.Online, 150000m));
+        Check(online == ErrorCodes.ValidationError && payment.Status == PaymentStatus.Unpaid && repo.SaveCalls == 0,
+            "The Online method must be rejected with VALIDATION_ERROR without changing anything.");
+
+        var missing = await FailureCodeAsync(() => service.RecordCounterAsync(manager, Guid.NewGuid(), PaymentMethod.Cash, 150000m));
+        Check(missing == ErrorCodes.NotFound && repo.SaveCalls == 0,
+            "An unknown payment must be rejected with NOT_FOUND.");
+    }),
+    ("PaymentService.RecordCounterAsync xác minh thời điểm và số tiền trước khi ghi nhận", async () =>
+    {
+        var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+
+        async Task<(string? Code, Payment Payment, int Saves)> TryAsync(
+            PaymentKind kind, AppointmentStatus appointmentStatus, decimal amount, decimal received)
+        {
+            var payment = OnlinePayment(kind, amount);
+            var repo = new TestPaymentRepo(null) { ForUpdate = new PaymentForUpdate(payment, appointmentStatus) };
+            var service = new PaymentService(
+                repo, new TestPaymentGateway(), new TestConcurrencyGuard(), new TestStaffRoleReader(null), new TestCostConfirmationRepo());
+            var code = await FailureCodeAsync(() => service.RecordCounterAsync(manager, payment.PaymentId, PaymentMethod.Cash, received));
+            return (code, payment, repo.SaveCalls);
+        }
+
+        var notDue = await TryAsync(PaymentKind.Spa, AppointmentStatus.Confirmed, 150000m, 150000m);
+        Check(notDue.Code == ErrorCodes.PaymentNotDue && notDue.Payment.Status == PaymentStatus.Unpaid && notDue.Saves == 0,
+            "A spa payment before the appointment is Completed must be rejected with PAYMENT_NOT_DUE.");
+
+        var stayNotDue = await TryAsync(PaymentKind.Stay, AppointmentStatus.InStay, 300000m, 300000m);
+        Check(stayNotDue.Code == ErrorCodes.PaymentNotDue && stayNotDue.Saves == 0,
+            "A stay payment after check-in must be rejected with PAYMENT_NOT_DUE.");
+
+        var lateFee = await TryAsync(PaymentKind.LateFee, AppointmentStatus.InStay, 50000m, 50000m);
+        Check(lateFee.Code is null && lateFee.Payment.Status == PaymentStatus.Paid && lateFee.Saves == 1,
+            "A late fee is recorded while the stay is InStay.");
+
+        var short1 = await TryAsync(PaymentKind.Spa, AppointmentStatus.Completed, 150000m, 149999m);
+        Check(short1.Code == ErrorCodes.AmountMismatch && short1.Payment.Status == PaymentStatus.Unpaid
+                && short1.Payment.ReceivedAmount is null && short1.Saves == 0,
+            "A received amount below the amount due must be rejected with AMOUNT_MISMATCH and change nothing.");
+
+        var paid = OnlinePayment(PaymentKind.Spa, 150000m);
+        var repo = new TestPaymentRepo(null) { ForUpdate = new PaymentForUpdate(paid, AppointmentStatus.Completed) };
+        var service = new PaymentService(
+            repo, new TestPaymentGateway(), new TestConcurrencyGuard(), new TestStaffRoleReader(null), new TestCostConfirmationRepo());
+        await service.RecordCounterAsync(manager, paid.PaymentId, PaymentMethod.Cash, 150000m);
+        var repeat = await FailureCodeAsync(() => service.RecordCounterAsync(manager, paid.PaymentId, PaymentMethod.BankQR, 150000m));
+        Check(repeat == ErrorCodes.PaymentNotDue && repo.SaveCalls == 1 && paid.Method == PaymentMethod.Cash,
+            "Recording a paid payment again must be rejected with PAYMENT_NOT_DUE and keep the first record.");
+    }),
+    ("PaymentService.RecordCounterAsync chặn khoản lưu trú khi lịch đang chờ xác nhận chi phí mới", async () =>
+    {
+        var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+
+        async Task<(string? Code, Payment Payment, int Saves)> TryAsync(PaymentKind kind, AppointmentStatus appointmentStatus, bool pending)
+        {
+            var payment = OnlinePayment(kind, 300000m);
+            var confirmations = new TestCostConfirmationRepo();
+            if (pending)
+            {
+                confirmations.Add(new CostConfirmation
+                {
+                    ConfirmationId = Guid.NewGuid(),
+                    AppointmentId = payment.AppointmentId,
+                    ActualWeightKg = 6m,
+                    NewSizeGroup = SizeGroup.Large,
+                    OldAmount = 300000m,
+                    NewAmount = 450000m,
+                    Status = ConfirmationStatus.Pending,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(20),
+                });
+            }
+
+            var repo = new TestPaymentRepo(null) { ForUpdate = new PaymentForUpdate(payment, appointmentStatus) };
+            var service = new PaymentService(
+                repo, new TestPaymentGateway(), new TestConcurrencyGuard(), new TestStaffRoleReader(null), confirmations);
+            var code = await FailureCodeAsync(() => service.RecordCounterAsync(manager, payment.PaymentId, PaymentMethod.Cash, 300000m));
+            return (code, payment, repo.SaveCalls);
+        }
+
+        var blocked = await TryAsync(PaymentKind.Stay, AppointmentStatus.Confirmed, pending: true);
+        Check(blocked.Code == ErrorCodes.CostConfirmationPending && blocked.Payment.Status == PaymentStatus.Unpaid && blocked.Saves == 0,
+            "A stay payment must be rejected with COST_CONFIRMATION_PENDING while a confirmation is pending.");
+
+        var free = await TryAsync(PaymentKind.Stay, AppointmentStatus.Confirmed, pending: false);
+        Check(free.Code is null && free.Payment.Status == PaymentStatus.Paid && free.Saves == 1,
+            "A stay payment without a pending confirmation must be recorded.");
+    }),
+    ("CounterPaymentRequestValidator chỉ nhận Cash hoặc BankQR và số tiền trong giới hạn", () =>
+    {
+        var validator = new CounterPaymentRequestValidator();
+
+        Check(validator.Validate(new CounterPaymentRequest(PaymentMethod.Cash, 150000)).IsValid, "Cash must pass.");
+        Check(validator.Validate(new CounterPaymentRequest(PaymentMethod.BankQR, 0)).IsValid, "BankQR with a zero amount must pass.");
+        Check(validator.Validate(new CounterPaymentRequest(PaymentMethod.Cash, 999_999_999_999)).IsValid, "The maximum amount must pass.");
+
+        var online = validator.Validate(new CounterPaymentRequest(PaymentMethod.Online, 150000));
+        Check(!online.IsValid && online.Errors.Any(e => e.PropertyName == "Method"), "Online must fail validation.");
+
+        var undefined = validator.Validate(new CounterPaymentRequest((PaymentMethod)99, 150000));
+        Check(!undefined.IsValid && undefined.Errors.Any(e => e.PropertyName == "Method"), "An undefined method must fail validation.");
+
+        var missingMethod = validator.Validate(new CounterPaymentRequest(null, 150000));
+        Check(!missingMethod.IsValid && missingMethod.Errors.Count(e => e.PropertyName == "Method") == 1,
+            "A missing method must fail with a single error.");
+
+        var missingAmount = validator.Validate(new CounterPaymentRequest(PaymentMethod.Cash, null));
+        Check(!missingAmount.IsValid && missingAmount.Errors.Any(e => e.PropertyName == "ReceivedAmount"),
+            "A missing amount must fail validation.");
+
+        Check(!validator.Validate(new CounterPaymentRequest(PaymentMethod.Cash, -1)).IsValid, "A negative amount must fail validation.");
+        Check(!validator.Validate(new CounterPaymentRequest(PaymentMethod.Cash, 1_000_000_000_000)).IsValid,
+            "An amount above the column limit must fail validation.");
+        return Task.CompletedTask;
+    }),
+    ("PaymentsController.RecordCounter trả PaymentStatusResponse, từ chối body trống và lấy người xác nhận từ token", async () =>
+    {
+        var managerId = Guid.NewGuid();
+        var payment = OnlinePayment(PaymentKind.Stay, 300000m);
+        var repo = new TestPaymentRepo(null) { ForUpdate = new PaymentForUpdate(payment, AppointmentStatus.Confirmed) };
+        var service = new PaymentService(
+            repo, new TestPaymentGateway(), new TestConcurrencyGuard(), new TestStaffRoleReader(null), new TestCostConfirmationRepo());
+        var controller = new PaymentsController(service, NullLogger<PaymentsController>.Instance)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [
+                        new Claim(TokenClaims.UserId, managerId.ToString()),
+                        new Claim(TokenClaims.Role, "Manager"),
+                    ], "test")),
+                },
+            },
+        };
+
+        var missingBody = await FailureCodeAsync(() => controller.RecordCounter(payment.PaymentId, null, CancellationToken.None));
+        Check(missingBody == ErrorCodes.ValidationError, "A missing body must throw VALIDATION_ERROR.");
+
+        var result = await controller.RecordCounter(
+            payment.PaymentId, new CounterPaymentRequest(PaymentMethod.Cash, 300000), CancellationToken.None) as OkObjectResult;
+        Check(result?.Value is PaymentStatusResponse { Status: PaymentStatus.Paid },
+            "The action must return Ok with the payment status Paid.");
+        Check(payment.ConfirmedByUserId == managerId && payment.Method == PaymentMethod.Cash && payment.ReceivedAmount == 300000m,
+            "The confirmer must come from the token and the payment must be recorded.");
+
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+        Check(JsonSerializer.Serialize(result!.Value, options) == "{\"status\":\"Paid\"}",
+            "The response must be { status } in camelCase.");
     }),
 };
 
@@ -8518,6 +8787,16 @@ sealed class TestPaymentRepo(PaymentWithOwner? found, PaymentCallbackTarget? cal
     public List<PaymentTransaction> Added { get; } = [];
     public List<string> Events { get; init; } = [];
     public int SaveCalls { get; private set; }
+    public PaymentForUpdate? ForUpdate { get; init; }
+    public Task<PaymentForUpdate?> FindForUpdateAsync(Guid paymentId, CancellationToken ct = default)
+    {
+        Events.Add("find-for-update");
+        return Task.FromResult(ForUpdate is not null && ForUpdate.Payment.PaymentId == paymentId ? ForUpdate : null);
+    }
+    public Task<IReadOnlyList<Payment>> ListByAppointmentAsync(Guid appointmentId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<Payment>>([]);
+    public Task<PagedResult<Payment>> ListAsync(PaymentStatus? status, int page, int pageSize, CancellationToken ct = default) =>
+        Task.FromResult(new PagedResult<Payment>([], page, pageSize, 0));
     public Task<PaymentWithOwner?> FindWithOwnerAsync(Guid paymentId, CancellationToken ct = default) =>
         Task.FromResult(found is not null && found.Payment.PaymentId == paymentId ? found : null);
     public Task AddTransactionAsync(PaymentTransaction transaction, CancellationToken ct = default)

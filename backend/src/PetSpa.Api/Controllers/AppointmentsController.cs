@@ -214,7 +214,7 @@ public sealed class AppointmentsController(
     [HttpPost("{id}/cost-confirmation/respond")]
     [Authorize(Policy = AuthorizationPolicies.CustomerOrReceptionist)]
     [EndpointSummary("Khách hàng hoặc lễ tân xác nhận hay từ chối chi phí mới")]
-    [EndpointDescription("Khách hàng phản hồi cho lịch của mình; lễ tân ghi nhận phản hồi thay khách vãng lai hoặc phản hồi trực tiếp. Body { accept }. accept = true: cập nhật cân nặng và nhóm kích cỡ trong hồ sơ thú cưng, cập nhật nhóm kích cỡ của lịch hẹn, lịch tiếp tục theo chi phí mới và giữ nguyên trạng thái. accept = false: yêu cầu chuyển Rejected, lịch chuyển Đã hủy với lý do CostNotConfirmed, lịch spa giải phóng nhân viên đang giữ chỗ. Trả { status } là trạng thái lịch hẹn. Thiếu accept trả 400 VALIDATION_ERROR; khách hàng phản hồi lịch của khách khác hoặc của khách vãng lai, quản lý và nhân viên spa trả 403 FORBIDDEN; không tìm thấy lịch hoặc không có yêu cầu đang chờ trả 404 NOT_FOUND; quá hạn phản hồi trả 409 COST_CONFIRMATION_EXPIRED; lịch không còn ở trạng thái chờ phản hồi (spa Đã tiếp nhận, lưu trú Đã xác nhận) trả 409 INVALID_TRANSITION.")]
+    [EndpointDescription("Khách hàng phản hồi cho lịch của mình; lễ tân ghi nhận phản hồi thay khách vãng lai hoặc phản hồi trực tiếp. Body { accept }. accept = true: cập nhật cân nặng và nhóm kích cỡ trong hồ sơ thú cưng, cập nhật nhóm kích cỡ của lịch hẹn, lịch tiếp tục theo chi phí mới và giữ nguyên trạng thái. accept = false: yêu cầu chuyển Rejected, lịch chuyển Đã hủy với lý do CostNotConfirmed, lịch spa giải phóng nhân viên đang giữ chỗ. Trả { status } là trạng thái lịch hẹn; lịch lưu trú khi accept = true kèm cageSuitable cho biết chuồng đã gán còn phù hợp loài và nhóm kích cỡ mới hay không (false: quản lý gán chuồng khác hoặc từ chối lịch hẹn), lịch spa và accept = false không có cageSuitable. Thiếu accept trả 400 VALIDATION_ERROR; khách hàng phản hồi lịch của khách khác hoặc của khách vãng lai, quản lý và nhân viên spa trả 403 FORBIDDEN; không tìm thấy lịch hoặc không có yêu cầu đang chờ trả 404 NOT_FOUND; quá hạn phản hồi trả 409 COST_CONFIRMATION_EXPIRED; lịch không còn ở trạng thái chờ phản hồi (spa Đã tiếp nhận, lưu trú Đã xác nhận) trả 409 INVALID_TRANSITION.")]
     public async Task<IActionResult> RespondCostConfirmation(
         Guid id, [FromBody] CostConfirmationRespondRequest? request, CancellationToken ct)
     {
@@ -224,7 +224,7 @@ public sealed class AppointmentsController(
         var result = await costConfirmationService.RespondAsync(
             User.ToCurrentUser(), id, request.Accept.Value, ct);
 
-        return Ok(new AppointmentStatusResponse(result.Status));
+        return Ok(CostConfirmationRespondResponse.From(result));
     }
 
     [HttpGet("{id}")]
