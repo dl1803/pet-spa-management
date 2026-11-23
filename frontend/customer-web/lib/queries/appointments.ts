@@ -1,12 +1,12 @@
 import { skipToken, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  cancelAppointment,
   createHotelAppointment,
   createSpaAppointment,
   getAppointment,
   listAppointments,
 } from "@/lib/api/endpoints/appointments";
 import type { Appointment, AppointmentStatus, HotelBookingRequest, SpaBookingRequest } from "@/lib/api/types";
-import { mockCancelAppointment } from "@/lib/mock-appointments";
 import { hotelKeys } from "@/lib/queries/hotel";
 import { spaSlotKeys } from "@/lib/queries/spa-slots";
 
@@ -56,13 +56,13 @@ export function useAppointment(appointmentId: string | null | undefined) {
   });
 }
 
-// Chờ nối API thật: cancelAppointment (POST /appointments/{appointmentId}/cancel).
+// POST /appointments/{appointmentId}/cancel.
 // Tải lại dữ liệu cả khi lỗi, vì 409 nghĩa là lịch hẹn đã thay đổi.
 export function useCancelAppointment() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (appointmentId: string) => mockCancelAppointment(appointmentId),
+    mutationFn: (appointmentId: string) => cancelAppointment(appointmentId),
     onSettled: () => queryClient.invalidateQueries({ queryKey: appointmentKeys.all, refetchType: "all" }),
   });
 }

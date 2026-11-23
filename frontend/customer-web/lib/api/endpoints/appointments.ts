@@ -8,6 +8,7 @@ import type {
   SpaBookingCreated,
   SpaBookingRequest,
   SpaSlots,
+  StatusResult,
 } from "@/lib/api/types";
 
 export type GetSpaSlotsParams = {
@@ -56,3 +57,12 @@ export async function getAppointment(appointmentId: string) {
   const { data } = await apiClient.get<AppointmentDetail>(`/appointments/${encodeURIComponent(appointmentId)}`);
   return data;
 }
+
+// POST /appointments/{id}/cancel: khách hủy lịch hẹn của mình trong hạn tự hủy (200 { status: "Cancelled" }).
+// Không gửi body: backend đặt lý do CustomerCancelled. Lỗi: 403 FORBIDDEN (lịch của khách khác), 404 NOT_FOUND,
+// 409 CHANGE_WINDOW_CLOSED (quá hạn tự hủy), 409 INVALID_TRANSITION (lịch không còn Chờ xác nhận hoặc Đã xác nhận).
+export async function cancelAppointment(appointmentId: string) {
+  const { data } = await apiClient.post<StatusResult>(`/appointments/${encodeURIComponent(appointmentId)}/cancel`);
+  return data;
+}
+
