@@ -77,17 +77,19 @@ export function AppointmentDetailScreen() {
   const breadcrumbRef = useRef<HTMLAnchorElement>(null);
 
   // Khách bấm Back từ cổng: trình duyệt khôi phục trang từ bộ nhớ đệm với hộp thoại đang chờ chuyển trang,
-  // nên đóng hộp thoại và đặt lại thao tác để khách có thể thử lại.
+  // nên đóng hộp thoại, đặt lại thao tác và tải lại khoản thanh toán để cập nhật trạng thái mới nhất.
   const { reset: resetPayOnline } = payOnline;
+  const { refetch: refetchPayments } = payments;
   useEffect(() => {
     function handlePageShow(event: PageTransitionEvent) {
       if (!event.persisted) return;
       resetPayOnline();
       setDialogPayment(null);
+      void refetchPayments();
     }
     window.addEventListener("pageshow", handlePageShow);
     return () => window.removeEventListener("pageshow", handlePageShow);
-  }, [resetPayOnline]);
+  }, [refetchPayments, resetPayOnline]);
 
   // Quá hạn khi API vừa trả 409 CHANGE_WINDOW_CLOSED: ở thao tác hủy tại đây, hoặc ở màn đổi lịch (chuyển về kèm tham số).
   const isWindowClosed =
@@ -130,7 +132,7 @@ export function AppointmentDetailScreen() {
   }
 
   function closePaymentDialog() {
-    if (payOnline.isPending) return;
+    if (payOnline.isPending || payOnline.isSuccess) return;
     payOnline.reset();
     setDialogPayment(null);
   }

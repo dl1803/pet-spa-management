@@ -16,7 +16,7 @@ export function PaymentReturnScreen() {
   useEffect(() => {
     const appointmentId = txnRef === null ? null : readPaymentAppointment(txnRef);
     router.replace(
-      appointmentId === null
+      !appointmentId
         ? ROUTES.appointments
         : withQuery(ROUTES.appointmentDetail(appointmentId), { [PAYMENT_RETURN_PARAM]: PAYMENT_RETURN_VALUE }),
     );

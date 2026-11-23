@@ -54,7 +54,7 @@ export type PayOnlineVariables = {
 // Lỗi (409 nghĩa là khoản đã đổi): tải lại khoản thanh toán.
 export function usePayOnline(appointmentId: string) {
   const queryClient = useQueryClient();
-  const queryKey = appointmentKeys.payments(appointmentId);
+  const queryKey = appointmentKeys.detail(appointmentId);
 
   return useMutation({
     mutationFn: async ({ paymentId, request }: PayOnlineVariables) => {
