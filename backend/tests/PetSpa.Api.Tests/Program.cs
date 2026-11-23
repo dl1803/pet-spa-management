@@ -7632,6 +7632,124 @@ var tests = new (string Name, Func<Task> Run)[]
                 $"{c.Name}: nothing may change.");
         }
     }),
+    ("AppointmentProgressController exposes POST complete for SpaStaffOrManager and returns the documented response", async () =>
+    {
+        var method = typeof(AppointmentProgressController).GetMethod(nameof(AppointmentProgressController.Complete));
+        Check(method?.GetCustomAttributes(typeof(HttpPostAttribute), true).OfType<HttpPostAttribute>().FirstOrDefault()?.Template == "{id}/complete",
+            "Complete must be bound to POST {id}/complete.");
+        var authorize = method?.GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AuthorizeAttribute), true)
+            .OfType<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>().FirstOrDefault();
+        Check(authorize?.Policy == AuthorizationPolicies.SpaStaffOrManager, "Complete must require the SpaStaffOrManager policy.");
+
+        var f = new ProgressFixture(AppointmentStatus.InProgress);
+        f.MakeReadyToComplete();
+        var controller = CreateProgressController(f, f.Base.SpaStaffUser);
+
+        var result = await controller.Complete(f.Spa.AppointmentId, CancellationToken.None) as OkObjectResult;
+
+        Check(result?.Value is AppointmentStatusResponse { Status: AppointmentStatus.Completed },
+            "Complete must return 200 with status Completed.");
+        Check(f.Payments.AddedPayments.Count == 1 && f.Payments.AddedPayments[0].Kind == PaymentKind.Spa,
+            "Completing must form the spa payment.");
+    }),
+    ("Complete endpoint answers a wrong role, a wrong scope or an unmet condition with the documented error and changes nothing", async () =>
+    {
+        var rows = new List<(string Name, AppointmentStatus Status, string Caller,
+            Action<ProgressFixture>? Arrange, int HttpStatus, string Code, bool BeforeTransaction)>();
+
+        void Add(string name, AppointmentStatus status, string caller,
+            Action<ProgressFixture>? arrange, int httpStatus, string code, bool beforeTransaction = false) =>
+            rows.Add((name, status, caller, arrange, httpStatus, code, beforeTransaction));
+
+        Add("complete by a customer", AppointmentStatus.InProgress, "customer", null,
+            403, ErrorCodes.Forbidden, true);
+        Add("complete by a receptionist", AppointmentStatus.InProgress, "receptionist", null,
+            403, ErrorCodes.Forbidden, true);
+        Add("complete by a staff member without a profile", AppointmentStatus.InProgress, "noProfile", null,
+            403, ErrorCodes.Forbidden, true);
+        Add("complete by a spa staff member who is not assigned", AppointmentStatus.InProgress, "spaStaff",
+            f => f.Base.Appointments.AssignedResult = false,
+            403, ErrorCodes.Forbidden, true);
+        Add("complete of a missing appointment", AppointmentStatus.InProgress, "manager",
+            f => f.Base.Appointments.DetailResult = null,
+            404, ErrorCodes.NotFound, true);
+        Add("complete of a hotel appointment", AppointmentStatus.InProgress, "manager",
+            f => f.Base.Appointments.DetailResult = new AppointmentDetailData(
+                new HotelAppointment { AppointmentId = Guid.NewGuid() }, null, "Milo", [], []),
+            404, ErrorCodes.NotFound, true);
+
+        foreach (var status in new[] { AppointmentStatus.Confirmed, AppointmentStatus.Received, AppointmentStatus.Completed })
+            Add($"complete of a {status} appointment", status, "spaStaff", null,
+                409, ErrorCodes.InvalidTransition);
+        foreach (var status in new[] { AppointmentStatus.Pending, AppointmentStatus.Cancelled })
+            Add($"complete of a {status} appointment by the manager", status, "manager", null,
+                409, ErrorCodes.InvalidTransition);
+
+        Add("complete while a service is not done", AppointmentStatus.InProgress, "spaStaff",
+            f => { f.Line.IsDone = false; f.Line.DoneAt = null; },
+            409, ErrorCodes.ServicesIncomplete);
+        Add("complete without an after photo", AppointmentStatus.InProgress, "spaStaff",
+            f => f.Base.Photos.Existing.Clear(),
+            409, ErrorCodes.PhotoRequired);
+        Add("complete while a cost confirmation is pending", AppointmentStatus.InProgress, "spaStaff",
+            f => f.CostConfirmations.Add(new CostConfirmation
+            {
+                ConfirmationId = Guid.NewGuid(),
+                AppointmentId = f.Spa.AppointmentId,
+                Status = ConfirmationStatus.Pending,
+            }),
+            409, ErrorCodes.CostConfirmationPending);
+
+        Check(rows.Count == 14, $"Expected 14 cases but built {rows.Count}.");
+
+        foreach (var row in rows)
+        {
+            var f = new ProgressFixture(row.Status);
+            f.MakeReadyToComplete();
+            row.Arrange?.Invoke(f);
+
+            var user = row.Caller switch
+            {
+                "manager" => f.ManagerUser,
+                "customer" => new CurrentUser(Guid.NewGuid(), UserRole.Customer),
+                _ => f.Base.SpaStaffUser,
+            };
+            StaffRole? role = row.Caller switch
+            {
+                "receptionist" => StaffRole.Receptionist,
+                "noProfile" => null,
+                _ => StaffRole.SpaStaff,
+            };
+
+            var controller = CreateProgressController(f, user, role);
+            var response = await ProgressResponseAsync(() => controller.Complete(f.Spa.AppointmentId, CancellationToken.None));
+
+            Check(response.Status == row.HttpStatus && response.Code == row.Code,
+                $"{row.Name}: expected {row.HttpStatus} {row.Code} but got {response.Status} {response.Code ?? "success"}.");
+            Check(response.ContentType.StartsWith("application/problem+json"),
+                $"{row.Name}: the error must use the problem+json envelope.");
+            Check(f.Spa.Status == row.Status, $"{row.Name}: the appointment status must not change.");
+            Check(f.Payments.AddedPayments.Count == 0 && f.Assignments.SaveCalls == 0,
+                $"{row.Name}: no payment may be formed and nothing may be saved.");
+            Check(f.Assignments.Added.All(a => a.IsHolding), $"{row.Name}: the staff holds must stay.");
+            if (row.BeforeTransaction)
+                Check(f.Base.Guard.RunCalls == 0,
+                    $"{row.Name}: the request must be refused before any transaction is opened.");
+        }
+
+        foreach (var asManager in new[] { false, true })
+        {
+            var ok = new ProgressFixture(AppointmentStatus.InProgress);
+            ok.MakeReadyToComplete();
+            var okUser = asManager ? ok.ManagerUser : ok.Base.SpaStaffUser;
+            var okResponse = await ProgressResponseAsync(() =>
+                CreateProgressController(ok, okUser).Complete(ok.Spa.AppointmentId, CancellationToken.None));
+
+            Check(okResponse.Status == 200 && ok.Spa.Status == AppointmentStatus.Completed
+                  && ok.Payments.AddedPayments.Count == 1,
+                $"asManager={asManager}: a valid completion must still succeed.");
+        }
+    }),
     ("AddApplication and AddInfrastructure register the appointment progress service and repository", () =>
     {
         var applicationServices = new ServiceCollection();

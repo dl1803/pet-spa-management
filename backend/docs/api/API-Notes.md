@@ -90,7 +90,7 @@
 
 **Thực hiện spa**
 - `/start`: cần ảnh `Before` hợp lệ (ảnh gần nhất của thú cưng, tải lên trong `Photo.ValidityDays` ngày) và không chờ xác nhận chi phí → 409 `PHOTO_REQUIRED` / `COST_CONFIRMATION_PENDING`.
-- `PATCH /services/{serviceId}` đánh dấu từng dịch vụ xong. `/complete`: mọi dịch vụ xong và có ảnh `After` → 409 `SERVICES_INCOMPLETE` / `PHOTO_REQUIRED`; tạo khoản `Spa`.
+- `PATCH /services/{serviceId}` đánh dấu từng dịch vụ xong. `/complete`: mọi dịch vụ xong, có ảnh `After` và không chờ xác nhận chi phí → 409 `SERVICES_INCOMPLETE` / `PHOTO_REQUIRED` / `COST_CONFIRMATION_PENDING`; nhả giữ chỗ nhân viên và tạo khoản `Spa` (`Unpaid`, số tiền backend tính theo nhóm kích cỡ hiện tại).
 - Ảnh: `multipart` (`kind`, `file`), chỉ NVS được phân công; `Before` khi `Received`, `After` khi `InProgress`; chỉ tệp ảnh, tối đa 50 MB. Xem ảnh trả URL tạm thời sau khi kiểm tra phạm vi.
 
 **Trả thú cưng lưu trú** (`POST /check-out`)
@@ -197,7 +197,7 @@ Chỉ chuyển đúng trình tự tiến; `Cancelled` từ mọi trạng thái t
 | 409 | `CHANGE_WINDOW_CLOSED` | `PUT /appointments/{id}`, `/cancel` |
 | 409 | `PHOTO_REQUIRED` | `/start`, `/complete` |
 | 409 | `SERVICES_INCOMPLETE` | `/complete` |
-| 409 | `COST_CONFIRMATION_PENDING` | `/start`, `/check-in`, `/weight-check` (Đề xuất), `/payments/{id}/counter` (khoản `Stay`) |
+| 409 | `COST_CONFIRMATION_PENDING` | `/start`, `/complete`, `/check-in`, `/weight-check` (Đề xuất), `/payments/{id}/counter` (khoản `Stay`) |
 | 409 | `PAYMENT_NOT_DUE` | `/check-in` (lưu trú), `/check-out`, `/payments/{id}/counter`, `/payments/{id}/online` |
 | 409 | `AMOUNT_MISMATCH` | `/payments/{id}/counter` |
 | 409 | `SHIFT_OVERLAP`, `SHIFT_HAS_APPOINTMENTS` | `/work-shifts` |

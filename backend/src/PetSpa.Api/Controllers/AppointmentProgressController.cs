@@ -36,4 +36,14 @@ public sealed class AppointmentProgressController(AppointmentProgressService pro
 
         return Ok();
     }
+
+    [HttpPost("{id}/complete")]
+    [Authorize(Policy = AuthorizationPolicies.SpaStaffOrManager)]
+    [EndpointSummary("Nhân viên spa được phân công hoặc quản lý hoàn tất lịch spa")]
+    [EndpointDescription("Chỉ nhân viên spa được phân công cho lịch hoặc quản lý. Chuyển lịch Đang thực hiện sang Hoàn tất khi mọi dịch vụ của lịch đã xong, lịch có ít nhất một ảnh sau chăm sóc và không có yêu cầu xác nhận chi phí đang chờ. Đồng thời nhả giữ chỗ nhân viên và hình thành khoản thanh toán spa chưa thanh toán, số tiền do backend tính. Trả 200 { status }. Lịch không có dịch vụ hoặc còn dịch vụ chưa xong trả 409 SERVICES_INCOMPLETE; chưa có ảnh sau chăm sóc trả 409 PHOTO_REQUIRED; đang chờ xác nhận chi phí trả 409 COST_CONFIRMATION_PENDING; lịch không ở Đang thực hiện trả 409 INVALID_TRANSITION. Nhân viên spa không được phân công, lễ tân hoặc khách hàng trả 403 FORBIDDEN; không tìm thấy lịch spa trả 404 NOT_FOUND.")]
+    public async Task<IActionResult> Complete(Guid id, CancellationToken ct)
+    {
+        var status = await progressService.CompleteAsync(User.ToCurrentUser(), id, ct);
+        return Ok(new AppointmentStatusResponse(status));
+    }
 }
