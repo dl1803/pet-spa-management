@@ -790,7 +790,7 @@ paths:
           description: Đã ghi nhận phản hồi.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/StatusResult' }
+              schema: { $ref: '#/components/schemas/CostConfirmationRespondResult' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -1961,6 +1961,12 @@ components:
       required: [status]
       properties:
         status: { $ref: '#/components/schemas/AppointmentStatus' }
+    CostConfirmationRespondResult:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/AppointmentStatus' }
+        cageSuitable: { type: boolean, x-proposal: true, description: "Chỉ có với lịch lưu trú khi accept = true: chuồng đã gán còn phù hợp loài và nhóm kích cỡ mới (BR-21). false thì quản lý gán chuồng khác hoặc từ chối lịch hẹn (FR-EXE-10, FR-HTL-05, FR-CHG-03); backend không tự đổi chuồng." }
     RejectResult:
       type: object
       required: [status, reason]
