@@ -7750,6 +7750,91 @@ var tests = new (string Name, Func<Task> Run)[]
                 $"asManager={asManager}: a valid completion must still succeed.");
         }
     }),
+    ("The manager completes a spa appointment directly without a staff profile or an assignment, and still has to meet the completion conditions", async () =>
+    {
+        var direct = new ProgressFixture(AppointmentStatus.InProgress);
+        direct.MakeReadyToComplete();
+        direct.Base.Appointments.AssignedResult = false;
+
+        var status = await direct.CreateService(null).CompleteAsync(direct.ManagerUser, direct.Spa.AppointmentId);
+
+        Check(status == AppointmentStatus.Completed && direct.Spa.Status == AppointmentStatus.Completed,
+            "The manager must complete the appointment without a staff profile or an assignment.");
+        Check(direct.Payments.AddedPayments.Count == 1 && direct.Assignments.Added.All(a => !a.IsHolding),
+            "The manager's completion must form the payment and release the staff holds.");
+
+        var cases = new (string Name, AppointmentStatus Status, Action<ProgressFixture> Arrange, string Expected)[]
+        {
+            ("a service is not done", AppointmentStatus.InProgress,
+                f => { f.Line.IsDone = false; f.Line.DoneAt = null; }, ErrorCodes.ServicesIncomplete),
+            ("no after photo", AppointmentStatus.InProgress,
+                f => f.Base.Photos.Existing.Clear(), ErrorCodes.PhotoRequired),
+            ("a cost confirmation is pending", AppointmentStatus.InProgress,
+                f => f.CostConfirmations.Add(new CostConfirmation
+                {
+                    ConfirmationId = Guid.NewGuid(),
+                    AppointmentId = f.Spa.AppointmentId,
+                    Status = ConfirmationStatus.Pending,
+                }), ErrorCodes.CostConfirmationPending),
+            ("the appointment was only received", AppointmentStatus.Received,
+                _ => { }, ErrorCodes.InvalidTransition),
+            ("the appointment is already completed", AppointmentStatus.Completed,
+                _ => { }, ErrorCodes.InvalidTransition),
+        };
+
+        foreach (var c in cases)
+        {
+            var f = new ProgressFixture(c.Status);
+            f.MakeReadyToComplete();
+            f.Base.Appointments.AssignedResult = false;
+            c.Arrange(f);
+
+            var code = await FailureCodeAsync(() => f.CreateService(null).CompleteAsync(f.ManagerUser, f.Spa.AppointmentId));
+
+            Check(code == c.Expected, $"{c.Name}: expected {c.Expected} but got {code ?? "success"}.");
+            Check(f.Spa.Status == c.Status && f.Assignments.SaveCalls == 0 && f.Payments.AddedPayments.Count == 0
+                  && f.Assignments.Added.All(a => a.IsHolding),
+                $"{c.Name}: nothing may change.");
+        }
+    }),
+    ("The manager moves a received spa appointment through start, service progress and completion directly, and cannot skip a step", async () =>
+    {
+        var f = new ProgressFixture(AppointmentStatus.Received);
+        f.MakeReadyToComplete();
+        f.Line.IsDone = false;
+        f.Line.DoneAt = null;
+        f.Base.AddPhoto(PhotoKind.Before, DateTimeOffset.UtcNow.AddHours(-1));
+        f.Base.Appointments.AssignedResult = false;
+        var controller = CreateProgressController(f, f.ManagerUser, null);
+
+        var skipped = await ProgressResponseAsync(() => controller.Complete(f.Spa.AppointmentId, CancellationToken.None));
+        Check(skipped.Status == 409 && skipped.Code == ErrorCodes.InvalidTransition
+              && f.Spa.Status == AppointmentStatus.Received && f.Payments.AddedPayments.Count == 0,
+            "Completing a received appointment must be refused.");
+
+        var started = await ProgressResponseAsync(() => controller.Start(f.Spa.AppointmentId, CancellationToken.None));
+        Check(started.Status == 200 && f.Spa.Status == AppointmentStatus.InProgress,
+            "The manager must be able to start the appointment.");
+
+        var early = await ProgressResponseAsync(() => controller.Complete(f.Spa.AppointmentId, CancellationToken.None));
+        Check(early.Status == 409 && early.Code == ErrorCodes.ServicesIncomplete
+              && f.Spa.Status == AppointmentStatus.InProgress && f.Payments.AddedPayments.Count == 0
+              && f.Assignments.Added.All(a => a.IsHolding),
+            "Completing before every service is done must be refused.");
+
+        var marked = await ProgressResponseAsync(() => controller.UpdateService(
+            f.Spa.AppointmentId, f.ServiceId, new ServiceProgressRequest(true, null), CancellationToken.None));
+        Check(marked.Status == 200 && f.Line.IsDone, "The manager must be able to mark a service done.");
+
+        var completed = await ProgressResponseAsync(() => controller.Complete(f.Spa.AppointmentId, CancellationToken.None));
+        Check(completed.Status == 200 && f.Spa.Status == AppointmentStatus.Completed
+              && f.Payments.AddedPayments.Count == 1 && f.Assignments.Added.All(a => !a.IsHolding),
+            "The manager must be able to complete once every condition is met.");
+
+        var again = await ProgressResponseAsync(() => controller.Complete(f.Spa.AppointmentId, CancellationToken.None));
+        Check(again.Status == 409 && again.Code == ErrorCodes.InvalidTransition && f.Payments.AddedPayments.Count == 1,
+            "Completing twice must not form a second payment.");
+    }),
     ("AddApplication and AddInfrastructure register the appointment progress service and repository", () =>
     {
         var applicationServices = new ServiceCollection();
