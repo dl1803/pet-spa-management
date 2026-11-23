@@ -7280,6 +7280,182 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(await FailureCodeAsync(() => controller.UpdateService(f.Spa.AppointmentId, f.ServiceId, new ServiceProgressRequest(null, null), CancellationToken.None)) == ErrorCodes.ValidationError,
             "A missing isDone must be VALIDATION_ERROR.");
     }),
+    ("The SpaStaffOrManager policy admits only a spa staff member or a manager", async () =>
+    {
+        var cases = new (string Name, string? Role, StaffRole? Profile, bool Allowed)[]
+        {
+            ("manager", "Manager", null, true),
+            ("spa staff", "Staff", StaffRole.SpaStaff, true),
+            ("receptionist", "Staff", StaffRole.Receptionist, false),
+            ("staff without a profile", "Staff", null, false),
+            ("customer", "Customer", null, false),
+            ("anonymous caller", null, null, false),
+        };
+
+        foreach (var c in cases)
+        {
+            var services = new ServiceCollection();
+            services.AddLogging();
+            services.AddSingleton<IStaffRoleReader>(new TestStaffRoleReader(c.Profile));
+            services.AddPetSpaAuthorization();
+            using var provider = services.BuildServiceProvider();
+            using var scope = provider.CreateScope();
+            var authorization = scope.ServiceProvider
+                .GetRequiredService<Microsoft.AspNetCore.Authorization.IAuthorizationService>();
+
+            var identity = c.Role is null
+                ? new ClaimsIdentity()
+                : new ClaimsIdentity(
+                [
+                    new Claim(TokenClaims.UserId, Guid.NewGuid().ToString()),
+                    new Claim(TokenClaims.Role, c.Role),
+                ], "test");
+
+            var result = await Microsoft.AspNetCore.Authorization.AuthorizationServiceExtensions.AuthorizeAsync(
+                authorization, new ClaimsPrincipal(identity), AuthorizationPolicies.SpaStaffOrManager);
+
+            Check(result.Succeeded == c.Allowed,
+                $"{c.Name}: the policy must {(c.Allowed ? "admit" : "refuse")} this caller.");
+        }
+    }),
+    ("Progress endpoints answer a wrong role, a wrong scope or an unmet condition with the documented error and change nothing", async () =>
+    {
+        var rows = new List<(string Name, string Operation, AppointmentStatus Status, string Caller,
+            Action<ProgressFixture>? Arrange, int HttpStatus, string Code, bool BeforeTransaction)>();
+
+        void Add(string name, string operation, AppointmentStatus status, string caller,
+            Action<ProgressFixture>? arrange, int httpStatus, string code, bool beforeTransaction = false) =>
+            rows.Add((name, operation, status, caller, arrange, httpStatus, code, beforeTransaction));
+
+        var operations = new[]
+        {
+            ("start", AppointmentStatus.Received),
+            ("service", AppointmentStatus.InProgress),
+        };
+        foreach (var (operation, status) in operations)
+        {
+            Add($"{operation} by a customer", operation, status, "customer", null,
+                403, ErrorCodes.Forbidden, true);
+            Add($"{operation} by a receptionist", operation, status, "receptionist", null,
+                403, ErrorCodes.Forbidden, true);
+            Add($"{operation} by a staff member without a profile", operation, status, "noProfile", null,
+                403, ErrorCodes.Forbidden, true);
+            Add($"{operation} by a spa staff member who is not assigned", operation, status, "spaStaff",
+                f => f.Base.Appointments.AssignedResult = false,
+                403, ErrorCodes.Forbidden, true);
+            Add($"{operation} of a missing appointment", operation, status, "manager",
+                f => f.Base.Appointments.DetailResult = null,
+                404, ErrorCodes.NotFound, true);
+            Add($"{operation} of a hotel appointment", operation, status, "manager",
+                f => f.Base.Appointments.DetailResult = new AppointmentDetailData(
+                    new HotelAppointment { AppointmentId = Guid.NewGuid() }, null, "Milo", [], []),
+                404, ErrorCodes.NotFound, true);
+        }
+
+        foreach (var status in new[] { AppointmentStatus.Confirmed, AppointmentStatus.InProgress, AppointmentStatus.Completed })
+            Add($"start of a {status} appointment", "start", status, "spaStaff", null,
+                409, ErrorCodes.InvalidTransition);
+        foreach (var status in new[] { AppointmentStatus.Pending, AppointmentStatus.Cancelled })
+            Add($"start of a {status} appointment by the manager", "start", status, "manager", null,
+                409, ErrorCodes.InvalidTransition);
+        Add("start without a before photo", "start", AppointmentStatus.Received, "spaStaff",
+            f => f.Base.Photos.Existing.Clear(),
+            409, ErrorCodes.PhotoRequired);
+        Add("start with a before photo older than the validity window", "start", AppointmentStatus.Received, "spaStaff",
+            f =>
+            {
+                f.Base.Photos.Existing.Clear();
+                f.Base.AddPhoto(PhotoKind.Before, DateTimeOffset.UtcNow.AddDays(-8));
+            },
+            409, ErrorCodes.PhotoRequired);
+        Add("start while a cost confirmation is pending", "start", AppointmentStatus.Received, "spaStaff",
+            f => f.CostConfirmations.Add(new CostConfirmation
+            {
+                ConfirmationId = Guid.NewGuid(),
+                AppointmentId = f.Spa.AppointmentId,
+                Status = ConfirmationStatus.Pending,
+            }),
+            409, ErrorCodes.CostConfirmationPending);
+
+        foreach (var status in new[] { AppointmentStatus.Confirmed, AppointmentStatus.Received, AppointmentStatus.Completed })
+            Add($"service update of a {status} appointment", "service", status, "spaStaff", null,
+                409, ErrorCodes.InvalidTransition);
+        foreach (var status in new[] { AppointmentStatus.Pending, AppointmentStatus.Cancelled })
+            Add($"service update of a {status} appointment by the manager", "service", status, "manager", null,
+                409, ErrorCodes.InvalidTransition);
+        Add("service that is not part of the appointment", "service-unknown", AppointmentStatus.InProgress, "spaStaff", null,
+            404, ErrorCodes.NotFound);
+        Add("service update without a body", "service-no-body", AppointmentStatus.InProgress, "spaStaff", null,
+            400, ErrorCodes.ValidationError, true);
+        Add("service update without isDone", "service-no-flag", AppointmentStatus.InProgress, "spaStaff", null,
+            400, ErrorCodes.ValidationError, true);
+
+        Check(rows.Count == 28, $"Expected 28 cases but built {rows.Count}.");
+
+        foreach (var row in rows)
+        {
+            var f = new ProgressFixture(row.Status);
+            f.Base.AddPhoto(PhotoKind.Before, DateTimeOffset.UtcNow.AddHours(-1));
+            row.Arrange?.Invoke(f);
+
+            var user = row.Caller switch
+            {
+                "manager" => f.ManagerUser,
+                "customer" => new CurrentUser(Guid.NewGuid(), UserRole.Customer),
+                _ => f.Base.SpaStaffUser,
+            };
+            StaffRole? role = row.Caller switch
+            {
+                "receptionist" => StaffRole.Receptionist,
+                "noProfile" => null,
+                _ => StaffRole.SpaStaff,
+            };
+
+            var controller = CreateProgressController(f, user, role);
+            Func<Task> call = row.Operation switch
+            {
+                "start" => () => controller.Start(f.Spa.AppointmentId, CancellationToken.None),
+                "service" => () => controller.UpdateService(
+                    f.Spa.AppointmentId, f.ServiceId, new ServiceProgressRequest(true, "Đã tắm xong"), CancellationToken.None),
+                "service-unknown" => () => controller.UpdateService(
+                    f.Spa.AppointmentId, Guid.NewGuid(), new ServiceProgressRequest(true, null), CancellationToken.None),
+                "service-no-body" => () => controller.UpdateService(
+                    f.Spa.AppointmentId, f.ServiceId, null, CancellationToken.None),
+                "service-no-flag" => () => controller.UpdateService(
+                    f.Spa.AppointmentId, f.ServiceId, new ServiceProgressRequest(null, "Đã tắm xong"), CancellationToken.None),
+                _ => throw new InvalidOperationException($"Unknown operation {row.Operation}."),
+            };
+
+            var response = await ProgressResponseAsync(call);
+
+            Check(response.Status == row.HttpStatus && response.Code == row.Code,
+                $"{row.Name}: expected {row.HttpStatus} {row.Code} but got {response.Status} {response.Code ?? "success"}.");
+            Check(response.ContentType.StartsWith("application/problem+json"),
+                $"{row.Name}: the error must use the problem+json envelope.");
+            Check(f.Spa.Status == row.Status, $"{row.Name}: the appointment status must not change.");
+            Check(!f.Line.IsDone && f.Line.DoneAt is null && f.Line.Note is null,
+                $"{row.Name}: the service progress must not change.");
+            Check(f.Assignments.SaveCalls == 0 && f.Progress.SaveCalls == 0,
+                $"{row.Name}: nothing may be saved.");
+            if (row.BeforeTransaction)
+                Check(f.Base.Guard.RunCalls == 0,
+                    $"{row.Name}: the request must be refused before any transaction is opened.");
+        }
+
+        var started = new ProgressFixture(AppointmentStatus.Received);
+        started.Base.AddPhoto(PhotoKind.Before, DateTimeOffset.UtcNow.AddHours(-1));
+        var startResponse = await ProgressResponseAsync(() =>
+            CreateProgressController(started, started.Base.SpaStaffUser).Start(started.Spa.AppointmentId, CancellationToken.None));
+        Check(startResponse.Status == 200 && started.Spa.Status == AppointmentStatus.InProgress,
+            "A valid start by the assigned spa staff must still succeed.");
+
+        var updated = new ProgressFixture(AppointmentStatus.InProgress);
+        var updateResponse = await ProgressResponseAsync(() =>
+            CreateProgressController(updated, updated.ManagerUser).UpdateService(
+                updated.Spa.AppointmentId, updated.ServiceId, new ServiceProgressRequest(true, null), CancellationToken.None));
+        Check(updateResponse.Status == 200 && updated.Line.IsDone,
+            "A valid update by the manager must still succeed.");
+    }),
     ("AddApplication and AddInfrastructure register the appointment progress service and repository", () =>
     {
         var applicationServices = new ServiceCollection();
@@ -7660,6 +7836,33 @@ static async Task<string?> FailureCodeAsync(Func<Task> action)
     {
         return ex.Code;
     }
+}
+
+static AppointmentProgressController CreateProgressController(
+    ProgressFixture fixture, CurrentUser user, StaffRole? staffRole = StaffRole.SpaStaff) =>
+    new(fixture.CreateService(staffRole))
+    {
+        ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(
+                [
+                    new Claim(TokenClaims.UserId, user.UserId.ToString()),
+                    new Claim(TokenClaims.Role, user.Role.ToString()),
+                ], "test")),
+            },
+        },
+    };
+
+static async Task<(int Status, string? Code, string ContentType)> ProgressResponseAsync(Func<Task> call)
+{
+    var (status, body, contentType) = await RunMiddlewareAsync(async _ => await call());
+    if (string.IsNullOrEmpty(body)) return (status, null, contentType);
+
+    using var document = JsonDocument.Parse(body);
+    var code = document.RootElement.TryGetProperty("code", out var value) ? value.GetString() : null;
+    return (status, code, contentType);
 }
 
 static SpaAppointment OldSpaAppointment(AppointmentStatus status, TimeSpan startsIn)
