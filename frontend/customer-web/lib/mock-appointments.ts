@@ -19,9 +19,6 @@ export const FOREIGN_APPOINTMENT_ID = "f0000000-0000-4000-8000-0000000000ff";
 export const WINDOW_CLOSED_APPOINTMENT_ID = "6e2b9d84-0000-4000-8000-000000000013";
 
 let appointments: AppointmentDetail[] = MOCK_APPOINTMENTS.map((appointment) => ({ ...appointment }));
-export function getMockAppointmentsSnapshot(): AppointmentDetail[] {
-  return appointments;
-}
 
 function wait() {
   return new Promise<void>((resolve) => setTimeout(resolve, MOCK_DELAY_MS));

@@ -32,6 +32,12 @@ Kiểm tra trước khi tạo PR: `npm run lint` và `npm run build`.
 - Refresh token lưu trong cookie httpOnly `ps_rt` do route handler phiên đặt (thời hạn 7 ngày).
 - Route handler gọi backend bằng `NEXT_PUBLIC_API_BASE_URL` và chuyển tiếp `X-Forwarded-For` để backend ghi nhận IP thật của người dùng.
 
+## Thanh toán trực tuyến
+
+- Chỉ hỗ trợ cổng VNPAY (sandbox). Web gọi `POST /payments/{paymentId}/online` rồi chuyển hẳn sang `paymentUrl`.
+- Cổng đưa khách về địa chỉ cố định `/thanh-toan/ket-qua`: backend phải đặt `Payment__Vnpay__ReturnUrl` thành `<địa chỉ web khách hàng>/thanh-toan/ket-qua` (cục bộ: `http://localhost:3000/thanh-toan/ket-qua`). Trang này tra lịch hẹn đã ghi nhớ theo mã giao dịch rồi chuyển về `/lich-hen/{appointmentId}?payment=return`.
+- Kết quả thanh toán chỉ lấy từ `GET /appointments/{id}/payments` (webhook của cổng quyết định), không dựa vào việc khách quay về.
+
 ## Gọi API và hiển thị lỗi
 
 - Mọi lời gọi backend dùng `apiClient` (ngoại lệ: route handler phiên gọi trực tiếp sang backend bằng fetch); lỗi trả ra luôn là `ApiError` (`kind`, `status`, `code`, `title`, `detail`).
