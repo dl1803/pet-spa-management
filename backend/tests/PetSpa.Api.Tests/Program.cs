@@ -7382,6 +7382,7 @@ var tests = new (string Name, Func<Task> Run)[]
                     && payment.ConfirmedByUserId == user.UserId,
                 "The method, received amount, time and confirmer must be recorded.");
             Check(guard.LockedPaymentId == payment.PaymentId, "The Payment row must be locked.");
+            Check(guard.LockedAppointmentId == payment.AppointmentId, "The Appointment row must be locked.");
             Check(events.SequenceEqual(new[] { "run", "lock-payment", "find-for-update", "save" }),
                 $"The payment must be read inside the transaction after the lock and saved once, got: {string.Join(",", events)}.");
         }
@@ -7427,6 +7428,10 @@ var tests = new (string Name, Func<Task> Run)[]
         var online = await FailureCodeAsync(() => service.RecordCounterAsync(manager, payment.PaymentId, PaymentMethod.Online, 150000m));
         Check(online == ErrorCodes.ValidationError && payment.Status == PaymentStatus.Unpaid && repo.SaveCalls == 0,
             "The Online method must be rejected with VALIDATION_ERROR without changing anything.");
+
+        var undefined = await FailureCodeAsync(() => service.RecordCounterAsync(manager, payment.PaymentId, (PaymentMethod)99, 150000m));
+        Check(undefined == ErrorCodes.ValidationError && payment.Status == PaymentStatus.Unpaid && repo.SaveCalls == 0,
+            "An undefined method enum must be rejected with VALIDATION_ERROR without changing anything.");
 
         var missing = await FailureCodeAsync(() => service.RecordCounterAsync(manager, Guid.NewGuid(), PaymentMethod.Cash, 150000m));
         Check(missing == ErrorCodes.NotFound && repo.SaveCalls == 0,
@@ -7575,6 +7580,24 @@ var tests = new (string Name, Func<Task> Run)[]
         options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
         Check(JsonSerializer.Serialize(result!.Value, options) == "{\"status\":\"Paid\"}",
             "The response must be { status } in camelCase.");
+    }),
+    ("PaymentService.RecordCounterAsync ném InvalidOperationException khi thiếu dependencies", async () =>
+    {
+        var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+        var onlineOnlyService = new PaymentService(
+            new TestPaymentRepo(null), new TestPaymentGateway(), new TestConcurrencyGuard());
+
+        var threw = false;
+        try
+        {
+            await onlineOnlyService.RecordCounterAsync(manager, Guid.NewGuid(), PaymentMethod.Cash, 100000m);
+        }
+        catch (InvalidOperationException)
+        {
+            threw = true;
+        }
+
+        Check(threw, "Calling RecordCounterAsync without staffRoles and costConfirmations must throw InvalidOperationException.");
     }),
 };
 

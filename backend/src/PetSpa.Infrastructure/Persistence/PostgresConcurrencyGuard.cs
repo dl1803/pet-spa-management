@@ -56,7 +56,7 @@ public sealed class PostgresConcurrencyGuard(AppDbContext db) : IConcurrencyGuar
     {
         RequireTransaction();
         await db.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT 1 FROM \"Payment\" WHERE \"PaymentId\" = {paymentId} FOR UPDATE", ct);
+            $"SELECT 1 FROM \"Payment\" p JOIN \"Appointment\" a ON p.\"AppointmentId\" = a.\"AppointmentId\" WHERE p.\"PaymentId\" = {paymentId} FOR UPDATE", ct);
     }
 
     private async Task LockAsync(int kind, int key, CancellationToken ct)

@@ -29,9 +29,20 @@ public sealed class PaymentService(
     IPaymentRepository payments,
     IPaymentGateway gateway,
     IConcurrencyGuard concurrency,
-    IStaffRoleReader staffRoles = null!,
-    ICostConfirmationRepository costConfirmations = null!)
+    IStaffRoleReader staffRoles,
+    ICostConfirmationRepository costConfirmations)
 {
+    /// <summary>
+    /// Constructor overload phục vụ kiểm thử cho các luồng thanh toán trực tuyến không dùng tới quầy.
+    /// </summary>
+    public PaymentService(
+        IPaymentRepository payments,
+        IPaymentGateway gateway,
+        IConcurrencyGuard concurrency)
+        : this(payments, gateway, concurrency, null!, null!)
+    {
+    }
+
     public async Task<PaymentStatus> RecordCounterAsync(
         CurrentUser user,
         Guid paymentId,
@@ -39,9 +50,12 @@ public sealed class PaymentService(
         decimal receivedAmount,
         CancellationToken ct = default)
     {
+        if (staffRoles is null || costConfirmations is null)
+            throw new InvalidOperationException("PaymentService cần được khởi tạo với IStaffRoleReader và ICostConfirmationRepository để thực hiện ghi nhận thanh toán tại quầy.");
+
         await EnsureReceptionistOrManagerAsync(user, ct);
 
-        if (method == PaymentMethod.Online)
+        if (method is not (PaymentMethod.Cash or PaymentMethod.BankQR))
             throw new BusinessException(ErrorCodes.ValidationError, "Thanh toán tại quầy chỉ nhận Cash hoặc BankQR.");
 
         return await concurrency.RunAsync(async () =>
@@ -51,6 +65,8 @@ public sealed class PaymentService(
             var target = await payments.FindForUpdateAsync(paymentId, ct)
                 ?? throw new BusinessException(ErrorCodes.NotFound);
             var payment = target.Payment;
+
+            await concurrency.LockAppointmentAsync(payment.AppointmentId, ct);
 
             if (payment.Kind == PaymentKind.Stay
                 && await costConfirmations.HasPendingAsync(payment.AppointmentId, ct))

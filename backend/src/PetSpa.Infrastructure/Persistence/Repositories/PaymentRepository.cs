@@ -57,7 +57,8 @@ public sealed class PaymentRepository(AppDbContext db) : IPaymentRepository
             select p;
 
         var total = await query.CountAsync(ct);
-        var items = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        var skip = Math.Max(0, (page - 1) * pageSize);
+        var items = await query.Skip(skip).Take(Math.Max(1, pageSize)).ToListAsync(ct);
 
         return new PagedResult<Payment>(items, page, pageSize, total);
     }
