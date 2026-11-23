@@ -10,5 +10,13 @@ public sealed class AppointmentProgressRepository(AppDbContext db) : IAppointmen
         db.Set<AppointmentService>()
             .FirstOrDefaultAsync(s => s.AppointmentId == appointmentId && s.ServiceId == serviceId, ct);
 
+    public async Task<IReadOnlyList<AppointmentService>> ListServiceLinesAsync(Guid appointmentId, CancellationToken ct = default)
+    {
+        return await db.Set<AppointmentService>()
+            .AsNoTracking()
+            .Where(s => s.AppointmentId == appointmentId)
+            .ToListAsync(ct);
+    }
+
     public Task SaveChangesAsync(CancellationToken ct = default) => db.SaveChangesAsync(ct);
 }

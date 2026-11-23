@@ -7456,6 +7456,182 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(updateResponse.Status == 200 && updated.Line.IsDone,
             "A valid update by the manager must still succeed.");
     }),
+    ("AppointmentProgressService.CompleteAsync completes an in-progress spa appointment, releases the staff holds and forms the unpaid spa payment for the assigned spa staff and the manager", async () =>
+    {
+        foreach (var asManager in new[] { false, true })
+        {
+            var f = new ProgressFixture(AppointmentStatus.InProgress);
+            f.MakeReadyToComplete();
+            if (asManager) f.Base.Appointments.AssignedResult = false;
+            var user = asManager ? f.ManagerUser : f.Base.SpaStaffUser;
+
+            var status = await f.CreateService().CompleteAsync(user, f.Spa.AppointmentId);
+
+            Check(status == AppointmentStatus.Completed && f.Spa.Status == AppointmentStatus.Completed,
+                $"asManager={asManager}: the appointment must be completed.");
+            Check(f.Base.Guard.RunCalls == 1 && f.Base.Guard.LockedAppointmentId == f.Spa.AppointmentId,
+                $"asManager={asManager}: the write must run in one transaction after locking the appointment.");
+            Check(f.Assignments.SaveCalls == 1, $"asManager={asManager}: the appointment must be saved once.");
+            Check(f.Assignments.Added.Count == 1 && f.Assignments.Added.All(a => !a.IsHolding),
+                $"asManager={asManager}: the staff holds must be released.");
+
+            var payment = f.Payments.AddedPayments.SingleOrDefault();
+            Check(payment is not null
+                  && payment.PaymentId != Guid.Empty
+                  && payment.AppointmentId == f.Spa.AppointmentId
+                  && payment.Kind == PaymentKind.Spa
+                  && payment.Amount == 150000m
+                  && payment.Status == PaymentStatus.Unpaid
+                  && payment.Method is null
+                  && payment.PaidAt is null
+                  && payment.ConfirmedByUserId is null,
+                $"asManager={asManager}: exactly one unpaid spa payment must be formed with the computed amount.");
+        }
+    }),
+    ("AppointmentProgressService.CompleteAsync prices the payment from the current size group and every service of the appointment", async () =>
+    {
+        foreach (var (sizeGroup, expected) in new[] { (SizeGroup.Small, 100000m), (SizeGroup.Medium, 150000m) })
+        {
+            var f = new ProgressFixture(AppointmentStatus.InProgress);
+            f.MakeReadyToComplete(sizeGroup);
+
+            await f.CreateService().CompleteAsync(f.Base.SpaStaffUser, f.Spa.AppointmentId);
+
+            Check(f.Payments.AddedPayments.Single().Amount == expected,
+                $"{sizeGroup}: the payment amount must follow the size group of the appointment.");
+        }
+
+        var multi = new ProgressFixture(AppointmentStatus.InProgress);
+        multi.MakeReadyToComplete();
+        var secondServiceId = Guid.NewGuid();
+        multi.Progress.Lines.Add(new PetSpa.Domain.Entities.AppointmentService
+        {
+            AppointmentId = multi.Spa.AppointmentId,
+            ServiceId = secondServiceId,
+            IsDone = true,
+        });
+        multi.Assignments.AmountInput = new SpaAmountInput(
+            Species.Cat,
+            [multi.ServiceId, secondServiceId],
+            [
+                new ServicePricing { ServiceId = multi.ServiceId, Species = Species.Cat, SizeGroup = SizeGroup.Medium, Price = 150000m },
+                new ServicePricing { ServiceId = secondServiceId, Species = Species.Cat, SizeGroup = SizeGroup.Medium, Price = 50000m },
+            ]);
+
+        await multi.CreateService().CompleteAsync(multi.Base.SpaStaffUser, multi.Spa.AppointmentId);
+
+        Check(multi.Payments.AddedPayments.Single().Amount == 200000m,
+            "The payment amount must add up the price of every service of the appointment.");
+    }),
+    ("AppointmentProgressService.CompleteAsync refuses an unmet condition without changing the appointment, the staff holds or the payments", async () =>
+    {
+        var now = DateTimeOffset.UtcNow;
+        var cases = new (string Name, Action<ProgressFixture> Arrange, string Expected)[]
+        {
+            ("a service is not done", f => { f.Line.IsDone = false; f.Line.DoneAt = null; }, ErrorCodes.ServicesIncomplete),
+            ("one of two services is not done", f => f.Progress.Lines.Add(new PetSpa.Domain.Entities.AppointmentService
+            {
+                AppointmentId = f.Spa.AppointmentId,
+                ServiceId = Guid.NewGuid(),
+                IsDone = false,
+            }), ErrorCodes.ServicesIncomplete),
+            ("the appointment has no service line", f => f.Progress.Lines.Clear(), ErrorCodes.ServicesIncomplete),
+            ("no after photo", f => f.Base.Photos.Existing.Clear(), ErrorCodes.PhotoRequired),
+            ("only a before photo", f =>
+            {
+                f.Base.Photos.Existing.Clear();
+                f.Base.AddPhoto(PhotoKind.Before, now.AddHours(-1));
+            }, ErrorCodes.PhotoRequired),
+            ("an after photo that belongs to another appointment", f =>
+            {
+                f.Base.Photos.Existing.Clear();
+                f.Base.AddPhoto(PhotoKind.After, now.AddMinutes(-5), Guid.NewGuid(), Guid.NewGuid());
+            }, ErrorCodes.PhotoRequired),
+            ("a cost confirmation is pending", f => f.CostConfirmations.Add(new CostConfirmation
+            {
+                ConfirmationId = Guid.NewGuid(),
+                AppointmentId = f.Spa.AppointmentId,
+                Status = ConfirmationStatus.Pending,
+            }), ErrorCodes.CostConfirmationPending),
+            ("a pending cost confirmation wins over incomplete services", f =>
+            {
+                f.CostConfirmations.Add(new CostConfirmation
+                {
+                    ConfirmationId = Guid.NewGuid(),
+                    AppointmentId = f.Spa.AppointmentId,
+                    Status = ConfirmationStatus.Pending,
+                });
+                f.Line.IsDone = false;
+            }, ErrorCodes.CostConfirmationPending),
+            ("incomplete services win over a missing after photo", f =>
+            {
+                f.Line.IsDone = false;
+                f.Base.Photos.Existing.Clear();
+            }, ErrorCodes.ServicesIncomplete),
+            ("a price is missing", f => f.Assignments.AmountInput = new SpaAmountInput(Species.Cat, [f.ServiceId], []), ErrorCodes.ValidationError),
+            ("the amount input is missing", f => f.Assignments.AmountInput = null, ErrorCodes.NotFound),
+        };
+
+        foreach (var c in cases)
+        {
+            var f = new ProgressFixture(AppointmentStatus.InProgress);
+            f.MakeReadyToComplete();
+            c.Arrange(f);
+
+            var code = await FailureCodeAsync(() => f.CreateService().CompleteAsync(f.Base.SpaStaffUser, f.Spa.AppointmentId));
+
+            Check(code == c.Expected, $"{c.Name}: expected {c.Expected} but got {code ?? "success"}.");
+            Check(f.Spa.Status == AppointmentStatus.InProgress, $"{c.Name}: the appointment status must not change.");
+            Check(f.Assignments.SaveCalls == 0 && f.Payments.AddedPayments.Count == 0,
+                $"{c.Name}: nothing may be saved and no payment may be formed.");
+            Check(f.Assignments.Added.All(a => a.IsHolding), $"{c.Name}: the staff holds must stay.");
+        }
+
+        foreach (var status in new[]
+        {
+            AppointmentStatus.Pending, AppointmentStatus.Confirmed, AppointmentStatus.Received,
+            AppointmentStatus.Completed, AppointmentStatus.Cancelled,
+        })
+        {
+            var f = new ProgressFixture(status);
+            f.MakeReadyToComplete();
+
+            var code = await FailureCodeAsync(() => f.CreateService().CompleteAsync(f.Base.SpaStaffUser, f.Spa.AppointmentId));
+
+            Check(code == ErrorCodes.InvalidTransition, $"{status}: expected INVALID_TRANSITION but got {code ?? "success"}.");
+            Check(f.Spa.Status == status && f.Assignments.SaveCalls == 0 && f.Payments.AddedPayments.Count == 0
+                  && f.Assignments.Added.All(a => a.IsHolding),
+                $"{status}: nothing may change.");
+        }
+    }),
+    ("AppointmentProgressService.CompleteAsync rejects callers outside the allowed scope before taking any lock or writing", async () =>
+    {
+        var cases = new (string Name, Action<ProgressFixture> Arrange, Func<ProgressFixture, CurrentUser> User, StaffRole? Role, string Expected)[]
+        {
+            ("customer", _ => { }, _ => new CurrentUser(Guid.NewGuid(), UserRole.Customer), null, ErrorCodes.Forbidden),
+            ("receptionist", _ => { }, f => f.Base.SpaStaffUser, StaffRole.Receptionist, ErrorCodes.Forbidden),
+            ("staff without a profile", _ => { }, f => f.Base.SpaStaffUser, null, ErrorCodes.Forbidden),
+            ("spa staff not assigned", f => f.Base.Appointments.AssignedResult = false, f => f.Base.SpaStaffUser, StaffRole.SpaStaff, ErrorCodes.Forbidden),
+            ("appointment not found", f => f.Base.Appointments.DetailResult = null, f => f.ManagerUser, null, ErrorCodes.NotFound),
+            ("hotel appointment", f => f.Base.Appointments.DetailResult = new AppointmentDetailData(
+                new HotelAppointment { AppointmentId = Guid.NewGuid() }, null, "Milo", [], []), f => f.ManagerUser, null, ErrorCodes.NotFound),
+        };
+
+        foreach (var c in cases)
+        {
+            var f = new ProgressFixture(AppointmentStatus.InProgress);
+            f.MakeReadyToComplete();
+            c.Arrange(f);
+
+            var code = await FailureCodeAsync(() => f.CreateService(c.Role).CompleteAsync(c.User(f), f.Spa.AppointmentId));
+
+            Check(code == c.Expected, $"{c.Name}: expected {c.Expected} but got {code ?? "success"}.");
+            Check(f.Base.Guard.RunCalls == 0 && f.Assignments.SaveCalls == 0 && f.Payments.AddedPayments.Count == 0,
+                $"{c.Name}: no transaction and no write may happen.");
+            Check(f.Spa.Status == AppointmentStatus.InProgress && f.Assignments.Added.All(a => a.IsHolding),
+                $"{c.Name}: nothing may change.");
+        }
+    }),
     ("AddApplication and AddInfrastructure register the appointment progress service and repository", () =>
     {
         var applicationServices = new ServiceCollection();
@@ -9011,6 +9187,8 @@ sealed class InterventionFixture
 sealed class TestPaymentRepo(PaymentWithOwner? found, PaymentCallbackTarget? callbackTarget = null) : IPaymentRepository
 {
     public List<PaymentTransaction> Added { get; } = [];
+    public List<Payment> AddedPayments { get; } = [];
+    public void Add(Payment payment) => AddedPayments.Add(payment);
     public List<string> Events { get; init; } = [];
     public int SaveCalls { get; private set; }
     public PaymentForUpdate? ForUpdate { get; init; }
@@ -9405,6 +9583,11 @@ sealed class TestAppointmentProgressRepo : IAppointmentProgressRepository
         Guid appointmentId, Guid serviceId, CancellationToken ct = default) =>
         Task.FromResult(Lines.FirstOrDefault(l => l.AppointmentId == appointmentId && l.ServiceId == serviceId));
 
+    public Task<IReadOnlyList<PetSpa.Domain.Entities.AppointmentService>> ListServiceLinesAsync(
+        Guid appointmentId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<PetSpa.Domain.Entities.AppointmentService>>(
+            Lines.Where(l => l.AppointmentId == appointmentId).ToList());
+
     public Task SaveChangesAsync(CancellationToken ct = default)
     {
         SaveCalls++;
@@ -9418,6 +9601,7 @@ sealed class ProgressFixture
     public TestAssignmentRepo Assignments { get; }
     public TestAppointmentProgressRepo Progress { get; } = new();
     public TestCostConfirmationRepo CostConfirmations { get; } = new();
+    public TestPaymentRepo Payments { get; } = new(null);
     public Guid ServiceId { get; } = Guid.NewGuid();
     public CurrentUser ManagerUser { get; } = new(Guid.NewGuid(), UserRole.Manager);
     public SpaAppointment Spa => Base.Spa;
@@ -9432,5 +9616,26 @@ sealed class ProgressFixture
     }
 
     public AppointmentProgressService CreateService(StaffRole? staffRole = StaffRole.SpaStaff) =>
-        new(Base.Appointments, Assignments, Base.Photos, Progress, CostConfirmations, Base.Guard, new TestStaffRoleReader(staffRole));
+        new(Base.Appointments, Assignments, Base.Photos, Progress, CostConfirmations, Payments, Base.Guard, new TestStaffRoleReader(staffRole));
+
+    public void MakeReadyToComplete(SizeGroup sizeGroup = SizeGroup.Medium)
+    {
+        Spa.SizeGroup = sizeGroup;
+        Line.IsDone = true;
+        Line.DoneAt = DateTimeOffset.UtcNow;
+        Base.AddPhoto(PhotoKind.After, DateTimeOffset.UtcNow.AddMinutes(-5));
+        Assignments.Added.Add(new AppointmentStaff
+        {
+            AppointmentId = Spa.AppointmentId,
+            StaffId = Guid.NewGuid(),
+            IsHolding = true,
+        });
+        Assignments.AmountInput = new SpaAmountInput(
+            Species.Cat,
+            [ServiceId],
+            [
+                new ServicePricing { ServiceId = ServiceId, Species = Species.Cat, SizeGroup = SizeGroup.Small, Price = 100000m },
+                new ServicePricing { ServiceId = ServiceId, Species = Species.Cat, SizeGroup = SizeGroup.Medium, Price = 150000m },
+            ]);
+    }
 }

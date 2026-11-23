@@ -63,6 +63,8 @@ public sealed class PaymentRepository(AppDbContext db) : IPaymentRepository
         return new PagedResult<Payment>(items, page, pageSize, total);
     }
 
+    public void Add(Payment payment) => db.Set<Payment>().Add(payment);
+
     public async Task AddTransactionAsync(PaymentTransaction transaction, CancellationToken ct = default)
     {
         db.Set<PaymentTransaction>().Add(transaction);
