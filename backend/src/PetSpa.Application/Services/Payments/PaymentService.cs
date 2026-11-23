@@ -25,8 +25,62 @@ public sealed record PaymentCallbackResult(
     decimal? ExpectedAmount = null,
     decimal? ConfirmedAmount = null);
 
-public sealed class PaymentService(IPaymentRepository payments, IPaymentGateway gateway, IConcurrencyGuard concurrency)
+public sealed class PaymentService(
+    IPaymentRepository payments,
+    IPaymentGateway gateway,
+    IConcurrencyGuard concurrency,
+    IStaffRoleReader staffRoles,
+    ICostConfirmationRepository costConfirmations)
 {
+    /// <summary>
+    /// Constructor overload phục vụ kiểm thử cho các luồng thanh toán trực tuyến không dùng tới quầy.
+    /// </summary>
+    public PaymentService(
+        IPaymentRepository payments,
+        IPaymentGateway gateway,
+        IConcurrencyGuard concurrency)
+        : this(payments, gateway, concurrency, null!, null!)
+    {
+    }
+
+    public async Task<PaymentStatus> RecordCounterAsync(
+        CurrentUser user,
+        Guid paymentId,
+        PaymentMethod method,
+        decimal receivedAmount,
+        CancellationToken ct = default)
+    {
+        if (staffRoles is null || costConfirmations is null)
+            throw new InvalidOperationException("PaymentService cần được khởi tạo với IStaffRoleReader và ICostConfirmationRepository để thực hiện ghi nhận thanh toán tại quầy.");
+
+        await EnsureReceptionistOrManagerAsync(user, ct);
+
+        if (method is not (PaymentMethod.Cash or PaymentMethod.BankQR))
+            throw new BusinessException(ErrorCodes.ValidationError, "Thanh toán tại quầy chỉ nhận Cash hoặc BankQR.");
+
+        return await concurrency.RunAsync(async () =>
+        {
+            await concurrency.LockPaymentAsync(paymentId, ct);
+
+            var target = await payments.FindForUpdateAsync(paymentId, ct)
+                ?? throw new BusinessException(ErrorCodes.NotFound);
+            var payment = target.Payment;
+
+            await concurrency.LockAppointmentAsync(payment.AppointmentId, ct);
+
+            if (payment.Kind == PaymentKind.Stay
+                && await costConfirmations.HasPendingAsync(payment.AppointmentId, ct))
+            {
+                throw new BusinessException(ErrorCodes.CostConfirmationPending);
+            }
+
+            payment.MarkPaid(target.AppointmentStatus, receivedAmount, method, user.UserId);
+            await payments.SaveChangesAsync(ct);
+
+            return payment.Status;
+        }, ct);
+    }
+
     public async Task<OnlinePaymentStart> StartOnlineAsync(
         CurrentUser user, Guid paymentId, PaymentGateway requestedGateway, string clientIp,
         CancellationToken ct = default)
@@ -115,6 +169,20 @@ public sealed class PaymentService(IPaymentRepository payments, IPaymentGateway 
             await payments.SaveChangesAsync(ct);
             return Outcome(PaymentCallbackStatus.Paid, transaction, payment, callback);
         }, ct);
+    }
+
+    private async Task EnsureReceptionistOrManagerAsync(CurrentUser user, CancellationToken ct)
+    {
+        if (user.Role == UserRole.Manager)
+            return;
+
+        if (user.Role == UserRole.Staff
+            && await staffRoles.GetStaffRoleAsync(user.UserId, ct) == StaffRole.Receptionist)
+        {
+            return;
+        }
+
+        throw new BusinessException(ErrorCodes.Forbidden);
     }
 
     private static void RecordCallback(

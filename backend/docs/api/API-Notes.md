@@ -86,7 +86,7 @@
 - `weightCheck.result` (BR-23): `NEEDS_CONFIRMATION` khi nặng hơn, vượt dung sai và sang nhóm lớn hơn; `PRICE_DECREASED` khi nhẹ hơn và xuống nhóm nhỏ hơn (Suy ra); còn lại `OK`.
 - `NEEDS_CONFIRMATION`: tạo `CostConfirmation` Pending, hạn `CostConfirm.TimeoutMinutes`; lịch giữ nguyên trạng thái; chặn `/start` (spa) và `/check-in` (lưu trú) bằng 409 `COST_CONFIRMATION_PENDING`; với lịch lưu trú chặn thêm việc ghi nhận khoản `Stay` ở `POST /payments/{id}/counter` bằng 409 `COST_CONFIRMATION_PENDING` (FR-EXE-10, BR-23).
 - `POST /cost-confirmation/respond { accept }`: `true` → cập nhật hồ sơ thú cưng, lịch tiếp tục; `false` hoặc quá hạn → `Cancelled`, lý do `CostNotConfirmed`. Phản hồi sau `ExpiresAt` → 409 `COST_CONFIRMATION_EXPIRED`; không có yêu cầu Pending → 404.
-- Khi nhóm kích cỡ đổi: lịch spa giữ nguyên thời lượng, khung giờ, số nhân viên; lịch lưu trú kiểm tra chuồng đã gán còn phù hợp.
+- Khi nhóm kích cỡ đổi: lịch spa giữ nguyên thời lượng, khung giờ, số nhân viên; lịch lưu trú kiểm tra chuồng đã gán còn phù hợp. Lịch lưu trú khi `accept = true`: `POST /cost-confirmation/respond` trả thêm `cageSuitable` (Đề xuất); `false` thì QL gán chuồng khác hoặc từ chối, backend không tự đổi `CageId`.
 
 **Thực hiện spa**
 - `/start`: cần ảnh `Before` hợp lệ (ảnh gần nhất của thú cưng, tải lên trong `Photo.ValidityDays` ngày) và không chờ xác nhận chi phí → 409 `PHOTO_REQUIRED` / `COST_CONFIRMATION_PENDING`.
@@ -228,6 +228,7 @@ SA 5.1.3 và các nguồn không quy định các điểm dưới đây; `openap
 | 16 | BC 4.2 ghi lý do chọn khi “từ chối hoặc hủy (`/reject`, `/cancel`)”; SA và UC-13 cho `/reject` không body, luôn `StoreUnable`. | Theo SA: `/reject` không body. |
 | 17 | SA UC-23 và SA 5.1.3 không nêu việc chặn ghi nhận tiền lưu trú khi lịch đang chờ xác nhận chi phí mới, trong khi Requirements FR-EXE-10 và SA UC-30 yêu cầu. | Chặn `POST /payments/{id}/counter` (khoản `Stay`) bằng 409 `COST_CONFIRMATION_PENDING`. |
 | 18 | SA 5.4 không ghi lý do hủy khi `InProgress`/`InStay` và chỉ cho `Received` lý do (b), (e), trong khi `/cancel` của QL không giới hạn theo trạng thái. | QL gửi `StoreUnable` hoặc `CustomerBeyondDeadline` ở mọi trạng thái trước `Completed` (SA 5.4 cập nhật tương ứng). |
+| 19 | Requirements FR-EXE-10 yêu cầu kiểm tra chuồng đã gán khi nhóm kích cỡ đổi nhưng SA 5.1.3 không nêu kết quả được trả ở đâu. | `POST /cost-confirmation/respond` (lịch lưu trú, `accept = true`) trả thêm `cageSuitable` (bool, tùy chọn). |
 
 ## 9. Kiểm tra đã thực hiện
 

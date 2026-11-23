@@ -27,6 +27,21 @@ public sealed class PaymentsController(PaymentService paymentService, ILogger<Pa
         return Ok(OnlinePaymentCreated.From(result));
     }
 
+    [HttpPost("{id}/counter")]
+    [Authorize(Policy = AuthorizationPolicies.ReceptionistOrManager)]
+    [EndpointSummary("Lễ tân hoặc quản lý ghi nhận thanh toán tại quầy")]
+    [EndpointDescription("Chỉ lễ tân và quản lý. Body { method, receivedAmount } với method là Cash hoặc BankQR; số tiền phải trả do hệ thống xác định, client chỉ gửi số tiền thực nhận. Thành công trả { status } là Paid; lưu phương thức, số tiền thực nhận, thời điểm và người xác nhận. Thiếu hoặc sai method, receivedAmount nhận 400 VALIDATION_ERROR; không tìm thấy khoản thanh toán nhận 404 NOT_FOUND; sai thời điểm theo BR-07 hoặc khoản đã thanh toán nhận 409 PAYMENT_NOT_DUE; số tiền nhận thấp hơn số tiền phải trả nhận 409 AMOUNT_MISMATCH; khoản lưu trú khi lịch đang chờ khách xác nhận chi phí mới nhận 409 COST_CONFIRMATION_PENDING.")]
+    public async Task<IActionResult> RecordCounter(Guid id, [FromBody] CounterPaymentRequest? request, CancellationToken ct)
+    {
+        if (request is null)
+            throw new BusinessException(ErrorCodes.ValidationError, "Dữ liệu yêu cầu không được để trống.");
+
+        var status = await paymentService.RecordCounterAsync(
+            User.ToCurrentUser(), id, request.Method!.Value, request.ReceivedAmount!.Value, ct);
+
+        return Ok(new PaymentStatusResponse(status));
+    }
+
     [HttpGet("ipn/vnpay")]
     [AllowAnonymous]
     [EndpointSummary("Webhook VNPAY (IPN)")]
