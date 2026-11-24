@@ -1,5 +1,7 @@
+using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
+using PetSpa.Application.Services.Booking;
 using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
 using PetSpa.Domain.Exceptions;
@@ -30,7 +32,8 @@ public sealed class PaymentService(
     IPaymentGateway gateway,
     IConcurrencyGuard concurrency,
     IStaffRoleReader staffRoles,
-    ICostConfirmationRepository costConfirmations)
+    ICostConfirmationRepository costConfirmations,
+    AppointmentQueryService appointmentQueries = null!)
 {
     /// <summary>
     /// Constructor overload phục vụ kiểm thử cho các luồng thanh toán trực tuyến không dùng tới quầy.
@@ -79,6 +82,26 @@ public sealed class PaymentService(
 
             return payment.Status;
         }, ct);
+    }
+
+    public async Task<IReadOnlyList<Payment>> ListByAppointmentAsync(
+        CurrentUser user, Guid appointmentId, CancellationToken ct = default)
+    {
+        if (appointmentQueries is null)
+            throw new InvalidOperationException("PaymentService cần AppointmentQueryService để kiểm tra quyền truy cập lịch hẹn.");
+
+        await appointmentQueries.GetAsync(user, appointmentId, ct);
+
+        return await payments.ListByAppointmentAsync(appointmentId, ct);
+    }
+
+    public async Task<PagedResult<Payment>> ListAsync(
+        CurrentUser user, PaymentStatus? status, int page, int pageSize, CancellationToken ct = default)
+    {
+        if (user.Role != UserRole.Manager)
+            throw new BusinessException(ErrorCodes.Forbidden);
+
+        return await payments.ListAsync(status, page, pageSize, ct);
     }
 
     public async Task<OnlinePaymentStart> StartOnlineAsync(

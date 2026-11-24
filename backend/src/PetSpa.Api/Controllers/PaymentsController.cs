@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using PetSpa.Api.Dtos;
 using PetSpa.Api.Security;
+using PetSpa.Application.Common;
 using PetSpa.Application.Services.Payments;
 using PetSpa.Domain.Exceptions;
 
@@ -40,6 +41,29 @@ public sealed class PaymentsController(PaymentService paymentService, ILogger<Pa
             User.ToCurrentUser(), id, request.Method!.Value, request.ReceivedAmount!.Value, ct);
 
         return Ok(new PaymentStatusResponse(status));
+    }
+
+    [HttpGet("~/api/v1/appointments/{id}/payments")]
+    [Authorize]
+    [EndpointSummary("Xem các khoản thanh toán của một lịch hẹn theo phạm vi vai trò")]
+    [EndpointDescription("Khách hàng chỉ xem lịch của mình, nhân viên spa chỉ xem lịch spa được phân công cho mình, lễ tân và quản lý xem toàn cửa hàng. Trả mảng [{ paymentId, appointmentId, kind, amount, status, method, receivedAmount, paidAt }], không phân trang; lịch spa có tối đa 1 khoản (Spa), lịch lưu trú tối đa 2 khoản (Stay, LateFee); chưa có khoản nào trả mảng rỗng. Ngoài phạm vi trả 403 FORBIDDEN và không trả thông tin; không tìm thấy lịch hẹn trả 404 NOT_FOUND.")]
+    public async Task<IActionResult> ListByAppointment(Guid id, CancellationToken ct)
+    {
+        var items = await paymentService.ListByAppointmentAsync(User.ToCurrentUser(), id, ct);
+
+        return Ok(items.Select(PaymentResponse.From).ToList());
+    }
+
+    [HttpGet]
+    [Authorize(Policy = AuthorizationPolicies.Manager)]
+    [EndpointSummary("Quản lý theo dõi tình hình thanh toán toàn cửa hàng")]
+    [EndpointDescription("Chỉ quản lý. Lọc tùy chọn theo status (Unpaid, Paid); lịch hẹn tạo mới nhất trước. Trả { items, page, pageSize, total }. Mặc định page = 1, pageSize = 20 (tối đa 100); status, page hoặc pageSize không hợp lệ trả 400 VALIDATION_ERROR.")]
+    public async Task<IActionResult> List([FromQuery] ListPaymentsQuery query, CancellationToken ct)
+    {
+        var result = await paymentService.ListAsync(User.ToCurrentUser(), query.Status, query.Page, query.PageSize, ct);
+        var items = result.Items.Select(PaymentResponse.From).ToList();
+
+        return Ok(new PagedResult<PaymentResponse>(items, result.Page, result.PageSize, result.Total));
     }
 
     [HttpGet("ipn/vnpay")]

@@ -25,7 +25,8 @@ public sealed class CheckInService(
     IHotelAssignmentRepository hotelAssignments,
     IHotelCatalogRepository hotelCatalog,
     ShopTimeZone shopTimeZone,
-    ICostConfirmationRepository costConfirmations)
+    ICostConfirmationRepository costConfirmations,
+    IPaymentRepository payments = null!)
 {
     private const int EarlyCheckInWindowMinutes = 60;
 
@@ -89,6 +90,25 @@ public sealed class CheckInService(
 
             return weightCheck;
         }, ct);
+    }
+
+    public async Task EnsureHotelCheckInCostAndPaymentAsync(HotelAppointment stay, CancellationToken ct = default)
+    {
+        if (payments is null)
+            throw new InvalidOperationException("CheckInService cần IPaymentRepository để kiểm tra thanh toán lưu trú.");
+
+        if (stay.Status != AppointmentStatus.Confirmed)
+            throw new BusinessException(ErrorCodes.InvalidTransition);
+
+        if (stay.ActualWeightKg is null)
+            throw new BusinessException(ErrorCodes.InvalidTransition, "Chưa đối chiếu cân nặng thực tế của thú cưng.");
+
+        if (await costConfirmations.HasPendingAsync(stay.AppointmentId, ct))
+            throw new BusinessException(ErrorCodes.CostConfirmationPending);
+
+        var stayPayments = await payments.ListByAppointmentAsync(stay.AppointmentId, ct);
+        if (!stayPayments.Any(p => p.Kind == PaymentKind.Stay && p.Status == PaymentStatus.Paid))
+            throw new BusinessException(ErrorCodes.PaymentNotDue);
     }
 
     private async Task<WeightCheckOutcome> RecordWeightAsync(
