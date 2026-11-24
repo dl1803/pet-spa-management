@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ToastProvider } from "../components/feedback/toast.tsx";
 import { ApiError } from "../lib/api/errors.ts";
-import { AfterPhotoCard } from "../features/service-execution/components/photo-cards.tsx";
+import { AfterPhotoCard, BeforePhotoCard } from "../features/service-execution/components/photo-cards.tsx";
 import { CompleteAction } from "../features/service-execution/components/complete-action.tsx";
 import { ExecutionWorkspace } from "../features/service-execution/components/execution-workspace.tsx";
 import { ServicesCard } from "../features/service-execution/components/services-card.tsx";
-import { COMPLETE_BLOCKED_REASON, getCompleteFeedback } from "../features/service-execution/execution.ts";
+import { COMPLETE_BLOCKED_REASON, START_BLOCKED_NO_PHOTO, getCompleteFeedback, getStartFeedback } from "../features/service-execution/execution.ts";
 import { MOCK_APPOINTMENT_IDS, createMockCompletedExecutions, createMockExecutions, findMockExecution } from "../features/service-execution/mock-data.ts";
 import { MOCK_WORK_HISTORY } from "../features/work-history/mock-data.ts";
 
@@ -21,7 +22,11 @@ const liveById = (id) => findMockExecution(createMockExecutions(new Date()), id)
 const hasDisabledAttribute = (html) => /\sdisabled=""/.test(html);
 const render = (data) =>
   renderToStaticMarkup(
-    React.createElement(ToastProvider, null, React.createElement(ExecutionWorkspace, { initial: data, todayKey: TODAY, onCompleted: () => {} })),
+    React.createElement(
+      QueryClientProvider,
+      { client: new QueryClient() },
+      React.createElement(ToastProvider, null, React.createElement(ExecutionWorkspace, { data, todayKey: TODAY, onCompleted: () => {} })),
+    ),
   );
 const photo = (kind, uploadedAt, photoId = `p-${kind}-${uploadedAt}`) => ({ photoId, kind, url: "blob:x", uploadedAt });
 
@@ -210,4 +215,76 @@ test("màn: nội dung nhập từ dữ liệu được escape", () => {
   const html = render({ ...base, pet: { ...base.pet, notes: "<script>alert(1)</script>" } });
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /&lt;script&gt;/);
+});
+
+const http = (status, code, detail = "Chi tiết") => new ApiError({ kind: "http", status, code, title: "Lỗi", detail });
+const renderServices = (data, props = {}) =>
+  renderToStaticMarkup(
+    React.createElement(ServicesCard, { data, completeFeedback: null, onStart: () => {}, onMarkDone: () => {}, onComplete: () => {}, ...props }),
+  );
+const buttonOf = (html, label) => html.match(new RegExp(`<button[^>]*>(?:(?!</button>)[\\s\\S])*${label}[\\s\\S]*?</button>`))?.[0] ?? "";
+
+test("ảnh trước chăm sóc: chỉ tô viền khi highlighted", () => {
+  const renderCard = (highlighted) =>
+    renderToStaticMarkup(
+      React.createElement(BeforePhotoCard, { photo: null, petName: "Lu", todayKey: TODAY, canUpload: true, onUpload: () => {}, highlighted }),
+    );
+  assert.match(renderCard(true), /^<div class="rounded-2xl ring-2 ring-danger">/);
+  assert.doesNotMatch(renderCard(false), /ring-danger/);
+  assert.doesNotMatch(renderCard(undefined), /ring-danger/);
+});
+
+test("thẻ ảnh: đang tải hiện thanh tiến trình, lỗi tải hiện tại chỗ, đang bận thì khóa nút chọn ảnh", () => {
+  const props = { photo: null, petName: "Lu", todayKey: TODAY, canUpload: true, onUpload: () => {} };
+  const idle = renderToStaticMarkup(React.createElement(BeforePhotoCard, props));
+  assert.doesNotMatch(idle, /role="progressbar"/);
+  assert.equal(hasDisabledAttribute(buttonOf(idle, "Tải ảnh lên")), false);
+
+  const uploading = renderToStaticMarkup(React.createElement(BeforePhotoCard, { ...props, uploading: { percent: 45 }, disabled: true }));
+  assert.match(uploading, /role="progressbar"[^>]*aria-valuenow="45"/);
+  assert.match(uploading, /width:45%/);
+  assert.match(uploading, /Đang tải ảnh lên… 45%/);
+  assert.equal(hasDisabledAttribute(buttonOf(uploading, "Tải ảnh lên")), true);
+
+  const failed = renderToStaticMarkup(React.createElement(AfterPhotoCard, { ...props, uploadError: "Chỉ nhận tệp ảnh JPEG, PNG hoặc WebP." }));
+  assert.match(failed, /Chỉ nhận tệp ảnh JPEG, PNG hoặc WebP\./);
+  assert.match(failed, /Chụp ảnh sau khi xong mọi dịch vụ/);
+});
+
+test("thẻ Dịch vụ: 409 khi bắt đầu hiện lý do dưới nút (role alert), lỗi khác hiện ErrorAlert", () => {
+  const ready = byId(MOCK_APPOINTMENT_IDS.ready);
+  const reason = renderServices(ready, { startFeedback: getStartFeedback(http(409, "PHOTO_REQUIRED")) });
+  assert.match(reason, /<ul id="start-blockers" role="alert"[^>]*>[\s\S]*?Cần ảnh trước chăm sóc hợp lệ\.<\/li>/);
+  assert.equal(hasDisabledAttribute(buttonOf(reason, "Bắt đầu thực hiện")), false); // web thấy đủ điều kiện, backend đã từ chối: cho thử lại
+  assert.equal(START_BLOCKED_NO_PHOTO, "Cần ảnh trước chăm sóc hợp lệ.");
+
+  const error = renderServices(ready, { startFeedback: getStartFeedback(http(409, "INVALID_TRANSITION", "Không thể chuyển trạng thái.")) });
+  assert.match(error, /role="alert"[\s\S]*?Không thể chuyển trạng thái\./);
+  assert.doesNotMatch(error, /id="start-blockers"/);
+});
+
+test("thẻ Dịch vụ: đang bận khóa nút Bắt đầu và Đánh dấu xong, đang gửi hiện chữ đang xử lý, vẫn giữ ô ghi chú", () => {
+  const ready = byId(MOCK_APPOINTMENT_IDS.ready);
+  assert.equal(hasDisabledAttribute(buttonOf(renderServices(ready), "Bắt đầu thực hiện")), false);
+  const busyStart = renderServices(ready, { busy: true });
+  assert.equal(hasDisabledAttribute(buttonOf(busyStart, "Bắt đầu thực hiện")), true);
+  const startingHtml = renderServices(ready, { busy: true, starting: true });
+  assert.match(startingHtml, /aria-busy="true"[\s\S]*?Đang bắt đầu…/);
+
+  const inProgress = byId(MOCK_APPOINTMENT_IDS.inProgress);
+  const pendingId = inProgress.appointment.services.find((service) => !service.isDone).serviceId;
+  const marking = renderServices(inProgress, { busy: true, markingServiceId: pendingId });
+  assert.match(marking, /Đang lưu…/);
+  assert.match(marking, /<textarea/);
+  assert.doesNotMatch(renderServices(inProgress), /Đang lưu…/);
+  for (const button of marking.match(/<button[^>]*>(?:(?!<\/button>)[\s\S])*?Đánh dấu xong<\/button>/g) ?? []) assert.ok(hasDisabledAttribute(button));
+  const completing = renderServices(inProgress, { busy: true, completing: true });
+  assert.match(completing, /Đang hoàn tất…/);
+});
+
+test("thẻ Dịch vụ: lỗi khi đánh dấu xong hiện tại chỗ, giữ danh sách dịch vụ", () => {
+  const html = renderServices(byId(MOCK_APPOINTMENT_IDS.inProgress), { markError: http(409, "INVALID_TRANSITION", "Không thể chuyển lịch hẹn sang trạng thái này.") });
+  assert.match(html, /role="alert"[\s\S]*?Không thể chuyển lịch hẹn sang trạng thái này\./);
+  assert.match(html, /Tắm &amp; sấy lông/);
+  assert.match(html, /<textarea/);
 });

@@ -38,6 +38,8 @@ type PhotoUploadProps = {
   title: string;
   inputId: string;
   onSelect: (file: File) => void;
+  // Đang có thao tác khác hoặc đang tải ảnh: khóa nút chọn ảnh.
+  disabled?: boolean;
 };
 
 // Chọn tệp, kiểm tra tệp rồi báo lên: dùng chung cho ô tải ảnh và nút “Đổi ảnh”.
@@ -60,12 +62,12 @@ function usePhotoPicker(inputId: string, onSelect: (file: File) => void) {
 }
 
 // SW-11 vùng 3, 4 – Ô tải ảnh: chọn hoặc chụp ảnh, kiểm tra tệp trước khi nhận (UI-Screens.md).
-export function PhotoUpload({ title, inputId, onSelect }: PhotoUploadProps) {
+export function PhotoUpload({ title, inputId, onSelect, disabled = false }: PhotoUploadProps) {
   const { inputRef, error, errorId, open, handleChange } = usePhotoPicker(inputId, onSelect);
 
   return (
     <PhotoDropZone title={title} hint="Chỉ nhận tệp ảnh">
-      <Button variant="secondary" size="sm" onClick={open} aria-describedby={error ? errorId : undefined}>
+      <Button variant="secondary" size="sm" onClick={open} disabled={disabled} aria-describedby={error ? errorId : undefined}>
         Tải ảnh lên
       </Button>
       <input
@@ -85,12 +87,22 @@ export function PhotoUpload({ title, inputId, onSelect }: PhotoUploadProps) {
 }
 
 // SW-11 vùng 3, 4 – Nút “Đổi ảnh” khi đã có ảnh và lịch còn cho tải (Đề xuất: UI-Screens chưa có). Tệp sai thì báo lỗi và giữ ảnh cũ.
-export function PhotoReplace({ label, inputId, onSelect }: { label: string; inputId: string; onSelect: (file: File) => void }) {
+export function PhotoReplace({
+  label,
+  inputId,
+  onSelect,
+  disabled = false,
+}: {
+  label: string;
+  inputId: string;
+  onSelect: (file: File) => void;
+  disabled?: boolean;
+}) {
   const { inputRef, error, errorId, open, handleChange } = usePhotoPicker(inputId, onSelect);
 
   return (
     <div className="flex flex-col items-start gap-1">
-      <Button variant="secondary" size="sm" onClick={open} aria-label={label} aria-describedby={error ? errorId : undefined}>
+      <Button variant="secondary" size="sm" onClick={open} disabled={disabled} aria-label={label} aria-describedby={error ? errorId : undefined}>
         <Icon name="camera" className="size-4" />
         Đổi ảnh
       </Button>
@@ -99,5 +111,31 @@ export function PhotoReplace({ label, inputId, onSelect }: { label: string; inpu
         <FieldError id={errorId} message={error ?? undefined} />
       </div>
     </div>
+  );
+}
+
+// SW-11 vùng 3, 4 – Thanh tiến trình khi đang tải (Design-System 4.3 PhotoUpload: `.progress`) và lỗi do backend hoặc việc thu nhỏ ảnh trả về.
+export function PhotoUploadStatus({ uploading, error }: { uploading?: { percent: number } | null; error?: string | null }) {
+  return (
+    <>
+      {uploading && (
+        <div className="flex flex-col gap-1.5">
+          <div
+            role="progressbar"
+            aria-label="Đang tải ảnh lên"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={uploading.percent}
+            className="h-1.5 overflow-hidden rounded-full bg-line-soft"
+          >
+            <span className="block h-full rounded-full bg-lagoon transition-[width]" style={{ width: `${uploading.percent}%` }} />
+          </div>
+          <span className="text-xs text-muted">{`Đang tải ảnh lên… ${uploading.percent}%`}</span>
+        </div>
+      )}
+      <div aria-live="polite">
+        <FieldError message={error ?? undefined} />
+      </div>
+    </>
   );
 }

@@ -16,6 +16,9 @@ export const PHOTO_ERROR_NOT_IMAGE = "Chỉ chấp nhận tệp ảnh.";
 // Câu mới, UI demo và SA 6.6 chưa có (Đề xuất).
 export const PHOTO_ERROR_TOO_LARGE = "Ảnh vượt quá 50 MB, vui lòng chọn ảnh nhỏ hơn.";
 
+// Câu mới, UI demo và SA 6.6 chưa có (Đề xuất): trình duyệt không giải mã được tệp ảnh nên không thu nhỏ được.
+export const PHOTO_ERROR_UNREADABLE = "Không đọc được ảnh này, vui lòng chọn ảnh khác.";
+
 export const START_BLOCKED_NO_PHOTO = "Cần ảnh trước chăm sóc hợp lệ.";
 export const START_BLOCKED_COST_PENDING = "Đang chờ khách xác nhận chi phí mới.";
 // Một câu cho cả hai điều kiện hoàn tất, dùng cho nút bị khóa và cho 409 PHOTO_REQUIRED / SERVICES_INCOMPLETE (UI-Screens SW-11 vùng 7, Conventions 5.2).
@@ -75,6 +78,22 @@ export function getCompleteFeedback(error: unknown): CompleteFeedback {
   }
   if (apiError.status === 409 && apiError.code === "SERVICES_INCOMPLETE") {
     return { kind: "reason", reason: COMPLETE_BLOCKED_REASON, highlightAfterPhoto: false };
+  }
+  return { kind: "error", error: apiError };
+}
+
+// Cách màn hiển thị phản hồi lỗi của `POST /appointments/{id}/start` (openapi: 403, 409 PHOTO_REQUIRED / COST_CONFIRMATION_PENDING / INVALID_TRANSITION).
+export type StartFeedback =
+  | { kind: "reason"; reason: string; highlightBeforePhoto: boolean }
+  | { kind: "error"; error: ApiError };
+
+export function getStartFeedback(error: unknown): StartFeedback {
+  const apiError = toApiError(error);
+  if (apiError.status === 409 && apiError.code === "PHOTO_REQUIRED") {
+    return { kind: "reason", reason: START_BLOCKED_NO_PHOTO, highlightBeforePhoto: true };
+  }
+  if (apiError.status === 409 && apiError.code === "COST_CONFIRMATION_PENDING") {
+    return { kind: "reason", reason: START_BLOCKED_COST_PENDING, highlightBeforePhoto: false };
   }
   return { kind: "error", error: apiError };
 }

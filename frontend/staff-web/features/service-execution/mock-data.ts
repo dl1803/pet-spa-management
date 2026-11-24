@@ -3,7 +3,7 @@ import type { ExecutionData } from "@/features/service-execution/execution";
 import { getStoreDateKey } from "@/lib/time";
 
 // Dữ liệu mô phỏng theo UI demo (SW-11), đúng hình dạng AppointmentDetail, Pet, Photo của openapi.
-// Thay bằng dữ liệu API thật khi nối backend. Giờ hẹn, giờ tải ảnh, hạn xác nhận tính từ `now` để luôn là “hôm nay”.
+// Màn Thực hiện dịch vụ đã gọi API thật; dữ liệu này chỉ còn cho nút “Xem” của Lịch sử công việc (lịch Hoàn tất) và cho test. Giờ hẹn, giờ tải ảnh, hạn xác nhận tính từ `now` để luôn là “hôm nay”.
 const CUSTOMER_ID = "c0000000-0000-4000-8000-000000000001";
 const STAFF_ID = "f0000000-0000-4000-8000-000000000001";
 

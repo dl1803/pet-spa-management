@@ -122,6 +122,17 @@ export type Photo = {
   uploadedAt: string;
 };
 
+// Body của POST /appointments/{id}/photos (multipart/form-data) là FormData { kind, file }; phản hồi 201.
+export type PhotoCreated = {
+  photoId: string;
+};
+
+// Body của PATCH /appointments/{id}/services/{serviceId} (openapi: ServiceProgressRequest); phản hồi 200 không có body.
+export type ServiceProgressRequest = {
+  isDone: boolean;
+  note?: string;
+};
+
 export type NotificationType =
   | "BookingReceived"
   | "ConfirmedAssigned"
