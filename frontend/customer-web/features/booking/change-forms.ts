@@ -2,6 +2,7 @@ import {
   getApplicableServices,
   keepApplicableServiceIds,
   type HotelBookingFormValues,
+  type HotelStay,
   type SpaBookingFormValues,
 } from "@/features/booking/forms";
 import type { AppointmentDetail, Pet, Service, SpaSlots } from "@/lib/api/types";
@@ -91,5 +92,16 @@ export function allowOwnSlots(slots: SpaSlots, date: string, appointment: Appoin
       return start < ownEnd && ownStart < start + busyMs ? { ...slot, status: "Available" as const } : slot;
     }),
   };
+}
+
+// GET /hotel/availability tính cả các đêm chính lịch đang đổi đang giữ, nên có thể báo hết chỗ sai với khoảng ngày chồng lên lịch này.
+// Đêm tính theo ngày trong múi giờ cửa hàng, như backend. Việc kiểm tra chính xác do PUT quyết định (409 NO_CAPACITY).
+export function overlapsOwnStay(appointment: AppointmentDetail, stay: HotelStay): boolean {
+  const { plannedCheckIn, plannedCheckOut } = appointment;
+  if (!plannedCheckIn || !plannedCheckOut) return false;
+  return (
+    getStoreDateKey(stay.from) < getStoreDateKey(plannedCheckOut) &&
+    getStoreDateKey(plannedCheckIn) < getStoreDateKey(stay.to)
+  );
 }
 
