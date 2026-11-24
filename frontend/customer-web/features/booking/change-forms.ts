@@ -2,11 +2,12 @@ import {
   getApplicableServices,
   keepApplicableServiceIds,
   type HotelBookingFormValues,
+  type HotelStay,
   type SpaBookingFormValues,
 } from "@/features/booking/forms";
-import type { AppointmentDetail, Pet, Service } from "@/lib/api/types";
+import type { AppointmentDetail, Pet, Service, SpaSlots } from "@/lib/api/types";
 import { formatTime } from "@/lib/format";
-import { getStoreDateKey } from "@/lib/time";
+import { buildStoreDateTime, getStoreDateKey } from "@/lib/time";
 
 export const CHANGE_REQUEST_SENT_MESSAGE = "Đã gửi yêu cầu đổi lịch, lịch đang chờ cửa hàng duyệt lại.";
 export const CHANGE_UNCHANGED_REASON = "Chưa có thay đổi so với lịch hiện tại.";
@@ -66,6 +67,58 @@ export function isHotelChangeUnchanged(initial: HotelBookingFormValues, current:
     initial.checkInTime === current.checkInTime &&
     initial.checkOutDate === current.checkOutDate &&
     initial.checkOutTime === current.checkOutTime
+  );
+}
+
+const MINUTE_MS = 60_000;
+
+// GET /spa/slots tính cả chỗ chính lịch đang đổi đang giữ, nên có thể báo Đã kín sai với mốc chồng lên lịch này.
+// Mốc Đã kín mà khoảng bận (thời lượng + dọn dẹp) chồng lên khoảng bận hiện tại của lịch được coi là chọn được;
+// việc kiểm tra chính xác do PUT quyết định (409 SLOT_FULL nếu thật sự hết chỗ). Mốc Không nhận giữ nguyên.
+// Nếu đã đổi sang thú cưng khác (currentPetId !== appointment.petId) hoặc mốc vừa bị 409 từ chối (rejectedSlotTime), giữ nguyên trạng thái Đã kín.
+export function allowOwnSlots(
+  slots: SpaSlots,
+  date: string,
+  appointment: AppointmentDetail,
+  currentPetId?: string,
+  rejectedSlotTime?: string | null,
+): SpaSlots {
+  if (currentPetId !== undefined && currentPetId !== appointment.petId) return slots;
+
+  const { slotStart, slotEnd } = appointment;
+  if (!slotStart || !slotEnd) return slots;
+
+  const bufferMs = slots.bufferMinutes * MINUTE_MS;
+  const ownStart = Date.parse(slotStart);
+  const ownEnd = Date.parse(slotEnd) + bufferMs;
+  const busyMs = slots.durationMinutes * MINUTE_MS + bufferMs;
+
+  return {
+    ...slots,
+    slots: slots.slots.map((slot) => {
+      if (slot.time === rejectedSlotTime) return { ...slot, status: "Full" as const };
+      if (slot.status !== "Full") return slot;
+      const start = Date.parse(buildStoreDateTime(date, slot.time));
+      return start < ownEnd && ownStart < start + busyMs ? { ...slot, status: "Available" as const } : slot;
+    }),
+  };
+}
+
+// GET /hotel/availability tính cả các đêm chính lịch đang đổi đang giữ, nên có thể báo hết chỗ sai với khoảng ngày chồng lên lịch này.
+// Đêm tính theo ngày trong múi giờ cửa hàng, như backend. Việc kiểm tra chính xác do PUT quyết định (409 NO_CAPACITY).
+// Nếu đã đổi sang thú cưng khác (currentPetId !== appointment.petId), không coi là chồng lịch của chính mình.
+export function overlapsOwnStay(
+  appointment: AppointmentDetail,
+  stay: HotelStay,
+  currentPetId?: string,
+): boolean {
+  if (currentPetId !== undefined && currentPetId !== appointment.petId) return false;
+
+  const { plannedCheckIn, plannedCheckOut } = appointment;
+  if (!plannedCheckIn || !plannedCheckOut) return false;
+  return (
+    getStoreDateKey(stay.from) < getStoreDateKey(plannedCheckOut) &&
+    getStoreDateKey(plannedCheckIn) < getStoreDateKey(stay.to)
   );
 }
 

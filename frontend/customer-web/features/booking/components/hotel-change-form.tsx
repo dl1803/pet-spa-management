@@ -1,6 +1,6 @@
 "use client";
 
-import { skipToken, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -14,7 +14,9 @@ import {
   CHANGE_UNCHANGED_REASON,
   getHotelChangeDefaults,
   isHotelChangeUnchanged,
+  overlapsOwnStay,
 } from "@/features/booking/change-forms";
+import { ChangeFormLoadState } from "@/features/booking/components/change-form-load-state";
 import { ChangeSummaryFooter } from "@/features/booking/components/change-summary-parts";
 import {
   HotelAvailabilityNotice,
@@ -37,13 +39,13 @@ import {
   toHotelBookingRequest,
   type HotelBookingFormValues,
 } from "@/features/booking/forms";
-import { mockUpdateAppointment } from "@/features/booking/mock-change";
-import { MOCK_PETS } from "@/features/booking/mock-data";
-import { HOTEL_AVAILABILITY_QUERY_KEY, mockGetHotelAvailability } from "@/features/booking/mock-hotel";
-import type { AppointmentDetail } from "@/lib/api/types";
+import { updateAppointment } from "@/lib/api/endpoints/appointments";
+import type { AppointmentDetail, Pet } from "@/lib/api/types";
 import { isChangeWindowClosedError, isInvalidTransitionError } from "@/lib/appointments";
 import { formatDayAndTime } from "@/lib/format";
 import { appointmentKeys } from "@/lib/queries/appointments";
+import { hotelKeys, useHotelAvailability } from "@/lib/queries/hotel";
+import { usePets } from "@/lib/queries/pets";
 import { ROUTES, WINDOW_CLOSED_PARAM, WINDOW_CLOSED_VALUE, withQuery } from "@/lib/routes";
 import { buildStoreDateTime, getStoreDateKey } from "@/lib/time";
 
@@ -51,8 +53,23 @@ import { buildStoreDateTime, getStoreDateKey } from "@/lib/time";
 const AVAILABILITY_DELAY_MS = 400;
 
 export function HotelChangeForm({ appointment }: { appointment: AppointmentDetail }) {
-  // Thú cưng giả, cùng nguồn với màn đặt lịch lưu trú. Chờ nối API thật ở bước tích hợp.
-  const pets = MOCK_PETS;
+  const petsQuery = usePets();
+  const pets = petsQuery.data?.items;
+
+  if (pets === undefined) {
+    return (
+      <ChangeFormLoadState
+        error={petsQuery.error}
+        isRetrying={petsQuery.isFetching}
+        onRetry={() => void petsQuery.refetch()}
+      />
+    );
+  }
+
+  return <HotelChangeFormBody appointment={appointment} pets={pets} />;
+}
+
+function HotelChangeFormBody({ appointment, pets }: { appointment: AppointmentDetail; pets: Pet[] }) {
   const { appointmentId } = appointment;
 
   const router = useRouter();
@@ -96,14 +113,11 @@ export function HotelChangeForm({ appointment }: { appointment: AppointmentDetai
   }, [stayKey]);
   const settledStay = stay !== null && stayKey === settledKey ? stay : null;
 
-  const availabilityQuery = useQuery({
-    queryKey: [...HOTEL_AVAILABILITY_QUERY_KEY, { petId, stayKey: getStayKey(settledStay) }],
-    queryFn:
-      pet !== undefined && settledStay !== null
-        ? () => mockGetHotelAvailability({ petId: pet.petId, from: settledStay.from, to: settledStay.to })
-        : skipToken,
-    refetchOnWindowFocus: false,
-  });
+  const availabilityQuery = useHotelAvailability(
+    pet !== undefined && settledStay !== null
+      ? { petId: pet.petId, from: settledStay.from, to: settledStay.to }
+      : null,
+  );
 
   const {
     mutate,
@@ -111,12 +125,12 @@ export function HotelChangeForm({ appointment }: { appointment: AppointmentDetai
     error: submitError,
     reset: resetSubmit,
   } = useMutation({
-    mutationFn: mockUpdateAppointment,
+    mutationFn: updateAppointment,
     onSuccess: async () => {
       showSuccess(CHANGE_REQUEST_SENT_MESSAGE);
-      void queryClient.invalidateQueries({ queryKey: HOTEL_AVAILABILITY_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: hotelKeys.availabilityAll });
       await queryClient.invalidateQueries({ queryKey: appointmentKeys.all, refetchType: "all" });
-      router.push(ROUTES.appointmentDetail(appointmentId));
+      router.replace(ROUTES.appointmentDetail(appointmentId));
     },
     onError: (failure) => {
       // Quá thời hạn tự đổi: về chi tiết với hai nút đã khóa.
@@ -127,7 +141,7 @@ export function HotelChangeForm({ appointment }: { appointment: AppointmentDetai
         return;
       }
       if (isNoCapacityError(failure)) {
-        void queryClient.invalidateQueries({ queryKey: HOTEL_AVAILABILITY_QUERY_KEY });
+        void queryClient.invalidateQueries({ queryKey: hotelKeys.availabilityAll });
         return;
       }
       if (isInvalidTransitionError(failure)) {
@@ -182,7 +196,7 @@ export function HotelChangeForm({ appointment }: { appointment: AppointmentDetai
 
   const isChecking =
     stay !== null &&
-    (settledStay === null || availabilityQuery.isPending || (availabilityQuery.isError && availabilityQuery.isFetching));
+    (settledStay === null || availabilityQuery.fetchStatus !== "idle" || availabilityQuery.isPlaceholderData);
 
   let notice: HotelAvailabilityNoticeState = { kind: "idle" };
   if (stay !== null) {
@@ -193,15 +207,20 @@ export function HotelChangeForm({ appointment }: { appointment: AppointmentDetai
     } else if (availabilityQuery.error !== null) {
       notice = { kind: "error", error: availabilityQuery.error };
     } else if (availability !== undefined) {
-      notice = availability.available
-        ? { kind: "available", message: describeAvailable(pet, stay, availability.nights) }
-        : { kind: "full" };
+      if (availability.available) {
+        notice = { kind: "available", message: describeAvailable(pet, stay, availability.nights) };
+      } else if (overlapsOwnStay(appointment, stay, petId)) {
+        notice = { kind: "overlap" };
+      } else {
+        notice = { kind: "full" };
+      }
     }
   }
 
   // Số đêm và số tiền chỉ lấy từ kết quả của server.
   const quote: HotelQuote | null =
-    availability !== undefined && (notice.kind === "available" || notice.kind === "full")
+    availability !== undefined &&
+    (notice.kind === "available" || notice.kind === "full" || notice.kind === "overlap")
       ? { nights: availability.nights, estimatedAmount: availability.estimatedAmount }
       : null;
 
@@ -233,9 +252,9 @@ export function HotelChangeForm({ appointment }: { appointment: AppointmentDetai
     if (getValues("checkOutDate") !== "") void trigger("checkOutDate");
   }
 
-  function onSubmit() {
+  function onSubmit(values: HotelBookingFormValues) {
     if (isPending || stay === null || lockReason !== null) return;
-    mutate({ appointmentId, request: toHotelBookingRequest(petId, stay) });
+    mutate({ appointmentId, request: toHotelBookingRequest(values.petId, stay) });
   }
 
   return (

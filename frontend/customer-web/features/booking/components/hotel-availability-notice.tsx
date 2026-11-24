@@ -11,14 +11,15 @@ export type HotelAvailabilityNoticeState =
   | { kind: "error"; error: unknown }
   | { kind: "available"; message: string }
   | { kind: "full" }
-  | { kind: "locked" };
+  | { kind: "locked" }
+  | { kind: "overlap" };
 
 type HotelAvailabilityNoticeProps = {
   notice: HotelAvailabilityNoticeState;
   onRetry: () => void;
 };
 
-// Vùng thông báo đọc theo trạng thái: còn chỗ, hết chỗ, đang kiểm tra, lỗi kiểm tra, tài khoản bị khóa.
+// Vùng thông báo đọc theo trạng thái: còn chỗ, hết chỗ, chồng lên lịch đang đổi, đang kiểm tra, lỗi kiểm tra, tài khoản bị khóa.
 export function HotelAvailabilityNotice({ notice, onRetry }: HotelAvailabilityNoticeProps) {
   return (
     <div aria-live="polite" className="mt-3 empty:hidden">
@@ -36,6 +37,12 @@ export function HotelAvailabilityNotice({ notice, onRetry }: HotelAvailabilityNo
       {notice.kind === "full" && (
         <Alert tone="danger" role={null} title={NO_CAPACITY_TITLE}>
           {NO_CAPACITY_MESSAGE}
+        </Alert>
+      )}
+      {notice.kind === "overlap" && (
+        <Alert tone="info" role={null} title="Chồng với lịch hiện tại">
+          Khoảng ngày này chồng với lịch bạn đang đổi nên chưa kiểm tra chính xác được chỗ trống. Cửa hàng sẽ kiểm tra khi bạn
+          gửi yêu cầu; nếu hết chỗ, bạn sẽ được báo ngay.
         </Alert>
       )}
       {notice.kind === "locked" && (

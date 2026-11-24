@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
@@ -14,11 +14,13 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ChoiceCard } from "@/components/ui/choice-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
+  allowOwnSlots,
   CHANGE_REQUEST_SENT_MESSAGE,
   CHANGE_UNCHANGED_REASON,
   getSpaChangeDefaults,
   isSpaChangeUnchanged,
 } from "@/features/booking/change-forms";
+import { ChangeFormLoadState } from "@/features/booking/components/change-form-load-state";
 import { ChangeSummaryFooter } from "@/features/booking/components/change-summary-parts";
 import { SpaBookingSlotStep } from "@/features/booking/components/spa-booking-slot-step";
 import { SpaChangeSummary } from "@/features/booking/components/spa-change-summary";
@@ -35,23 +37,49 @@ import {
   toSpaBookingRequest,
   type SpaBookingFormValues,
 } from "@/features/booking/forms";
-import { mockUpdateAppointment } from "@/features/booking/mock-change";
-import { MOCK_PETS, MOCK_SERVICES } from "@/features/booking/mock-data";
-import { mockGetSpaSlots, SPA_SLOTS_QUERY_KEY } from "@/features/booking/mock-slots";
-import type { AppointmentDetail } from "@/lib/api/types";
+import { updateAppointment } from "@/lib/api/endpoints/appointments";
+import type { AppointmentDetail, Pet, Service } from "@/lib/api/types";
 import { isChangeWindowClosedError, isInvalidTransitionError } from "@/lib/appointments";
 import { formatShortDate, formatWeight } from "@/lib/format";
 import { SIZE_GROUP_LABELS, SPECIES_LABELS } from "@/lib/labels";
 import { appointmentKeys } from "@/lib/queries/appointments";
+import { usePets } from "@/lib/queries/pets";
+import { useServices } from "@/lib/queries/services";
+import { spaSlotKeys, useSpaSlots } from "@/lib/queries/spa-slots";
 import { ROUTES, WINDOW_CLOSED_PARAM, WINDOW_CLOSED_VALUE, withQuery } from "@/lib/routes";
 import { getStoreDateKey } from "@/lib/time";
 
 const SERVICE_ERROR_ID = "spa-change-service-error";
 
+type SpaChangeFormBodyProps = {
+  appointment: AppointmentDetail;
+  pets: Pet[];
+  services: Service[];
+};
+
 export function SpaChangeForm({ appointment }: { appointment: AppointmentDetail }) {
-  // Thú cưng và dịch vụ giả, cùng nguồn với màn đặt lịch spa. Chờ nối API thật ở bước tích hợp.
-  const pets = MOCK_PETS;
-  const services = MOCK_SERVICES;
+  const petsQuery = usePets();
+  const servicesQuery = useServices();
+  const pets = petsQuery.data?.items;
+  const services = servicesQuery.data;
+
+  if (pets === undefined || services === undefined) {
+    return (
+      <ChangeFormLoadState
+        error={petsQuery.error ?? servicesQuery.error}
+        isRetrying={petsQuery.isFetching || servicesQuery.isFetching}
+        onRetry={() => {
+          if (petsQuery.isError) void petsQuery.refetch();
+          if (servicesQuery.isError) void servicesQuery.refetch();
+        }}
+      />
+    );
+  }
+
+  return <SpaChangeFormBody appointment={appointment} pets={pets} services={services} />;
+}
+
+function SpaChangeFormBody({ appointment, pets, services }: SpaChangeFormBodyProps) {
   const { appointmentId } = appointment;
 
   const router = useRouter();
@@ -60,6 +88,7 @@ export function SpaChangeForm({ appointment }: { appointment: AppointmentDetail 
   const [todayKey] = useState(() => getStoreDateKey(new Date()));
   const dates = getBookingDates(todayKey);
   const [initialValues] = useState(() => getSpaChangeDefaults(appointment, pets, services, dates));
+  const [rejectedSlotTime, setRejectedSlotTime] = useState<string | null>(null);
 
   const { control, handleSubmit, setValue, getValues } = useForm<SpaBookingFormValues>({
     mode: "onTouched",
@@ -78,12 +107,11 @@ export function SpaChangeForm({ appointment }: { appointment: AppointmentDetail 
   const selectedServiceIds = selected.map(({ service }) => service.serviceId);
   const hasServices = pet !== undefined && selected.length > 0;
 
-  const slotsQuery = useQuery({
-    queryKey: [...SPA_SLOTS_QUERY_KEY, { date, petId, serviceIds: selectedServiceIds }],
-    queryFn: () => mockGetSpaSlots({ date, petId, serviceIds: selectedServiceIds }),
-    enabled: hasServices,
-  });
-  const slots = slotsQuery.data;
+  const slotsQuery = useSpaSlots(hasServices ? { date, petId, serviceIds: selectedServiceIds } : null);
+  const slots =
+    slotsQuery.data === undefined
+      ? undefined
+      : allowOwnSlots(slotsQuery.data, date, appointment, petId, rejectedSlotTime);
   const isSlotAvailable = slots?.slots.some((slot) => slot.time === slotTime && slot.status === "Available") ?? false;
 
   const {
@@ -92,12 +120,12 @@ export function SpaChangeForm({ appointment }: { appointment: AppointmentDetail 
     error: submitError,
     reset: resetSubmit,
   } = useMutation({
-    mutationFn: mockUpdateAppointment,
+    mutationFn: updateAppointment,
     onSuccess: async () => {
       showSuccess(CHANGE_REQUEST_SENT_MESSAGE);
-      void queryClient.invalidateQueries({ queryKey: SPA_SLOTS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: spaSlotKeys.all });
       await queryClient.invalidateQueries({ queryKey: appointmentKeys.all, refetchType: "all" });
-      router.push(ROUTES.appointmentDetail(appointmentId));
+      router.replace(ROUTES.appointmentDetail(appointmentId));
     },
     onError: (failure) => {
       // Quá thời hạn tự đổi: về chi tiết với hai nút đã khóa.
@@ -108,8 +136,9 @@ export function SpaChangeForm({ appointment }: { appointment: AppointmentDetail 
         return;
       }
       if (isSlotFullError(failure)) {
+        setRejectedSlotTime(slotTime);
         setValue("slotTime", "");
-        void queryClient.invalidateQueries({ queryKey: SPA_SLOTS_QUERY_KEY });
+        void queryClient.invalidateQueries({ queryKey: spaSlotKeys.all });
         return;
       }
       if (isInvalidTransitionError(failure)) {
@@ -174,6 +203,7 @@ export function SpaChangeForm({ appointment }: { appointment: AppointmentDetail 
     if (isPending || next === date) return;
     setValue("date", next);
     setValue("slotTime", "");
+    setRejectedSlotTime(null);
     resetSubmit();
   }
 
@@ -218,6 +248,7 @@ export function SpaChangeForm({ appointment }: { appointment: AppointmentDetail 
                                 { shouldValidate: true },
                               );
                               setValue("slotTime", "");
+                              setRejectedSlotTime(null);
                               resetSubmit();
                             }}
                           >
@@ -270,6 +301,7 @@ export function SpaChangeForm({ appointment }: { appointment: AppointmentDetail 
                             : field.value.filter((id) => id !== service.serviceId);
                           setValue("serviceIds", nextIds, { shouldValidate: true });
                           setValue("slotTime", "");
+                          setRejectedSlotTime(null);
                           resetSubmit();
                         }}
                       />
