@@ -94,6 +94,12 @@ public sealed class CheckInService(
 
     public async Task EnsureHotelCheckInCostAndPaymentAsync(HotelAppointment stay, CancellationToken ct = default)
     {
+        if (payments is null)
+            throw new InvalidOperationException("CheckInService cần IPaymentRepository để kiểm tra thanh toán lưu trú.");
+
+        if (stay.Status != AppointmentStatus.Confirmed)
+            throw new BusinessException(ErrorCodes.InvalidTransition);
+
         if (stay.ActualWeightKg is null)
             throw new BusinessException(ErrorCodes.InvalidTransition, "Chưa đối chiếu cân nặng thực tế của thú cưng.");
 

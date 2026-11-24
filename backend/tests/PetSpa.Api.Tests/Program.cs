@@ -7774,6 +7774,18 @@ var tests = new (string Name, Func<Task> Run)[]
         }
 
         Check(threw, "Calling RecordCounterAsync without staffRoles and costConfirmations must throw InvalidOperationException.");
+
+        var listThrew = false;
+        try
+        {
+            await onlineOnlyService.ListByAppointmentAsync(manager, Guid.NewGuid());
+        }
+        catch (InvalidOperationException)
+        {
+            listThrew = true;
+        }
+
+        Check(listThrew, "Calling ListByAppointmentAsync without appointmentQueries must throw InvalidOperationException.");
     }),
     ("PaymentService.ListByAppointmentAsync: kiểm tra phạm vi lịch hẹn trước khi trả các khoản thanh toán", async () =>
     {
@@ -7965,6 +7977,24 @@ var tests = new (string Name, Func<Task> Run)[]
         var foreignPayment = NewPayment(NewStay(2.8m), PaymentKind.Stay, true);
         Check(await CodeAsync(otherStay, new TestCostConfirmationRepo(), foreignPayment) == ErrorCodes.PaymentNotDue,
             "A Stay payment of another appointment must not count.");
+
+        var wrongStatus = NewStay(2.8m);
+        wrongStatus.Status = AppointmentStatus.Pending;
+        Check(await CodeAsync(wrongStatus, new TestCostConfirmationRepo(), NewPayment(wrongStatus, PaymentKind.Stay, true)) == ErrorCodes.InvalidTransition,
+            "A stay that is not Confirmed must be rejected with INVALID_TRANSITION.");
+
+        var missingPaymentsService = new CheckInService(
+            null!, new TestConcurrencyGuard(), null!, null!, null!, null!, new ShopTimeZone(TimeZoneInfo.Utc), new TestCostConfirmationRepo(), null!);
+        var missingPaymentsThrew = false;
+        try
+        {
+            await missingPaymentsService.EnsureHotelCheckInCostAndPaymentAsync(ready);
+        }
+        catch (InvalidOperationException)
+        {
+            missingPaymentsThrew = true;
+        }
+        Check(missingPaymentsThrew, "Calling EnsureHotelCheckInCostAndPaymentAsync without payments must throw InvalidOperationException.");
     }),
 };
 
@@ -8877,6 +8907,286 @@ sealed class SimulatedAdvisoryConcurrencyGuard : IConcurrencyGuard
         var state = new LockState();
         _state.Value = state;
         try
+        {
+            return await work();
+        }
+        finally
+        {
+            if (state.HoldsLock)
+            {
+                state.HoldsLock = false;
+                _groupLock.Release();
+            }
+            _state.Value = null;
+        }
+    }
+
+    public async Task RunAsync(Func<Task> work, CancellationToken ct = default)
+    {
+        var state = new LockState();
+        _state.Value = state;
+        try
+        {
+            await work();
+        }
+        finally
+        {
+            if (state.HoldsLock)
+            {
+                state.HoldsLock = false;
+                _groupLock.Release();
+            }
+            _state.Value = null;
+        }
+    }
+
+    public Task LockSpaDayAsync(DateOnly day, CancellationToken ct = default) => Task.CompletedTask;
+
+    public async Task LockHotelGroupAsync(Species species, SizeGroup sizeGroup, CancellationToken ct = default)
+    {
+        await _groupLock.WaitAsync(ct);
+        if (_state.Value != null)
+            _state.Value.HoldsLock = true;
+    }
+
+    public Task LockAppointmentAsync(Guid appointmentId, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task LockPaymentAsync(Guid paymentId, CancellationToken ct = default) => Task.CompletedTask;
+}
+
+sealed class MissingPetTestHotelAssignmentRepo(HotelAppointment appointment) : IHotelAssignmentRepository
+{
+    public Task<HotelStayForAssignment?> FindHotelStayAsync(Guid appointmentId, CancellationToken ct = default) =>
+        Task.FromResult<HotelStayForAssignment?>(null);
+    public Task<HotelAppointment?> FindAppointmentAsync(Guid appointmentId, CancellationToken ct = default) =>
+        Task.FromResult<HotelAppointment?>(appointment.AppointmentId == appointmentId ? appointment : null);
+    public Task<HotelAppointmentForAssignment?> FindHotelAppointmentAsync(Guid appointmentId, CancellationToken ct = default) =>
+        Task.FromResult<HotelAppointmentForAssignment?>(null);
+    public Task<IReadOnlyList<Cage>> ListCagesAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<Cage>>([]);
+    public Task<IReadOnlyList<CageStayWindow>> ListCageStayWindowsAsync(DateTimeOffset start, DateTimeOffset end, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CageStayWindow>>([]);
+    public Task<Cage?> FindCageAsync(Guid cageId, CancellationToken ct = default) => Task.FromResult<Cage?>(null);
+    public Task UpdateHotelAppointmentAsync(HotelAppointment app, CancellationToken ct = default) => Task.CompletedTask;
+}
+
+sealed class TestAppointmentChangeRepo(
+    Appointment? appointment,
+    Guid? ownerUserId,
+    int deadlineMinutes,
+    Action<Appointment>? beforeFindForUpdate = null) : IAppointmentChangeRepository
+{
+    public int DeadlineReads { get; private set; }
+    public List<IReadOnlyList<Guid>> SavedSpaServiceIds { get; } = [];
+    public int SavedHotelChanges { get; private set; }
+    public List<Guid> HoldingStaffIds { get; } = [];
+
+    public Task<IReadOnlyList<Guid>> ListHoldingStaffIdsAsync(Guid appointmentId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<Guid>>(HoldingStaffIds.ToList());
+
+    public Task<int> GetChangeCancelDeadlineMinutesAsync(CancellationToken ct = default)
+    {
+        DeadlineReads++;
+        return Task.FromResult(deadlineMinutes);
+    }
+
+    public Task<AppointmentChangeTarget?> FindTargetAsync(Guid appointmentId, CancellationToken ct = default) =>
+        Task.FromResult<AppointmentChangeTarget?>(
+            appointment is not null && appointment.AppointmentId == appointmentId
+                ? new AppointmentChangeTarget(appointment, ownerUserId)
+                : null);
+
+    public Task<Appointment?> FindForUpdateAsync(Guid appointmentId, CancellationToken ct = default)
+    {
+        if (appointment is null || appointment.AppointmentId != appointmentId)
+            return Task.FromResult<Appointment?>(null);
+
+        beforeFindForUpdate?.Invoke(appointment);
+        return Task.FromResult<Appointment?>(appointment);
+    }
+
+    public Task SaveSpaChangeAsync(
+        SpaAppointment changed, IReadOnlyList<Guid> serviceIds, CancellationToken ct = default)
+    {
+        SavedSpaServiceIds.Add(serviceIds);
+        return Task.CompletedTask;
+    }
+
+    public Task SaveHotelChangeAsync(HotelAppointment changed, CancellationToken ct = default)
+    {
+        SavedHotelChanges++;
+        return Task.CompletedTask;
+    }
+
+    public List<Appointment> SavedCancellations { get; } = [];
+
+    public Task SaveCancellationAsync(Appointment cancelled, CancellationToken ct = default)
+    {
+        SavedCancellations.Add(cancelled);
+        return Task.CompletedTask;
+    }
+}
+
+sealed class ChangeFixture
+{
+    public ChangeFixture(
+        Appointment appointment,
+        int deadlineMinutes = 60,
+        bool slotIsHeld = false,
+        bool hotelIsFull = false,
+        bool petBelongsToOther = false,
+        Action<Appointment>? beforeFindForUpdate = null)
+    {
+        OwnerUserId = Guid.NewGuid();
+        CustomerUserId = OwnerUserId;
+        Pet = new Pet
+        {
+            PetId = Guid.NewGuid(),
+            CustomerId = Guid.NewGuid(),
+            Species = Species.Dog,
+            SizeGroup = SizeGroup.Medium,
+            IsActive = true,
+        };
+        ServiceId = Guid.NewGuid();
+
+        var service = new Service { ServiceId = ServiceId, Name = "Tắm", LatestStartTime = new TimeOnly(18, 0), IsActive = true };
+        var pricing = new ServicePricing
+        {
+            ServiceId = ServiceId,
+            Species = Species.Dog,
+            SizeGroup = SizeGroup.Medium,
+            Price = 100000,
+            DurationMinutes = 60,
+            StaffRequired = 1,
+        };
+
+        var newDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3));
+        NewSlot = new DateTimeOffset(newDate.ToDateTime(new TimeOnly(10, 0)), TimeSpan.Zero);
+        NewCheckOut = NewSlot.AddDays(2);
+
+        var heldSpa = new List<HeldSpaBooking>();
+        if (slotIsHeld) heldSpa.Add(new HeldSpaBooking(NewSlot, NewSlot.AddMinutes(75), 1));
+        var shifts = new List<StaffShiftWindow> { new(Guid.NewGuid(), NewSlot.AddHours(-1), NewSlot.AddHours(4)) };
+        var heldStays = new List<HeldHotelStay>();
+        if (hotelIsFull) heldStays.Add(new HeldHotelStay(NewSlot, NewCheckOut));
+
+        Changes = new TestAppointmentChangeRepo(appointment, OwnerUserId, deadlineMinutes, beforeFindForUpdate);
+        Schedule = new TestScheduleRepo(15, false, shifts, heldSpa);
+        HotelRepo = new TestHotelBookingRepo(1, heldStays);
+        Guard = new TestConcurrencyGuard();
+
+        Notices = new TestNotificationRepo(() => Guard.InsideRun);
+        NotificationReader = new TestAppointmentNotificationReader(
+            _ => new AppointmentNotificationContext(appointment, CustomerUserId, StaffUserIds.ToList()));
+        var notifier = new AppointmentNotifier(
+            NotificationReader, new NotificationService(Notices), new ShopTimeZone(TimeZoneInfo.Utc));
+
+        var petRepo = new TestPetRepo(Pet, petBelongsToOther ? Guid.NewGuid() : OwnerUserId);
+        var shopZone = new ShopTimeZone(TimeZoneInfo.Utc);
+        var bookingService = new BookingService(
+            petRepo,
+            new TestStaffRoleReader(null),
+            new TestCatalogRepo(new ServiceWithPricing(service, [pricing]), [new TimeOnly(10, 0)]),
+            Schedule,
+            Guard,
+            shopZone,
+            TestNotifiers.NoNotifier());
+        var hotelService = new HotelBookingService(
+            petRepo, new TestStaffRoleReader(null), HotelRepo, new TestHotelCatalogRepo(), shopZone, Guard, TestNotifiers.NoNotifier());
+
+        ChangeService = new AppointmentChangeService(Changes, bookingService, hotelService, petRepo, Guard, notifier);
+    }
+
+    public Guid OwnerUserId { get; }
+    public Guid CustomerUserId { get; }
+    public List<Guid> StaffUserIds { get; } = [];
+    public TestNotificationRepo Notices { get; }
+    public TestAppointmentNotificationReader NotificationReader { get; }
+    public Pet Pet { get; }
+    public Guid ServiceId { get; }
+    public DateTimeOffset NewSlot { get; }
+    public DateTimeOffset NewCheckOut { get; }
+    public TestAppointmentChangeRepo Changes { get; }
+    public TestScheduleRepo Schedule { get; }
+    public TestHotelBookingRepo HotelRepo { get; }
+    public TestConcurrencyGuard Guard { get; }
+    public AppointmentChangeService ChangeService { get; }
+
+    public CurrentUser Customer => new(OwnerUserId, UserRole.Customer);
+    public AppointmentChange SpaChange => new(Pet.PetId, NewSlot, [ServiceId], null, null);
+    public AppointmentChange HotelChange => new(Pet.PetId, null, null, NewSlot, NewCheckOut);
+}
+
+sealed class InterventionFixture
+{
+    public InterventionFixture(
+        Appointment appointment,
+        bool slotIsHeld = false,
+        bool hotelIsFull = false,
+        bool petBelongsToOther = false,
+        bool staffInShift = true,
+        bool holdsStaff = false,
+        bool busyForStaff = false,
+        Action<Appointment>? beforeFindForUpdate = null)
+    {
+        Appointment = appointment;
+        Pet = new Pet
+        {
+            PetId = Guid.NewGuid(),
+            CustomerId = petBelongsToOther ? Guid.NewGuid() : appointment.CustomerId,
+            Species = Species.Dog,
+            SizeGroup = SizeGroup.Medium,
+            IsActive = true,
+        };
+        ServiceId = Guid.NewGuid();
+        Staff = new SpaStaffCandidate(Guid.NewGuid(), "An");
+        Cage = new Cage { CageId = Guid.NewGuid(), Code = "A1", Species = Species.Dog, SizeGroup = SizeGroup.Medium, IsActive = true };
+
+        var service = new Service { ServiceId = ServiceId, Name = "Tắm", LatestStartTime = new TimeOnly(18, 0), IsActive = true };
+        var pricing = new ServicePricing
+        {
+            ServiceId = ServiceId,
+            Species = Species.Dog,
+            SizeGroup = SizeGroup.Medium,
+            Price = 100000,
+            DurationMinutes = 60,
+            StaffRequired = 1,
+        };
+
+        var newDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3));
+        NewSlot = new DateTimeOffset(newDate.ToDateTime(new TimeOnly(10, 0)), TimeSpan.Zero);
+        NewCheckOut = NewSlot.AddDays(2);
+
+        var heldSpa = new List<HeldSpaBooking>();
+        if (slotIsHeld) heldSpa.Add(new HeldSpaBooking(NewSlot, NewSlot.AddMinutes(75), 1));
+
+        var shiftStaffId = staffInShift ? Staff.StaffId : Guid.NewGuid();
+        var shifts = new List<StaffShiftWindow> { new(shiftStaffId, NewSlot.AddHours(-1), NewSlot.AddHours(4)) };
+
+        var busyWindows = new List<StaffBusyWindow>();
+        if (busyForStaff) busyWindows.Add(new StaffBusyWindow(Staff.StaffId, NewSlot, NewSlot.AddMinutes(75)));
+
+        var heldStays = new List<HeldHotelStay>();
+        if (hotelIsFull) heldStays.Add(new HeldHotelStay(NewSlot, NewCheckOut));
+
+        Changes = new TestAppointmentChangeRepo(appointment, Guid.NewGuid(), 60, beforeFindForUpdate);
+        if (holdsStaff) Changes.HoldingStaffIds.Add(Staff.StaffId);
+        Assignments = new TestAssignmentRepo(null, [Staff], busyWindows, new Dictionary<Guid, int>());
+        Schedule = new TestScheduleRepo(15, false, shifts, heldSpa);
+        HotelRepo = new TestHotelBookingRepo(1, heldStays);
+        HotelAssignments = new TestHotelAssignmentRepo(null, [Cage], CageWindows);
+        Guard = new TestConcurrencyGuard();
+
+        CustomerUserId = Guid.NewGuid();
+        Notices = new TestNotificationRepo(() => Guard.InsideRun);
+        NotificationReader = new TestAppointmentNotificationReader(
+            _ => new AppointmentNotificationContext(appointment, CustomerUserId, StaffUserIds.ToList()));
+        var notifier = new AppointmentNotifier(
+            NotificationReader, new NotificationService(Notices), new ShopTimeZone(TimeZoneInfo.Utc));
+
+        var petRepo = new TestPetRepo(Pet, Guid.NewGuid());
+        var shopZone = new ShopTimeZone(TimeZoneInfo.Utc);
+        var bookingService = new BookingService(
+            petRepo,
             new TestStaffRoleReader(null),
             new TestCatalogRepo(new ServiceWithPricing(service, [pricing]), [new TimeOnly(10, 0)]),
             Schedule,

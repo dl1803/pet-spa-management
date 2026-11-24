@@ -87,6 +87,9 @@ public sealed class PaymentService(
     public async Task<IReadOnlyList<Payment>> ListByAppointmentAsync(
         CurrentUser user, Guid appointmentId, CancellationToken ct = default)
     {
+        if (appointmentQueries is null)
+            throw new InvalidOperationException("PaymentService cần AppointmentQueryService để kiểm tra quyền truy cập lịch hẹn.");
+
         await appointmentQueries.GetAsync(user, appointmentId, ct);
 
         return await payments.ListByAppointmentAsync(appointmentId, ct);
