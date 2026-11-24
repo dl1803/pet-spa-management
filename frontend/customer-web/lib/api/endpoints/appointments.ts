@@ -9,6 +9,7 @@ import type {
   SpaBookingRequest,
   SpaSlots,
   StatusResult,
+  UpdateAppointmentRequest,
 } from "@/lib/api/types";
 
 export type GetSpaSlotsParams = {
@@ -63,6 +64,19 @@ export async function getAppointment(appointmentId: string) {
 // 409 CHANGE_WINDOW_CLOSED (quá hạn tự hủy), 409 INVALID_TRANSITION (lịch không còn Chờ xác nhận hoặc Đã xác nhận).
 export async function cancelAppointment(appointmentId: string) {
   const { data } = await apiClient.post<StatusResult>(`/appointments/${encodeURIComponent(appointmentId)}/cancel`);
+  return data;
+}
+
+export type UpdateAppointmentVariables = {
+  appointmentId: string;
+  request: UpdateAppointmentRequest;
+};
+
+// PUT /appointments/{id}: khách đổi lịch hẹn của mình trong hạn tự đổi (200 { status: "Pending" }).
+// Spa gửi { petId, serviceIds, slotStart }, lưu trú gửi { petId, plannedCheckIn, plannedCheckOut }.
+// Lỗi: 400 VALIDATION_ERROR, 403, 404, 409 CHANGE_WINDOW_CLOSED, SLOT_FULL, NO_CAPACITY, INVALID_TRANSITION.
+export async function updateAppointment({ appointmentId, request }: UpdateAppointmentVariables) {
+  const { data } = await apiClient.put<StatusResult>(`/appointments/${encodeURIComponent(appointmentId)}`, request);
   return data;
 }
 
