@@ -214,6 +214,11 @@ export type CounterPaymentRequest = {
   receivedAmount: number;
 };
 
+// Phản hồi của POST /payments/{id}/counter (openapi PaymentStatusResult): luôn là Paid khi thành công.
+export type PaymentStatusResult = {
+  status: PaymentStatus;
+};
+
 export type AppointmentType = "Spa" | "Hotel";
 export type AppointmentStatus =
   | "Pending"
