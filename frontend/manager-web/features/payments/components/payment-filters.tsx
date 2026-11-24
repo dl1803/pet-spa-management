@@ -15,7 +15,8 @@ type PaymentFiltersProps = {
   status: PaymentStatusFilter;
   kind: PaymentKindFilter;
   method: PaymentMethodFilter;
-  unpaidCount: number;
+  // Chưa có (đang tải hoặc lỗi) thì chip không hiện số.
+  unpaidCount?: number;
   onStatusChange: (status: PaymentStatusFilter) => void;
   onKindChange: (kind: PaymentKindFilter) => void;
   onMethodChange: (method: PaymentMethodFilter) => void;

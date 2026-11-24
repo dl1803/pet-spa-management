@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FORM_MESSAGES } from "../features/payments/forms.ts";
 import {
   PAYMENT_PAGE_SIZE,
-  countPayments,
   describeParties,
   describePayment,
   describeRecord,
@@ -15,18 +13,17 @@ import {
   parsePaymentStatusFilter,
   resolvePage,
   summarizeUnpaid,
+  summarizeUnpaidPage,
 } from "../features/payments/list.ts";
-import { MOCK_PAYMENTS, getMockPaymentPage, recordMockCounterPayment } from "../features/payments/mock-data.ts";
-import { ApiError } from "../lib/api/errors.ts";
+import { MOCK_PAYMENTS } from "./fixtures/payments.ts";
 
-const [cốm, bông, bi] = MOCK_PAYMENTS;
+const [cốm, , bi] = MOCK_PAYMENTS;
 
-test("dữ liệu mô phỏng: 24 khoản, 2 chưa thanh toán đứng đầu, mã thanh toán và mã lịch không trùng", () => {
+test("dữ liệu mẫu: 24 khoản, 2 chưa thanh toán đứng đầu, mã thanh toán và mã lịch không trùng", () => {
   assert.equal(MOCK_PAYMENTS.length, 24);
   assert.deepEqual(MOCK_PAYMENTS.map((payment) => payment.status).slice(0, 3), ["Unpaid", "Unpaid", "Paid"]);
-  assert.equal(countPayments(MOCK_PAYMENTS, "Unpaid"), 2);
-  assert.equal(countPayments(MOCK_PAYMENTS, "Paid"), 22);
-  assert.equal(countPayments(MOCK_PAYMENTS, "all"), 24);
+  assert.equal(MOCK_PAYMENTS.filter((payment) => payment.status === "Unpaid").length, 2);
+  assert.equal(MOCK_PAYMENTS.filter((payment) => payment.status === "Paid").length, 22);
   assert.equal(new Set(MOCK_PAYMENTS.map((payment) => payment.paymentId)).size, 24);
   assert.equal(new Set(MOCK_PAYMENTS.map((payment) => payment.appointmentId)).size, 24);
   for (const payment of MOCK_PAYMENTS.filter((item) => item.status === "Paid")) {
@@ -60,20 +57,8 @@ test("resolvePage: trang quá lớn lùi về trang cuối, danh sách rỗng v�
   assert.equal(resolvePage(2, 20, 20), 1);
 });
 
-test("getMockPaymentPage: lọc theo trạng thái rồi cắt trang 20 khoản; total là số khoản khớp trạng thái", () => {
+test("PAYMENT_PAGE_SIZE là 20 khoản mỗi trang", () => {
   assert.equal(PAYMENT_PAGE_SIZE, 20);
-  const all1 = getMockPaymentPage(MOCK_PAYMENTS, { status: "all", page: 1, pageSize: 20 });
-  assert.equal(all1.items.length, 20);
-  assert.equal(all1.total, 24);
-  const all2 = getMockPaymentPage(MOCK_PAYMENTS, { status: "all", page: 2, pageSize: 20 });
-  assert.equal(all2.items.length, 4);
-  assert.deepEqual([...all1.items, ...all2.items].map((item) => item.paymentId), MOCK_PAYMENTS.map((item) => item.paymentId));
-  const unpaid = getMockPaymentPage(MOCK_PAYMENTS, { status: "Unpaid", page: 1, pageSize: 20 });
-  assert.deepEqual(unpaid.items.map((item) => item.paymentId), [cốm.paymentId, bông.paymentId]);
-  assert.equal(unpaid.total, 2);
-  const paid = getMockPaymentPage(MOCK_PAYMENTS, { status: "Paid", page: 2, pageSize: 20 });
-  assert.equal(paid.total, 22);
-  assert.equal(paid.items.length, 2);
 });
 
 test("getPageRange: “Hiển thị a – b trong n khoản”", () => {
@@ -89,7 +74,7 @@ test("summarizeUnpaid: cộng đúng amount của các khoản chưa thanh toán
 });
 
 test("filterPageRows: lọc khoản và phương thức trên trang đang xem; khoản chưa thanh toán không khớp bộ lọc phương thức", () => {
-  const page = getMockPaymentPage(MOCK_PAYMENTS, { status: "all", page: 1, pageSize: 20 }).items;
+  const page = MOCK_PAYMENTS.slice(0, 20);
   assert.equal(filterPageRows(page, "all", "all").length, 20);
   assert.ok(filterPageRows(page, "Stay", "all").every((row) => row.kind === "Stay"));
   assert.ok(filterPageRows(page, "all", "Cash").every((row) => row.method === "Cash"));
@@ -115,32 +100,10 @@ test("describeRecord: khoản chưa thanh toán không có ghi nhận; trực tu
   assert.deepEqual(describeRecord({ ...bankQr, paidAt: null }), { method: "Chuyển khoản QR", detail: null });
 });
 
-test("ghi nhận tại quầy: khoản thành Paid với phương thức, số tiền nhận, thời điểm; amount giữ nguyên; danh sách cũ không bị sửa", () => {
-  const paidAt = "2026-10-06T09:30:00.000Z";
-  const next = recordMockCounterPayment(MOCK_PAYMENTS, cốm.paymentId, { method: "BankQR", receivedAmount: 300000 }, paidAt);
-  const updated = next.find((payment) => payment.paymentId === cốm.paymentId);
-  assert.deepEqual(updated, { ...cốm, status: "Paid", method: "BankQR", receivedAmount: 300000, paidAt });
-  assert.equal(updated.amount, 250000);
-  assert.equal(next.length, 24);
-  assert.deepEqual(next.filter((payment) => payment !== updated).map((payment) => payment.paymentId), MOCK_PAYMENTS.filter((payment) => payment.paymentId !== cốm.paymentId).map((payment) => payment.paymentId));
-  assert.equal(cốm.status, "Unpaid", "không sửa danh sách cũ");
-  assert.deepEqual(summarizeUnpaid(next), { count: 1, total: 440000 });
-  assert.equal(describeRecord(updated).method, "Chuyển khoản QR");
-});
-
-test("ghi nhận thiếu tiền: 409 AMOUNT_MISMATCH, danh sách giữ nguyên; đúng bằng số tiền phải trả thì được", () => {
-  assert.throws(
-    () => recordMockCounterPayment(MOCK_PAYMENTS, cốm.paymentId, { method: "Cash", receivedAmount: 249999 }, "2026-10-06T09:30:00.000Z"),
-    (error) => error instanceof ApiError && error.status === 409 && error.code === "AMOUNT_MISMATCH" && error.title === FORM_MESSAGES.receivedAmountInsufficient,
-  );
-  assert.equal(cốm.status, "Unpaid");
-  const next = recordMockCounterPayment(MOCK_PAYMENTS, cốm.paymentId, { method: "Cash", receivedAmount: 250000 }, "2026-10-06T09:30:00.000Z");
-  assert.equal(next[0].status, "Paid");
-});
-
-test("ghi nhận khoản không tồn tại: 404 NOT_FOUND", () => {
-  assert.throws(
-    () => recordMockCounterPayment(MOCK_PAYMENTS, "khong-co", { method: "Cash", receivedAmount: 1 }, "2026-10-06T09:30:00.000Z"),
-    (error) => error instanceof ApiError && error.status === 404 && error.code === "NOT_FOUND",
-  );
+test("summarizeUnpaidPage: số khoản lấy từ total của server, tổng tiền cộng trên các khoản đã tải", () => {
+  const unpaid = MOCK_PAYMENTS.filter((payment) => payment.status === "Unpaid");
+  assert.deepEqual(summarizeUnpaidPage({ page: 1, pageSize: 100, total: 2, items: unpaid }), { count: 2, total: 690000, loaded: 2, isPartial: false });
+  assert.deepEqual(summarizeUnpaidPage({ page: 1, pageSize: 100, total: 0, items: [] }), { count: 0, total: 0, loaded: 0, isPartial: false });
+  // Còn khoản chưa nằm trong trang đã tải: số khoản theo total, tổng tiền chỉ của các khoản đã tải và được đánh dấu một phần.
+  assert.deepEqual(summarizeUnpaidPage({ page: 1, pageSize: 100, total: 130, items: unpaid }), { count: 130, total: 690000, loaded: 2, isPartial: true });
 });
