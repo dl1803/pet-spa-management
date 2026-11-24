@@ -63,7 +63,11 @@ export function useCancelAppointment() {
 
   return useMutation({
     mutationFn: (appointmentId: string) => cancelAppointment(appointmentId),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: appointmentKeys.all, refetchType: "all" }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: appointmentKeys.all, refetchType: "all" });
+      void queryClient.invalidateQueries({ queryKey: spaSlotKeys.all });
+      void queryClient.invalidateQueries({ queryKey: hotelKeys.availabilityAll });
+    },
   });
 }
 

@@ -130,7 +130,7 @@ function HotelChangeFormBody({ appointment, pets }: { appointment: AppointmentDe
       showSuccess(CHANGE_REQUEST_SENT_MESSAGE);
       void queryClient.invalidateQueries({ queryKey: hotelKeys.availabilityAll });
       await queryClient.invalidateQueries({ queryKey: appointmentKeys.all, refetchType: "all" });
-      router.push(ROUTES.appointmentDetail(appointmentId));
+      router.replace(ROUTES.appointmentDetail(appointmentId));
     },
     onError: (failure) => {
       // Quá thời hạn tự đổi: về chi tiết với hai nút đã khóa.
@@ -209,7 +209,7 @@ function HotelChangeFormBody({ appointment, pets }: { appointment: AppointmentDe
     } else if (availability !== undefined) {
       if (availability.available) {
         notice = { kind: "available", message: describeAvailable(pet, stay, availability.nights) };
-      } else if (overlapsOwnStay(appointment, stay)) {
+      } else if (overlapsOwnStay(appointment, stay, petId)) {
         notice = { kind: "overlap" };
       } else {
         notice = { kind: "full" };
@@ -252,9 +252,9 @@ function HotelChangeFormBody({ appointment, pets }: { appointment: AppointmentDe
     if (getValues("checkOutDate") !== "") void trigger("checkOutDate");
   }
 
-  function onSubmit() {
+  function onSubmit(values: HotelBookingFormValues) {
     if (isPending || stay === null || lockReason !== null) return;
-    mutate({ appointmentId, request: toHotelBookingRequest(petId, stay) });
+    mutate({ appointmentId, request: toHotelBookingRequest(values.petId, stay) });
   }
 
   return (

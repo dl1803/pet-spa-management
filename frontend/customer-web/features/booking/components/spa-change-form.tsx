@@ -88,6 +88,7 @@ function SpaChangeFormBody({ appointment, pets, services }: SpaChangeFormBodyPro
   const [todayKey] = useState(() => getStoreDateKey(new Date()));
   const dates = getBookingDates(todayKey);
   const [initialValues] = useState(() => getSpaChangeDefaults(appointment, pets, services, dates));
+  const [rejectedSlotTime, setRejectedSlotTime] = useState<string | null>(null);
 
   const { control, handleSubmit, setValue, getValues } = useForm<SpaBookingFormValues>({
     mode: "onTouched",
@@ -107,7 +108,10 @@ function SpaChangeFormBody({ appointment, pets, services }: SpaChangeFormBodyPro
   const hasServices = pet !== undefined && selected.length > 0;
 
   const slotsQuery = useSpaSlots(hasServices ? { date, petId, serviceIds: selectedServiceIds } : null);
-  const slots = slotsQuery.data === undefined ? undefined : allowOwnSlots(slotsQuery.data, date, appointment);
+  const slots =
+    slotsQuery.data === undefined
+      ? undefined
+      : allowOwnSlots(slotsQuery.data, date, appointment, petId, rejectedSlotTime);
   const isSlotAvailable = slots?.slots.some((slot) => slot.time === slotTime && slot.status === "Available") ?? false;
 
   const {
@@ -121,7 +125,7 @@ function SpaChangeFormBody({ appointment, pets, services }: SpaChangeFormBodyPro
       showSuccess(CHANGE_REQUEST_SENT_MESSAGE);
       void queryClient.invalidateQueries({ queryKey: spaSlotKeys.all });
       await queryClient.invalidateQueries({ queryKey: appointmentKeys.all, refetchType: "all" });
-      router.push(ROUTES.appointmentDetail(appointmentId));
+      router.replace(ROUTES.appointmentDetail(appointmentId));
     },
     onError: (failure) => {
       // Quá thời hạn tự đổi: về chi tiết với hai nút đã khóa.
@@ -132,6 +136,7 @@ function SpaChangeFormBody({ appointment, pets, services }: SpaChangeFormBodyPro
         return;
       }
       if (isSlotFullError(failure)) {
+        setRejectedSlotTime(slotTime);
         setValue("slotTime", "");
         void queryClient.invalidateQueries({ queryKey: spaSlotKeys.all });
         return;
@@ -198,6 +203,7 @@ function SpaChangeFormBody({ appointment, pets, services }: SpaChangeFormBodyPro
     if (isPending || next === date) return;
     setValue("date", next);
     setValue("slotTime", "");
+    setRejectedSlotTime(null);
     resetSubmit();
   }
 
@@ -242,6 +248,7 @@ function SpaChangeFormBody({ appointment, pets, services }: SpaChangeFormBodyPro
                                 { shouldValidate: true },
                               );
                               setValue("slotTime", "");
+                              setRejectedSlotTime(null);
                               resetSubmit();
                             }}
                           >
@@ -294,6 +301,7 @@ function SpaChangeFormBody({ appointment, pets, services }: SpaChangeFormBodyPro
                             : field.value.filter((id) => id !== service.serviceId);
                           setValue("serviceIds", nextIds, { shouldValidate: true });
                           setValue("slotTime", "");
+                          setRejectedSlotTime(null);
                           resetSubmit();
                         }}
                       />

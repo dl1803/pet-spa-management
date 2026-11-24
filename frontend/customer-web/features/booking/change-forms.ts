@@ -75,7 +75,16 @@ const MINUTE_MS = 60_000;
 // GET /spa/slots tính cả chỗ chính lịch đang đổi đang giữ, nên có thể báo Đã kín sai với mốc chồng lên lịch này.
 // Mốc Đã kín mà khoảng bận (thời lượng + dọn dẹp) chồng lên khoảng bận hiện tại của lịch được coi là chọn được;
 // việc kiểm tra chính xác do PUT quyết định (409 SLOT_FULL nếu thật sự hết chỗ). Mốc Không nhận giữ nguyên.
-export function allowOwnSlots(slots: SpaSlots, date: string, appointment: AppointmentDetail): SpaSlots {
+// Nếu đã đổi sang thú cưng khác (currentPetId !== appointment.petId) hoặc mốc vừa bị 409 từ chối (rejectedSlotTime), giữ nguyên trạng thái Đã kín.
+export function allowOwnSlots(
+  slots: SpaSlots,
+  date: string,
+  appointment: AppointmentDetail,
+  currentPetId?: string,
+  rejectedSlotTime?: string | null,
+): SpaSlots {
+  if (currentPetId !== undefined && currentPetId !== appointment.petId) return slots;
+
   const { slotStart, slotEnd } = appointment;
   if (!slotStart || !slotEnd) return slots;
 
@@ -87,6 +96,7 @@ export function allowOwnSlots(slots: SpaSlots, date: string, appointment: Appoin
   return {
     ...slots,
     slots: slots.slots.map((slot) => {
+      if (slot.time === rejectedSlotTime) return { ...slot, status: "Full" as const };
       if (slot.status !== "Full") return slot;
       const start = Date.parse(buildStoreDateTime(date, slot.time));
       return start < ownEnd && ownStart < start + busyMs ? { ...slot, status: "Available" as const } : slot;
@@ -96,7 +106,14 @@ export function allowOwnSlots(slots: SpaSlots, date: string, appointment: Appoin
 
 // GET /hotel/availability tính cả các đêm chính lịch đang đổi đang giữ, nên có thể báo hết chỗ sai với khoảng ngày chồng lên lịch này.
 // Đêm tính theo ngày trong múi giờ cửa hàng, như backend. Việc kiểm tra chính xác do PUT quyết định (409 NO_CAPACITY).
-export function overlapsOwnStay(appointment: AppointmentDetail, stay: HotelStay): boolean {
+// Nếu đã đổi sang thú cưng khác (currentPetId !== appointment.petId), không coi là chồng lịch của chính mình.
+export function overlapsOwnStay(
+  appointment: AppointmentDetail,
+  stay: HotelStay,
+  currentPetId?: string,
+): boolean {
+  if (currentPetId !== undefined && currentPetId !== appointment.petId) return false;
+
   const { plannedCheckIn, plannedCheckOut } = appointment;
   if (!plannedCheckIn || !plannedCheckOut) return false;
   return (
