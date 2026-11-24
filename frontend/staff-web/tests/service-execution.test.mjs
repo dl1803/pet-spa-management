@@ -5,6 +5,7 @@ import {
   COMPLETE_BLOCKED_REASON,
   MAX_PHOTO_BYTES,
   PHOTO_ERROR_NOT_IMAGE,
+  PHOTO_ERROR_UNREADABLE,
   PHOTO_ERROR_TOO_LARGE,
   START_BLOCKED_COST_PENDING,
   START_BLOCKED_NO_PHOTO,
@@ -16,9 +17,11 @@ import {
   getExecutionFlags,
   getRemainingSeconds,
   getStartBlockers,
+  getStartFeedback,
   pickLatestPhoto,
   validatePhotoFile,
 } from "../features/service-execution/execution.ts";
+import { PHOTO_MAX_EDGE, getResizedSize } from "../features/service-execution/photo-resize.ts";
 import { completeLocally, withPhoto, withServiceDone, withStarted } from "../features/service-execution/local-updates.ts";
 import { MOCK_APPOINTMENT_IDS, createMockCompletedExecutions, createMockExecutions, findMockExecution } from "../features/service-execution/mock-data.ts";
 import { createPhotoUrlTracker } from "../features/service-execution/photo-urls.ts";
@@ -297,4 +300,26 @@ test("hoàn tất cục bộ: lỗi 409 theo thứ tự trạng thái, dịch v�
   expectConflict({ ...ready, photos: ready.photos.filter((entry) => entry.kind !== "After") }, "PHOTO_REQUIRED");
   const completed = createMockCompletedExecutions()[0];
   expectConflict(completed, "INVALID_TRANSITION");
+});
+
+test("thu nhỏ ảnh: cạnh dài tối đa 1600px, giữ tỷ lệ, ảnh nhỏ hơn giữ nguyên", () => {
+  assert.equal(PHOTO_MAX_EDGE, 1600);
+  assert.deepEqual(getResizedSize(4000, 3000), { width: 1600, height: 1200 });
+  assert.deepEqual(getResizedSize(3000, 4000), { width: 1200, height: 1600 });
+  assert.deepEqual(getResizedSize(1600, 1200), { width: 1600, height: 1200 });
+  assert.deepEqual(getResizedSize(800, 600), { width: 800, height: 600 });
+  assert.deepEqual(getResizedSize(4032, 3024), { width: 1600, height: 1200 });
+  assert.deepEqual(getResizedSize(10000, 1), { width: 1600, height: 1 }); // mỗi cạnh tối thiểu 1px
+});
+
+test("phản hồi lỗi bắt đầu: 409 ảnh và chờ xác nhận chi phí cho lý do dưới nút, lỗi khác hiển thị tại chỗ", () => {
+  const http = (status, code) => new ApiError({ kind: "http", status, code, title: "Lỗi", detail: "Chi tiết" });
+  assert.deepEqual(getStartFeedback(http(409, "PHOTO_REQUIRED")), { kind: "reason", reason: START_BLOCKED_NO_PHOTO, highlightBeforePhoto: true });
+  assert.deepEqual(getStartFeedback(http(409, "COST_CONFIRMATION_PENDING")), { kind: "reason", reason: START_BLOCKED_COST_PENDING, highlightBeforePhoto: false });
+  for (const error of [http(409, "INVALID_TRANSITION"), http(403, "FORBIDDEN"), http(404, "NOT_FOUND"), http(500, null), new ApiError({ kind: "network" }), new Error("lạ")]) {
+    const feedback = getStartFeedback(error);
+    assert.equal(feedback.kind, "error");
+    assert.ok(feedback.error instanceof ApiError);
+  }
+  assert.equal(PHOTO_ERROR_UNREADABLE, "Không đọc được ảnh này, vui lòng chọn ảnh khác.");
 });
