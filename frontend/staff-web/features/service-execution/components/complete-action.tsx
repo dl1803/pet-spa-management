@@ -10,11 +10,14 @@ type CompleteActionProps = {
   blockers: string[];
   feedback: CompleteFeedback | null;
   onComplete: () => void;
+  // Đang có thao tác ghi: khóa nút; `loading`: chính thao tác hoàn tất đang gửi.
+  busy?: boolean;
+  loading?: boolean;
 };
 
 // SW-11 vùng 7 – Nút “Hoàn tất lịch hẹn” khi lịch `InProgress` (UI-Screens.md). Web chỉ khóa để dễ dùng; backend vẫn kiểm tra lại (409).
 // 409 PHOTO_REQUIRED / SERVICES_INCOMPLETE: lý do dưới nút; lỗi khác, kể cả 403: `ErrorAlert` để giữ nội dung đang thao tác.
-export function CompleteAction({ blockers, feedback, onComplete }: CompleteActionProps) {
+export function CompleteAction({ blockers, feedback, onComplete, busy = false, loading = false }: CompleteActionProps) {
   const isServerReason = feedback?.kind === "reason";
   const reasons = isServerReason ? [feedback.reason] : blockers;
 
@@ -23,7 +26,9 @@ export function CompleteAction({ blockers, feedback, onComplete }: CompleteActio
       <Button
         size="lg"
         block
-        disabled={blockers.length > 0}
+        disabled={blockers.length > 0 || busy}
+        loading={loading}
+        loadingText="Đang hoàn tất…"
         aria-describedby={reasons.length > 0 ? REASONS_ID : undefined}
         onClick={onComplete}
       >

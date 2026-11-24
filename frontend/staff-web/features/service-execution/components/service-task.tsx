@@ -11,6 +11,10 @@ type ServiceTaskProps = {
   // Đánh dấu xong chỉ dùng được khi lịch đang thực hiện.
   canMarkDone: boolean;
   onMarkDone: (service: AppointmentServiceItem, note: string) => void;
+  // Đang có thao tác ghi khác: khóa nút nhưng vẫn hiện ô ghi chú.
+  busy?: boolean;
+  // Dịch vụ này đang được gửi lên backend.
+  pending?: boolean;
 };
 
 const tickBaseClass = "grid size-7 shrink-0 place-items-center rounded-full border-[1.5px]";
@@ -18,7 +22,7 @@ const tickBaseClass = "grid size-7 shrink-0 place-items-center rounded-full bord
 type NoteForm = { note: string };
 
 // SW-11 vùng 8 – Một dịch vụ (UI-Screens.md; Design-System 4.3 ServiceTask).
-export function ServiceTask({ service, canMarkDone, onMarkDone }: ServiceTaskProps) {
+export function ServiceTask({ service, canMarkDone, onMarkDone, busy = false, pending = false }: ServiceTaskProps) {
   const { register, handleSubmit } = useForm<NoteForm>({ defaultValues: { note: "" } });
   const name = service.name ?? "Dịch vụ";
 
@@ -64,7 +68,7 @@ export function ServiceTask({ service, canMarkDone, onMarkDone }: ServiceTaskPro
           )}
         </div>
         <div className="max-[640px]:col-start-2">
-          <Button type="submit" variant="secondary" size="sm" disabled={!canMarkDone}>
+          <Button type="submit" variant="secondary" size="sm" disabled={!canMarkDone || busy} loading={pending} loadingText="Đang lưu…">
             Đánh dấu xong
           </Button>
         </div>

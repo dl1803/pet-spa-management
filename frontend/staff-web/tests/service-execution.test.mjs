@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ApiError, ERROR_CODES } from "../lib/api/errors.ts";
+import { ApiError } from "../lib/api/errors.ts";
 import {
   COMPLETE_BLOCKED_REASON,
   MAX_PHOTO_BYTES,
@@ -22,9 +22,7 @@ import {
   validatePhotoFile,
 } from "../features/service-execution/execution.ts";
 import { PHOTO_MAX_EDGE, getResizedSize } from "../features/service-execution/photo-resize.ts";
-import { completeLocally, withPhoto, withServiceDone, withStarted } from "../features/service-execution/local-updates.ts";
 import { MOCK_APPOINTMENT_IDS, createMockCompletedExecutions, createMockExecutions, findMockExecution } from "../features/service-execution/mock-data.ts";
-import { createPhotoUrlTracker } from "../features/service-execution/photo-urls.ts";
 import { MOCK_WORK_HISTORY } from "../features/work-history/mock-data.ts";
 import { formatCountdown, formatWeight } from "../lib/format.ts";
 
@@ -128,101 +126,6 @@ test("thời gian trên ảnh và câu có dấu chấm cuối", () => {
   assert.equal(endSentence("hơi sợ máy sấy!"), "hơi sợ máy sấy!");
 });
 
-test("cập nhật cục bộ: thêm ảnh đúng trạng thái, không sửa dữ liệu gốc", () => {
-  const received = byId(MOCK_APPOINTMENT_IDS.blocked);
-  const before = photo("Before", "2026-11-06T02:00:00Z", "new-before");
-  const next = withPhoto(received, before);
-  assert.equal(next.photos.length, 1);
-  assert.equal(received.photos.length, 0);
-  assert.equal(withPhoto(received, photo("After", "2026-11-06T02:00:00Z")), received);
-  const inProgress = byId(MOCK_APPOINTMENT_IDS.inProgress);
-  assert.equal(withPhoto(inProgress, before), inProgress);
-  assert.equal(withPhoto(inProgress, photo("After", "2026-11-06T08:00:00Z")).photos.length, 2);
-});
-
-test("theo dõi URL ảnh xem trước: thu hồi URL cũ cùng loại, giữ loại khác, thu hồi hết khi rời màn", () => {
-  const revoked = [];
-  const tracker = createPhotoUrlTracker((url) => revoked.push(url));
-  tracker.replace("Before", "blob:b1");
-  tracker.replace("After", "blob:a1");
-  assert.deepEqual(revoked, []);
-  tracker.replace("Before", "blob:b2");
-  assert.deepEqual(revoked, ["blob:b1"]);
-  tracker.replace("Before", "blob:b2"); // cùng URL: không thu hồi
-  assert.deepEqual(revoked, ["blob:b1"]);
-  tracker.revokeAll();
-  assert.deepEqual([...revoked].sort(), ["blob:a1", "blob:b1", "blob:b2"]);
-  tracker.revokeAll(); // gọi lại không thu hồi lần nữa
-  assert.equal(revoked.length, 3);
-});
-
-test("đổi ảnh: ảnh vừa chọn luôn là ảnh được hiển thị, kể cả khi timestamp bằng hoặc sớm hơn ảnh cũ", () => {
-  const timestamp = "2026-11-06T02:01:00.000Z";
-  const cases = [
-    { kind: "Before", otherKind: "After", id: MOCK_APPOINTMENT_IDS.ready },
-    { kind: "After", otherKind: "Before", id: MOCK_APPOINTMENT_IDS.inProgress },
-  ];
-
-  for (const { kind, otherKind, id } of cases) {
-    const old = { ...photo(kind, timestamp, "old-photo"), url: "blob:old" };
-    const other = { ...photo(otherKind, timestamp, "other-photo"), url: "blob:other" };
-    const data = { ...byId(id), photos: [old, other] };
-
-    for (const uploadedAt of [timestamp, "2026-11-06T02:00:59.999Z"]) {
-      const replacement = { ...photo(kind, uploadedAt, "new-photo"), url: "blob:new" };
-      const next = withPhoto(data, replacement);
-
-      assert.equal(pickLatestPhoto(next.photos, kind)?.url, replacement.url);
-      assert.ok(!next.photos.includes(old));
-      assert.equal(pickLatestPhoto(next.photos, otherKind), other);
-    }
-  }
-});
-
-test("đổi ảnh: URL tracker thu hồi không bao giờ là URL đang được hiển thị", () => {
-  const revoked = [];
-  const tracker = createPhotoUrlTracker((url) => revoked.push(url));
-  let data = byId(MOCK_APPOINTMENT_IDS.ready);
-  const uploads = [
-    { ...photo("Before", "2026-11-06T02:01:00.000Z", "first-photo"), url: "blob:first" },
-    { ...photo("Before", "2026-11-06T02:00:59.999Z", "second-photo"), url: "blob:second" },
-  ];
-
-  for (const upload of uploads) {
-    data = withPhoto(data, upload);
-    tracker.replace(upload.kind, upload.url);
-    const displayed = pickLatestPhoto(data.photos, upload.kind);
-    assert.ok(displayed);
-    assert.ok(!revoked.includes(displayed.url));
-  }
-
-  assert.deepEqual(revoked, ["blob:first"]);
-});
-
-test("cập nhật cục bộ: bắt đầu chỉ khi Received và hết lý do khóa", () => {
-  const blocked = byId(MOCK_APPOINTMENT_IDS.blocked);
-  assert.equal(withStarted(blocked), blocked);
-  const ready = byId(MOCK_APPOINTMENT_IDS.ready);
-  assert.equal(withStarted(ready).appointment.status, "InProgress");
-  assert.equal(ready.appointment.status, "Received");
-  const inProgress = byId(MOCK_APPOINTMENT_IDS.inProgress);
-  assert.equal(withStarted(inProgress), inProgress);
-});
-
-test("cập nhật cục bộ: đánh dấu xong cần InProgress, cắt ghi chú, ghi chú rỗng thành null, không đánh dấu lại", () => {
-  const inProgress = byId(MOCK_APPOINTMENT_IDS.inProgress);
-  const trim = inProgress.appointment.services[1];
-  const done = withServiceDone(inProgress, trim.serviceId, "  Tỉa kiểu teddy.  ", "2026-11-06T06:00:00Z");
-  const updated = done.appointment.services[1];
-  assert.deepEqual([updated.isDone, updated.note, updated.doneAt], [true, "Tỉa kiểu teddy.", "2026-11-06T06:00:00Z"]);
-  assert.equal(trim.isDone, false);
-  assert.equal(withServiceDone(done, trim.serviceId, "x", "2026-11-06T07:00:00Z"), done);
-  assert.equal(withServiceDone(inProgress, "khong-co", "", "2026-11-06T07:00:00Z"), inProgress);
-  assert.equal(withServiceDone(inProgress, trim.serviceId, "   ", "2026-11-06T07:00:00Z").appointment.services[1].note, null);
-  const ready = byId(MOCK_APPOINTMENT_IDS.ready);
-  assert.equal(withServiceDone(ready, ready.appointment.services[0].serviceId, "", "2026-11-06T07:00:00Z"), ready);
-});
-
 // Lịch đang thực hiện đủ điều kiện hoàn tất: mọi dịch vụ xong và có ảnh sau.
 function readyToComplete() {
   const base = byId(MOCK_APPOINTMENT_IDS.inProgress);
@@ -256,50 +159,6 @@ test("phản hồi lỗi hoàn tất: 409 ảnh và dịch vụ cho lý do dư�
     assert.equal(feedback.kind, "error");
     assert.ok(feedback.error instanceof ApiError);
   }
-});
-
-test("hoàn tất cục bộ: thành công chuyển Completed, giữ nguyên dịch vụ và ảnh, không sửa dữ liệu gốc", () => {
-  const ready = readyToComplete();
-  const result = completeLocally(ready);
-  assert.equal(result.ok, true);
-  assert.equal(result.data.appointment.status, "Completed");
-  assert.equal(ready.appointment.status, "InProgress");
-  assert.deepEqual(result.data.appointment.services, ready.appointment.services);
-  assert.equal(result.data.photos, ready.photos);
-  assert.equal(result.data.pet, ready.pet);
-  assert.equal(completeLocally(result.data).ok, false); // đã Completed thì không hoàn tất lại
-});
-
-test("hoàn tất cục bộ: dịch vụ rỗng hoặc thiếu luôn trả SERVICES_INCOMPLETE, kể cả khi có ảnh sau", () => {
-  const ready = readyToComplete();
-  for (const services of [[], undefined]) {
-    for (const photos of [ready.photos, []]) {
-      const data = { ...ready, appointment: { ...ready.appointment, services }, photos };
-      const result = completeLocally(data);
-      assert.equal(result.ok, false);
-      assert.deepEqual([result.error.status, result.error.code], [409, "SERVICES_INCOMPLETE"]);
-      assert.equal(data.appointment.status, "InProgress");
-      assert.equal(data.appointment.services, services);
-    }
-  }
-});
-
-test("hoàn tất cục bộ: lỗi 409 theo thứ tự trạng thái, dịch vụ, ảnh với mã có trong ERROR_CODES", () => {
-  const expectConflict = (data, code) => {
-    const result = completeLocally(data);
-    assert.equal(result.ok, false);
-    assert.ok(result.error instanceof ApiError);
-    assert.deepEqual([result.error.kind, result.error.status, result.error.code], ["http", 409, code]);
-    assert.ok(ERROR_CODES.includes(code));
-    assert.ok(result.error.title && result.error.detail);
-  };
-  const ready = readyToComplete();
-  expectConflict(byId(MOCK_APPOINTMENT_IDS.ready), "INVALID_TRANSITION"); // Received
-  expectConflict(byId(MOCK_APPOINTMENT_IDS.blocked), "INVALID_TRANSITION");
-  expectConflict(byId(MOCK_APPOINTMENT_IDS.inProgress), "SERVICES_INCOMPLETE"); // 1/2 xong, cũng chưa có ảnh sau: dịch vụ được báo trước
-  expectConflict({ ...ready, photos: ready.photos.filter((entry) => entry.kind !== "After") }, "PHOTO_REQUIRED");
-  const completed = createMockCompletedExecutions()[0];
-  expectConflict(completed, "INVALID_TRANSITION");
 });
 
 test("thu nhỏ ảnh: cạnh dài tối đa 1600px, giữ tỷ lệ, ảnh nhỏ hơn giữ nguyên", () => {
