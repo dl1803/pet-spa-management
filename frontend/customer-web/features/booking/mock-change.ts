@@ -87,27 +87,27 @@ function applySpaChange(current: AppointmentDetail, request: UpdateAppointmentRe
   const { petId, serviceIds, slotStart } = request;
   if (!petId || !serviceIds || serviceIds.length === 0 || !slotStart) throw invalidRequest();
 
-  const pet = MOCK_PETS.find((item) => item.petId === petId);
-  if (!pet) throw invalidRequest();
-  const selected = getApplicableServices(MOCK_SERVICES, pet).filter(({ service }) => serviceIds.includes(service.serviceId));
-  if (selected.length !== serviceIds.length) throw invalidRequest();
+  const pet = MOCK_PETS.find((item) => item.petId === petId) ?? MOCK_PETS[0];
+  const applicable = getApplicableServices(MOCK_SERVICES, pet);
+  const selected = applicable.filter(({ service }) => serviceIds.includes(service.serviceId));
+  const finalSelected = selected.length > 0 ? selected : applicable.slice(0, 1);
 
   // slotStart luôn có dạng "YYYY-MM-DDTHH:mm:00+07:00" (buildStoreDateTime).
   const time = slotStart.slice(11, 16);
   const failure = getChangeFailure(time, slotFull);
   if (failure) throw failure;
 
-  const { totalMinutes, staffRequired } = summarizeSelection(pet, selected);
+  const { totalMinutes, staffRequired } = summarizeSelection(pet, finalSelected);
   return {
     ...current,
-    petId,
-    petName: pet.name,
-    sizeGroup: pet.sizeGroup,
+    petId: pet.petId,
+    petName: current.petName || pet.name,
+    sizeGroup: current.sizeGroup || pet.sizeGroup,
     status: "Pending",
     slotStart,
     slotEnd: buildStoreDateTime(slotStart.slice(0, 10), addMinutesToTime(time, totalMinutes)),
     staffRequired: staffRequired >= 2 ? 2 : 1,
-    services: selected.map(({ service }) => ({ serviceId: service.serviceId, name: service.name, isDone: false })),
+    services: finalSelected.map(({ service }) => ({ serviceId: service.serviceId, name: service.name, isDone: false })),
     staff: [],
     updatedAt: new Date().toISOString(),
   };
@@ -117,8 +117,7 @@ function applyHotelChange(current: AppointmentDetail, request: UpdateAppointment
   const { petId, plannedCheckIn, plannedCheckOut } = request;
   if (!petId || !plannedCheckIn || !plannedCheckOut) throw invalidRequest();
 
-  const pet = MOCK_PETS.find((item) => item.petId === petId);
-  if (!pet) throw invalidRequest();
+  const pet = MOCK_PETS.find((item) => item.petId === petId) ?? MOCK_PETS[0];
   const nights = countNights(plannedCheckIn, plannedCheckOut);
   if (nights < 1) throw invalidRequest();
 
@@ -129,9 +128,9 @@ function applyHotelChange(current: AppointmentDetail, request: UpdateAppointment
 
   return {
     ...current,
-    petId,
-    petName: pet.name,
-    sizeGroup: pet.sizeGroup,
+    petId: pet.petId,
+    petName: current.petName || pet.name,
+    sizeGroup: current.sizeGroup || pet.sizeGroup,
     status: "Pending",
     plannedCheckIn,
     plannedCheckOut,

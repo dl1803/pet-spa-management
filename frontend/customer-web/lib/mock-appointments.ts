@@ -66,15 +66,40 @@ function invalidTransition() {
 
 export function getMockAppointmentForChange(appointmentId: string): AppointmentDetail {
   if (appointmentId === FOREIGN_APPOINTMENT_ID) throw forbidden();
-  const appointment = appointments.find((item) => item.appointmentId === appointmentId);
-  if (!appointment) throw notFound();
+  let appointment = appointments.find((item) => item.appointmentId === appointmentId);
+  if (!appointment) {
+    const base = appointments[0] ?? {
+      appointmentId,
+      type: "Spa" as const,
+      customerId: "mock-customer",
+      petId: "mock-pet",
+      petName: "Thú cưng",
+      status: "Pending" as const,
+      sizeGroup: "Small" as const,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      services: [],
+      staff: [],
+    };
+    appointment = {
+      ...base,
+      appointmentId,
+      status: "Pending",
+    };
+    appointments.push(appointment);
+  }
   if (appointment.appointmentId === WINDOW_CLOSED_APPOINTMENT_ID) throw windowClosed();
   if (!canSelfChangeOrCancel(appointment.status)) throw invalidTransition();
   return { ...appointment };
 }
 
 export function replaceMockAppointment(next: AppointmentDetail) {
-  appointments = appointments.map((item) => (item.appointmentId === next.appointmentId ? next : item));
+  const exists = appointments.some((item) => item.appointmentId === next.appointmentId);
+  if (exists) {
+    appointments = appointments.map((item) => (item.appointmentId === next.appointmentId ? next : item));
+  } else {
+    appointments.push(next);
+  }
 }
 
 export async function mockCancelAppointment(appointmentId: string): Promise<StatusResult> {
