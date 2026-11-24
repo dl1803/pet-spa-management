@@ -6,7 +6,7 @@ import { CounterPaymentDialog } from "../features/payments/components/counter-pa
 import { PaymentFilters } from "../features/payments/components/payment-filters.tsx";
 import { PaymentsScreenFallback } from "../features/payments/components/payments-screen-fallback.tsx";
 import { PaymentsTable } from "../features/payments/components/payments-table.tsx";
-import { MOCK_PAYMENTS } from "../features/payments/mock-data.ts";
+import { MOCK_PAYMENTS } from "./fixtures/payments.ts";
 
 const noop = () => {};
 const count = (html, pattern) => (html.match(pattern) ?? []).length;
@@ -42,6 +42,15 @@ test("PaymentFilters: 3 chip trạng thái (số trên chip Chưa thanh toán), 
   assert.ok(html.indexOf("Mọi khoản") < html.indexOf("Khoản spa") && html.indexOf("Khoản spa") < html.indexOf("Tiền lưu trú") && html.indexOf("Tiền lưu trú") < html.indexOf("Phí trả muộn"));
   assert.ok(html.indexOf("Mọi phương thức") < html.indexOf("Tiền mặt") && html.indexOf("Tiền mặt") < html.indexOf("Chuyển khoản QR") && html.indexOf("Chuyển khoản QR") < html.indexOf("Trực tuyến"));
   assert.ok(html.includes('aria-label="Lọc theo khoản"') && html.includes('aria-label="Lọc theo phương thức"'));
+});
+
+test("PaymentFilters: chưa có số khoản chưa thanh toán thì chip không hiện số", () => {
+  const html = render(PaymentFilters, {
+    status: "all", kind: "all", method: "all",
+    onStatusChange: noop, onKindChange: noop, onMethodChange: noop,
+  });
+  assert.equal(count(html, /aria-pressed/g), 3);
+  assert.match(html, /aria-pressed="false"[^>]*>Chưa thanh toán<\/button>/);
 });
 
 test("CounterPaymentDialog: tiêu đề, mô tả, số tiền phải trả, 2 phương thức (không có Trực tuyến), số tiền thực nhận mặc định", () => {

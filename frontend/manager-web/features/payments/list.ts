@@ -9,8 +9,6 @@ export const PAYMENT_PAGE_SIZE = 20;
 // thiếu thì bảng và hộp thoại bỏ phần tên.
 export type PaymentRow = Payment & { petName?: string; customerName?: string };
 
-export type PaymentRowPage = Omit<PaymentPage, "items"> & { items: PaymentRow[] };
-
 export type PaymentStatusFilter = "all" | PaymentStatus;
 export type PaymentKindFilter = "all" | PaymentKind;
 export type PaymentMethodFilter = "all" | PaymentMethod;
@@ -48,14 +46,21 @@ export function resolvePage(requested: number, total: number, pageSize: number):
   return Math.min(requested, Math.max(1, Math.ceil(total / pageSize)));
 }
 
-export function countPayments(payments: Payment[], status: PaymentStatusFilter): number {
-  return status === "all" ? payments.length : payments.filter((payment) => payment.status === status).length;
-}
-
 // Thẻ “Chưa thanh toán” (UI-Screens MW-10 vùng 1): số khoản và tổng tiền, cộng đúng `amount` do server trả.
 export function summarizeUnpaid(payments: Payment[]) {
   const unpaid = payments.filter((payment) => payment.status === "Unpaid");
   return { count: unpaid.length, total: unpaid.reduce((sum, payment) => sum + payment.amount, 0) };
+}
+
+// Thẻ và chip “Chưa thanh toán” từ một trang GET /payments?status=Unpaid: số khoản là `total` của server;
+// tổng tiền chỉ cộng được trên các khoản đã tải nên `isPartial` báo khi còn khoản chưa nằm trong trang.
+export function summarizeUnpaidPage(page: PaymentPage) {
+  return {
+    count: page.total,
+    total: summarizeUnpaid(page.items).total,
+    loaded: page.items.length,
+    isPartial: page.total > page.items.length,
+  };
 }
 
 // Lọc ở web trên trang đang xem: API chưa có tham số kind, method (UI-Screens G-07).

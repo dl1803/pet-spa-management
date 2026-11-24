@@ -1,11 +1,9 @@
-import { ApiError } from "@/lib/api/errors";
-import type { CounterPaymentRequest, PaymentKind, PaymentMethod } from "@/lib/api/types";
-import { FORM_MESSAGES } from "./forms";
-import type { PaymentRow, PaymentRowPage, PaymentStatusFilter } from "./list";
+import type { PaymentKind, PaymentMethod } from "@/lib/api/types";
+import type { PaymentRow } from "@/features/payments/list";
 
-// Dữ liệu mô phỏng theo UI demo (MW-10), đúng hình dạng Payment của GET /payments; tên thú cưng, khách là phần
+// Dữ liệu mẫu theo UI demo (MW-10), đúng hình dạng Payment của GET /payments; tên thú cưng, khách là phần
 // hiển thị thêm (UI-Screens G-07). Mã lịch hiển thị là 8 ký tự đầu của appointmentId nên số lịch ở đây chỉ để đánh số.
-// Thay bằng dữ liệu API thật khi nối backend.
+// Chỉ dùng cho kiểm thử.
 const appointmentId = (n: number) => `5f1c${n.toString(16).padStart(4, "0")}-7e44-4c0a-9d21-0a1b2c3d4e00`;
 const paymentId = (n: number) => `9e3b${n.toString(16).padStart(4, "0")}-2a6d-4b18-8c35-6d7e8f9a0b00`;
 
@@ -78,47 +76,3 @@ export const MOCK_PAYMENTS: PaymentRow[] = [
     customerName,
   })),
 ];
-
-// Mô phỏng GET /payments?status=&page=&pageSize=: lọc theo trạng thái, rồi cắt trang.
-export function getMockPaymentPage(
-  payments: PaymentRow[],
-  { status, page, pageSize }: { status: PaymentStatusFilter; page: number; pageSize: number },
-): PaymentRowPage {
-  const matched = status === "all" ? payments : payments.filter((payment) => payment.status === status);
-  const start = (page - 1) * pageSize;
-  return { page, pageSize, total: matched.length, items: matched.slice(start, start + pageSize) };
-}
-
-// Mô phỏng POST /payments/{id}/counter. Ném ApiError giống API thật (openapi payAtCounter) để CounterPaymentDialog
-// xử lý một cách duy nhất khi nối backend: 404 NOT_FOUND; 409 AMOUNT_MISMATCH khi số tiền nhận thấp hơn `amount`.
-// Thành công: Paid, ghi phương thức, số tiền nhận và thời điểm; `amount` giữ nguyên (backend không nhận từ client).
-// Mô phỏng không kiểm tra thời điểm theo BR-07 (PAYMENT_NOT_DUE) và chờ xác nhận chi phí (COST_CONFIRMATION_PENDING).
-export function recordMockCounterPayment(
-  current: PaymentRow[],
-  targetId: string,
-  request: CounterPaymentRequest,
-  paidAt: string,
-): PaymentRow[] {
-  const target = current.find((payment) => payment.paymentId === targetId);
-  if (!target) {
-    throw new ApiError({
-      kind: "http",
-      status: 404,
-      code: "NOT_FOUND",
-      title: "Không tìm thấy dữ liệu, có thể đã bị thay đổi.",
-    });
-  }
-  if (request.receivedAmount < target.amount) {
-    throw new ApiError({
-      kind: "http",
-      status: 409,
-      code: "AMOUNT_MISMATCH",
-      title: FORM_MESSAGES.receivedAmountInsufficient,
-    });
-  }
-  return current.map((payment) =>
-    payment.paymentId === targetId
-      ? { ...payment, status: "Paid", method: request.method, receivedAmount: request.receivedAmount, paidAt }
-      : payment,
-  );
-}
