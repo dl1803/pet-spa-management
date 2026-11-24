@@ -100,7 +100,9 @@ export function ServiceExecutionScreen() {
   const [now] = useState(() => new Date());
 
   // Màn Lịch sử công việc còn dùng dữ liệu mô phỏng: nút “Xem” của nó mở lịch Hoàn tất mô phỏng ở chế độ chỉ xem (không có thao tác nào).
-  const mockCompleted = findMockExecution(createMockCompletedExecutions(), appointmentId);
+  // Kiểm tra tiền tố cố định của mã mô phỏng để tránh gọi hàm duyệt dữ liệu mô phỏng trên lịch thật.
+  const isMockCandidate = typeof appointmentId === "string" && appointmentId.startsWith("a0000000-0000-4000-8000-");
+  const mockCompleted = isMockCandidate ? findMockExecution(createMockCompletedExecutions(), appointmentId) : null;
   if (mockCompleted !== null) {
     return <ExecutionWorkspace key={appointmentId} data={mockCompleted} todayKey={getStoreDateKey(now)} onCompleted={() => {}} />;
   }

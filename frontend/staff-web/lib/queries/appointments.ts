@@ -119,7 +119,10 @@ export function useUploadPhoto() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: uploadPhoto,
-    onSuccess: (_data, variables) => queryClient.invalidateQueries({ queryKey: appointmentKeys.photos(variables.appointmentId) }),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: appointmentKeys.photos(variables.appointmentId) });
+      void refreshAppointments(queryClient);
+    },
     onError: (error, variables) => {
       // Lịch đổi trạng thái hoặc ngoài phạm vi: tải lại chi tiết (gồm ảnh) để màn khớp dữ liệu mới nhất.
       const status = toApiError(error).status;

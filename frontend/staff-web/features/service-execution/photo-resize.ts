@@ -13,7 +13,7 @@ export function getResizedSize(width: number, height: number, maxEdge = PHOTO_MA
 // Vẽ ảnh lên canvas rồi xuất JPEG; backend chỉ nhận JPEG, PNG, WebP nên ảnh luôn tải lên dưới dạng JPEG.
 // Ném lỗi khi trình duyệt không đọc được ảnh (ví dụ định dạng không hỗ trợ); chỉ chạy trong trình duyệt.
 export async function resizePhoto(file: File): Promise<File> {
-  const bitmap = await createImageBitmap(file);
+  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
   try {
     const { width, height } = getResizedSize(bitmap.width, bitmap.height);
     const canvas = document.createElement("canvas");
@@ -27,7 +27,9 @@ export async function resizePhoto(file: File): Promise<File> {
     context.drawImage(bitmap, 0, 0, width, height);
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", PHOTO_JPEG_QUALITY));
     if (blob === null) throw new Error("Không xuất được ảnh JPEG.");
-    return new File([blob], "photo.jpg", { type: "image/jpeg" });
+    const baseName = file.name ? file.name.replace(/\.[^/.]+$/, "") : "photo";
+    const fileName = `${baseName || "photo"}.jpg`;
+    return new File([blob], fileName, { type: "image/jpeg" });
   } finally {
     bitmap.close();
   }

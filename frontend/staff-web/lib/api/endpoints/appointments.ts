@@ -100,13 +100,13 @@ export type UploadPhotoVariables = {
 };
 
 // POST /appointments/{id}/photos (uploadPhoto): multipart/form-data { kind, file }, 201 { photoId }.
-// `apiClient` đặt sẵn Content-Type JSON nên phải ghi đè: nếu giữ nguyên, Axios đổi FormData thành JSON và mất tệp ảnh.
+// `apiClient` đặt sẵn Content-Type JSON nên đặt Content-Type = undefined để Axios/trình duyệt tự sinh header multipart/form-data kèm boundary hợp lệ.
 export async function uploadPhoto({ appointmentId, kind, file, onProgress }: UploadPhotoVariables) {
   const form = new FormData();
   form.append("kind", kind);
   form.append("file", file, file.name);
   const { data } = await apiClient.post<PhotoCreated>(`/appointments/${encodeURIComponent(appointmentId)}/photos`, form, {
-    headers: { "Content-Type": "multipart/form-data" },
+    headers: { "Content-Type": undefined },
     onUploadProgress: (event) => {
       if (onProgress && event.total) onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)));
     },
