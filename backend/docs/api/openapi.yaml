@@ -849,7 +849,7 @@ paths:
       tags: ["Lịch hẹn – thực hiện"]
       operationId: completeAppointment
       summary: Hoàn tất lịch spa
-      description: "InProgress → Completed khi mọi dịch vụ đã xong (BR-06) và có ảnh After (BR-20). Hình thành khoản thanh toán Spa."
+      description: "InProgress → Completed khi mọi dịch vụ đã xong (BR-06), có ảnh After (BR-20) và không chờ xác nhận chi phí mới (BR-23). Nhả giữ chỗ nhân viên; hình thành khoản thanh toán Spa."
       x-roles: ["NVS (được phân công)", QL]
       x-fr: [FR-EXE-04, FR-EXE-05]
       parameters:
@@ -864,7 +864,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: "PHOTO_REQUIRED; SERVICES_INCOMPLETE; INVALID_TRANSITION."
+          description: "PHOTO_REQUIRED; SERVICES_INCOMPLETE; COST_CONFIRMATION_PENDING; INVALID_TRANSITION."
           content: { application/problem+json: { schema: { $ref: '#/components/schemas/ProblemDetails' } } }
   /appointments/{id}/check-out:
     post:

@@ -3,6 +3,7 @@ using PetSpa.Application.Security;
 using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
 using PetSpa.Domain.Exceptions;
+using PetSpa.Domain.Services;
 
 namespace PetSpa.Application.Services.Assignment;
 
@@ -12,6 +13,7 @@ public sealed class AppointmentProgressService(
     IAppointmentPhotoRepository photos,
     IAppointmentProgressRepository progress,
     ICostConfirmationRepository costConfirmations,
+    IPaymentRepository payments,
     IConcurrencyGuard concurrency,
     IStaffRoleReader staffRoles)
 {
@@ -60,6 +62,57 @@ public sealed class AppointmentProgressService(
             line.SetProgress(isDone, note, DateTimeOffset.UtcNow);
             await progress.SaveChangesAsync(ct);
         }, ct);
+    }
+
+    public async Task<AppointmentStatus> CompleteAsync(
+        CurrentUser user, Guid appointmentId, CancellationToken ct = default)
+    {
+        await EnsureCanUpdateAsync(user, appointmentId, ct);
+
+        return await concurrency.RunAsync(async () =>
+        {
+            await concurrency.LockAppointmentAsync(appointmentId, ct);
+
+            var appointment = await assignments.FindSpaAppointmentAsync(appointmentId, ct)
+                ?? throw new BusinessException(ErrorCodes.NotFound);
+
+            var hasPendingCostConfirmation = await costConfirmations.HasPendingAsync(appointmentId, ct);
+            var serviceLines = await progress.ListServiceLinesAsync(appointmentId, ct);
+            var hasAfterPhoto = await photos.HasPhotoAsync(appointmentId, PhotoKind.After, ct);
+
+            appointment.EnsureCanComplete(hasPendingCostConfirmation, serviceLines, hasAfterPhoto);
+
+            var amount = await CalculateSpaAmountAsync(appointment, ct);
+
+            appointment.Complete();
+            await assignments.ReleaseStaffHoldsAsync(appointmentId, ct);
+            payments.Add(new Payment
+            {
+                PaymentId = Guid.NewGuid(),
+                AppointmentId = appointmentId,
+                Kind = PaymentKind.Spa,
+                Amount = amount,
+                Status = PaymentStatus.Unpaid,
+            });
+            await assignments.UpdateSpaAppointmentAsync(appointment, ct);
+
+            return appointment.Status;
+        }, ct);
+    }
+
+    private async Task<decimal> CalculateSpaAmountAsync(SpaAppointment appointment, CancellationToken ct)
+    {
+        var input = await assignments.GetSpaAmountInputAsync(appointment.AppointmentId, ct)
+            ?? throw new BusinessException(ErrorCodes.NotFound);
+
+        try
+        {
+            return PricingService.SpaAmount(input.Species, appointment.SizeGroup, input.ServiceIds, input.Pricing);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new BusinessException(ErrorCodes.ValidationError, ex.Message);
+        }
     }
 
     private async Task EnsureCanUpdateAsync(CurrentUser user, Guid appointmentId, CancellationToken ct)
