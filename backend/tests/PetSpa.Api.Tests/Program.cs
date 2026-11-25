@@ -997,6 +997,43 @@ var tests = new (string Name, Func<Task> Run)[]
             "Detail must carry the customer name and the pet name.");
         return Task.CompletedTask;
     }),
+    ("AppointmentQueryService.ListAsync: lịch sử công việc của nhân viên spa luôn theo phân công của chính người gọi, không bao giờ toàn cửa hàng", async () =>
+    {
+        var pet = new Pet { PetId = Guid.NewGuid(), CustomerId = Guid.NewGuid(), IsActive = true };
+        var petRepo = new TestPetRepo(pet, Guid.NewGuid());
+        var repo = new TestAppointmentQueryRepo();
+        var service = new AppointmentQueryService(repo, petRepo, new TestStaffRoleReader(StaffRole.SpaStaff));
+
+        var firstStaff = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+        await service.ListAsync(firstStaff, null, AppointmentStatus.Completed, null, 1, 20);
+        Check(repo.ListBySpaStaffCalls == 1 && repo.LastSpaStaffUserId == firstStaff.UserId,
+            "History must be queried with the caller's own user id.");
+        Check(repo.LastSpaStaffStatus == AppointmentStatus.Completed,
+            "History must pass the Completed status filter to the assignment-scoped query.");
+
+        var secondStaff = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+        await service.ListAsync(secondStaff, null, AppointmentStatus.Completed, null, 1, 20);
+        Check(repo.ListBySpaStaffCalls == 2 && repo.LastSpaStaffUserId == secondStaff.UserId,
+            "Another staff member must be queried with their own user id, not the previous caller's.");
+
+        Check(repo.ListAllCalls == 0 && repo.ListByCustomerCalls == 0,
+            "History of spa staff must never reach the store-wide or customer-scoped query.");
+    }),
+    ("AppointmentQueryService.ListAsync: nhân viên spa kết hợp status, petId, ngày vẫn chỉ trong phạm vi phân công", async () =>
+    {
+        var pet = new Pet { PetId = Guid.NewGuid(), CustomerId = Guid.NewGuid(), IsActive = true };
+        var repo = new TestAppointmentQueryRepo();
+        var service = new AppointmentQueryService(repo, new TestPetRepo(pet, Guid.NewGuid()), new TestStaffRoleReader(StaffRole.SpaStaff));
+        var staff = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+        var day = new DateOnly(2026, 11, 25);
+
+        await service.ListAsync(staff, AppointmentType.Spa, AppointmentStatus.Completed, pet.PetId, 2, 10, day);
+
+        Check(repo.ListBySpaStaffCalls == 1 && repo.ListAllCalls == 0, "Combined filters must keep the assignment-scoped query.");
+        Check(repo.LastSpaStaffUserId == staff.UserId && repo.LastSpaStaffPetId == pet.PetId
+            && repo.LastSpaStaffStatus == AppointmentStatus.Completed && repo.LastSpaStaffDate == day,
+            "Combined filters must all reach the assignment-scoped query unchanged.");
+    }),
     ("AppointmentQueryService.GetAsync: Quản lý, Lễ tân xem lịch bất kỳ; Nhân viên spa chỉ xem lịch được phân công; Khách hàng chỉ xem lịch của mình", async () =>
     {
         var ownerUserId = Guid.NewGuid();
@@ -9086,6 +9123,7 @@ sealed class TestAppointmentQueryRepo : IAppointmentQueryRepository
     public DateOnly? LastSpaStaffDate { get; private set; }
     public Guid? LastSpaStaffUserId { get; private set; }
     public Guid? LastSpaStaffPetId { get; private set; }
+    public AppointmentStatus? LastSpaStaffStatus { get; private set; }
     public AppointmentDetailData? DetailResult { get; set; }
     public bool AssignedResult { get; set; }
 
@@ -9116,6 +9154,7 @@ sealed class TestAppointmentQueryRepo : IAppointmentQueryRepository
         LastSpaStaffUserId = staffUserId;
         LastSpaStaffPetId = petId;
         LastSpaStaffDate = date;
+        LastSpaStaffStatus = status;
         return Task.FromResult(new PagedResult<AppointmentListItem>([], page, pageSize, 0));
     }
 
