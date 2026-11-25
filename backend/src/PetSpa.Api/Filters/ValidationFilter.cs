@@ -7,6 +7,12 @@ public sealed class ValidationFilter : IAsyncActionFilter
 {
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
+        if (context.ActionDescriptor.EndpointMetadata.OfType<SkipValidationAttribute>().Any())
+        {
+            await next();
+            return;
+        }
+
         var services = context.HttpContext.RequestServices;
 
         foreach (var argument in context.ActionArguments.Values)

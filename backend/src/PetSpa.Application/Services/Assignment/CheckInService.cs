@@ -92,6 +92,32 @@ public sealed class CheckInService(
         }, ct);
     }
 
+    public async Task<AppointmentStatus> CheckInHotelAsync(
+        CurrentUser user, Guid appointmentId, CancellationToken ct = default)
+    {
+        await EnsureReceptionistOrManagerAsync(user, ct);
+
+        return await concurrency.RunAsync(async () =>
+        {
+            await concurrency.LockAppointmentAsync(appointmentId, ct);
+
+            var found = await hotelAssignments.FindHotelAppointmentAsync(appointmentId, ct)
+                ?? throw new BusinessException(ErrorCodes.NotFound);
+            var stay = found.Appointment;
+
+            var holdMinutes = await assignments.GetHoldMinutesAsync(ct);
+            if (DateTimeOffset.UtcNow > stay.PlannedCheckIn.AddMinutes(holdMinutes))
+                throw new BusinessException(ErrorCodes.InvalidTransition);
+
+            await EnsureHotelCheckInCostAndPaymentAsync(stay, ct);
+
+            stay.CheckIn();
+            await hotelAssignments.UpdateHotelAppointmentAsync(stay, ct);
+
+            return stay.Status;
+        }, ct);
+    }
+
     public async Task EnsureHotelCheckInCostAndPaymentAsync(HotelAppointment stay, CancellationToken ct = default)
     {
         if (payments is null)
