@@ -30,7 +30,7 @@ public sealed class AppointmentQueryRepository(AppDbContext db, ShopTimeZone sho
             join c in db.Set<Customer>() on a.CustomerId equals c.CustomerId
             join p in db.Set<Pet>() on a.PetId equals p.PetId
             where c.UserId == customerUserId
-            select new { Appointment = a, PetName = p.Name };
+            select new { Appointment = a, PetName = p.Name, CustomerName = c.FullName };
 
         var total = await query.CountAsync(ct);
         var rows = await query
@@ -40,7 +40,7 @@ public sealed class AppointmentQueryRepository(AppDbContext db, ShopTimeZone sho
             .Take(pageSize)
             .ToListAsync(ct);
 
-        var items = rows.Select(r => new AppointmentListItem(r.Appointment, r.PetName)).ToList();
+        var items = rows.Select(r => new AppointmentListItem(r.Appointment, r.PetName, r.CustomerName)).ToList();
         return new PagedResult<AppointmentListItem>(items, page, pageSize, total);
     }
 
@@ -61,8 +61,9 @@ public sealed class AppointmentQueryRepository(AppDbContext db, ShopTimeZone sho
 
         var query =
             from a in appointments
+            join c in db.Set<Customer>() on a.CustomerId equals c.CustomerId
             join p in db.Set<Pet>() on a.PetId equals p.PetId
-            select new { Appointment = a, PetName = p.Name };
+            select new { Appointment = a, PetName = p.Name, CustomerName = c.FullName };
 
         var total = await query.CountAsync(ct);
         var rows = await query
@@ -72,7 +73,7 @@ public sealed class AppointmentQueryRepository(AppDbContext db, ShopTimeZone sho
             .Take(pageSize)
             .ToListAsync(ct);
 
-        var items = rows.Select(r => new AppointmentListItem(r.Appointment, r.PetName)).ToList();
+        var items = rows.Select(r => new AppointmentListItem(r.Appointment, r.PetName, r.CustomerName)).ToList();
         return new PagedResult<AppointmentListItem>(items, page, pageSize, total);
     }
 
@@ -96,10 +97,11 @@ public sealed class AppointmentQueryRepository(AppDbContext db, ShopTimeZone sho
             join assignment in db.Set<AppointmentStaff>() on a.AppointmentId equals assignment.AppointmentId
             join staff in db.Set<Staff>() on assignment.StaffId equals staff.StaffId
             join p in db.Set<Pet>() on a.PetId equals p.PetId
+            join c in db.Set<Customer>() on a.CustomerId equals c.CustomerId
             where staff.UserId == staffUserId
                 && a.Status != AppointmentStatus.Pending
                 && (assignment.IsHolding || a.Status == AppointmentStatus.Completed)
-            select new { Appointment = a, PetName = p.Name };
+            select new { Appointment = a, PetName = p.Name, CustomerName = c.FullName };
 
         var total = await query.CountAsync(ct);
         var rows = await query
@@ -109,7 +111,7 @@ public sealed class AppointmentQueryRepository(AppDbContext db, ShopTimeZone sho
             .Take(pageSize)
             .ToListAsync(ct);
 
-        var items = rows.Select(r => new AppointmentListItem(r.Appointment, r.PetName)).ToList();
+        var items = rows.Select(r => new AppointmentListItem(r.Appointment, r.PetName, r.CustomerName)).ToList();
         return new PagedResult<AppointmentListItem>(items, page, pageSize, total);
     }
 
@@ -131,14 +133,14 @@ public sealed class AppointmentQueryRepository(AppDbContext db, ShopTimeZone sho
             join c in db.Set<Customer>() on a.CustomerId equals c.CustomerId
             join p in db.Set<Pet>() on a.PetId equals p.PetId
             where a.AppointmentId == appointmentId
-            select new { Appointment = a, OwnerUserId = c.UserId, PetName = p.Name })
+            select new { Appointment = a, OwnerUserId = c.UserId, PetName = p.Name, CustomerName = c.FullName })
             .FirstOrDefaultAsync(ct);
 
         if (row is null) return null;
 
         // Dịch vụ và nhân viên chỉ có ở lịch spa.
         if (row.Appointment is not SpaAppointment)
-            return new AppointmentDetailData(row.Appointment, row.OwnerUserId, row.PetName, [], []);
+            return new AppointmentDetailData(row.Appointment, row.OwnerUserId, row.PetName, [], [], row.CustomerName);
 
         var serviceRows = await (
             from s in db.Set<AppointmentService>().AsNoTracking()
@@ -161,7 +163,8 @@ public sealed class AppointmentQueryRepository(AppDbContext db, ShopTimeZone sho
             row.OwnerUserId,
             row.PetName,
             serviceRows.Select(r => new AppointmentServiceLine(r.ServiceId, r.Name, r.IsDone, r.DoneAt, r.Note)).ToList(),
-            staffRows.Select(r => new AppointmentStaffLine(r.StaffId, r.FullName, r.IsHolding, r.AssignedAt)).ToList());
+            staffRows.Select(r => new AppointmentStaffLine(r.StaffId, r.FullName, r.IsHolding, r.AssignedAt)).ToList(),
+            row.CustomerName);
     }
 
     public Task<AppointmentType?> FindTypeAsync(Guid appointmentId, CancellationToken ct = default) =>

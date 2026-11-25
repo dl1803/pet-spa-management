@@ -5,7 +5,7 @@ using PetSpa.Domain.Enums;
 namespace PetSpa.Application.Ports;
 
 // Một dòng danh sách lịch hẹn kèm tên thú cưng để hiển thị (API-Notes mục 8 #2).
-public sealed record AppointmentListItem(Appointment Appointment, string PetName);
+public sealed record AppointmentListItem(Appointment Appointment, string PetName, string CustomerName);
 
 // Dịch vụ của một lịch spa kèm tên dịch vụ (API-Notes mục 8 #2).
 public sealed record AppointmentServiceLine(Guid ServiceId, string Name, bool IsDone, DateTimeOffset? DoneAt, string? Note);
@@ -19,7 +19,8 @@ public sealed record AppointmentDetailData(
     Guid? OwnerUserId,
     string PetName,
     IReadOnlyList<AppointmentServiceLine> Services,
-    IReadOnlyList<AppointmentStaffLine> Staff);
+    IReadOnlyList<AppointmentStaffLine> Staff,
+    string CustomerName = "");
 
 // Port đọc lịch hẹn (UC-11). Chỉ đọc, không ghi.
 public interface IAppointmentQueryRepository

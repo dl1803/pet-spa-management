@@ -21,6 +21,7 @@ public record AppointmentResponse(
     Guid AppointmentId,
     AppointmentType Type,
     Guid CustomerId,
+    string CustomerName,
     Guid PetId,
     string PetName,
     AppointmentStatus Status,
@@ -38,7 +39,7 @@ public record AppointmentResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt)
 {
-    public static AppointmentResponse From(Appointment appointment, string petName)
+    public static AppointmentResponse From(Appointment appointment, string petName, string customerName)
     {
         var spa = appointment as SpaAppointment;
         var hotel = appointment as HotelAppointment;
@@ -47,6 +48,7 @@ public record AppointmentResponse(
             appointment.AppointmentId,
             spa is not null ? AppointmentType.Spa : AppointmentType.Hotel,
             appointment.CustomerId,
+            customerName,
             appointment.PetId,
             petName,
             appointment.Status,
@@ -88,7 +90,7 @@ public sealed record AppointmentDetailResponse : AppointmentResponse
     public IReadOnlyList<AppointmentStaffItemResponse> Staff { get; init; }
 
     public static AppointmentDetailResponse From(AppointmentDetailData data) => new(
-        AppointmentResponse.From(data.Appointment, data.PetName),
+        AppointmentResponse.From(data.Appointment, data.PetName, data.CustomerName),
         data.Services.Select(s => new AppointmentServiceItemResponse(s.ServiceId, s.Name, s.IsDone, s.DoneAt, s.Note)).ToList(),
         data.Staff.Select(s => new AppointmentStaffItemResponse(s.StaffId, s.FullName, s.IsHolding, s.AssignedAt)).ToList());
 }

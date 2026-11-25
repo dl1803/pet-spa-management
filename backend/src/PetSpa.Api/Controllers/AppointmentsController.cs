@@ -75,7 +75,7 @@ public sealed class AppointmentsController(
         var result = await appointmentQueryService.ListAsync(
             User.ToCurrentUser(), query.Type, query.Status, query.PetId, query.Page, query.PageSize, query.Date, ct);
 
-        var items = result.Items.Select(i => AppointmentResponse.From(i.Appointment, i.PetName)).ToList();
+        var items = result.Items.Select(i => AppointmentResponse.From(i.Appointment, i.PetName, i.CustomerName)).ToList();
         return Ok(new PagedResult<AppointmentResponse>(items, result.Page, result.PageSize, result.Total));
     }
 

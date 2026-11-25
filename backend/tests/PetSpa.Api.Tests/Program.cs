@@ -977,6 +977,26 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(!validator.Validate(new ListAppointmentsQuery { Page = 0 }).IsValid, "Page 0 must still be rejected.");
         return Task.CompletedTask;
     }),
+    ("AppointmentResponse.From và AppointmentDetailResponse.From: trả họ tên khách hàng cùng tên thú cưng", () =>
+    {
+        var appointment = new SpaAppointment
+        {
+            AppointmentId = Guid.NewGuid(),
+            CustomerId = Guid.NewGuid(),
+            PetId = Guid.NewGuid()
+        };
+
+        var row = AppointmentResponse.From(appointment, "Milo", "Nguyễn Văn An");
+        Check(row.CustomerName == "Nguyễn Văn An" && row.PetName == "Milo",
+            "List item must carry the customer name and the pet name.");
+        Check(row.CustomerId == appointment.CustomerId, "List item must keep the customer id.");
+
+        var detail = AppointmentDetailResponse.From(
+            new AppointmentDetailData(appointment, null, "Milo", [], [], "Nguyễn Văn An"));
+        Check(detail.CustomerName == "Nguyễn Văn An" && detail.PetName == "Milo",
+            "Detail must carry the customer name and the pet name.");
+        return Task.CompletedTask;
+    }),
     ("AppointmentQueryService.GetAsync: Quản lý, Lễ tân xem lịch bất kỳ; Nhân viên spa chỉ xem lịch được phân công; Khách hàng chỉ xem lịch của mình", async () =>
     {
         var ownerUserId = Guid.NewGuid();
