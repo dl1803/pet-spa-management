@@ -7,7 +7,7 @@ import { AttentionList } from "../features/dashboard/components/attention-list.t
 import { KpiSummary } from "../features/dashboard/components/kpi-summary.tsx";
 import { OccupiedCages } from "../features/dashboard/components/occupied-cages.tsx";
 import { StaffTimeline } from "../features/dashboard/components/staff-timeline.tsx";
-import { DashboardScreen } from "../features/dashboard/screens/dashboard-screen.tsx";
+import { DashboardView } from "../features/dashboard/components/dashboard-view.tsx";
 import { MOCK_DASHBOARD } from "../features/dashboard/mock-data.ts";
 import { buildAttentionItems, listOccupiedCages } from "../features/dashboard/overview.ts";
 
@@ -69,8 +69,8 @@ test("OccupiedCages: danh sách chuồng, không có liên kết; rỗng thì c�
   assert.ok(render(OccupiedCages, { cages: [] }).includes("Hiện không có chuồng nào đang chứa thú cưng."));
 });
 
-test("DashboardScreen: tiêu đề, dòng cập nhật, đủ 5 vùng và không có thao tác ghi", () => {
-  const html = render(DashboardScreen, {});
+test("DashboardView: tiêu đề, dòng cập nhật, đủ 5 vùng và không có thao tác ghi", () => {
+  const html = render(DashboardView, { snapshot: MOCK_DASHBOARD });
   assert.ok(html.includes("<h1>Tổng quan hôm nay</h1>") && html.includes("Thứ ba 06/10/2026. Cập nhật lúc 09:20."));
   for (const text of ["Số liệu hôm nay", "Tiến độ spa theo nhân viên", "Cần chú ý", "Chuồng đang chứa"]) assert.ok(html.includes(text), text);
   assert.equal(count(html, /<button/g), 0);

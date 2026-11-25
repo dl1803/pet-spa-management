@@ -5,8 +5,8 @@ import { PAYMENT_KIND_LABELS } from "@/lib/labels";
 import { ROUTES } from "@/lib/routes";
 import { getStoreDateKey } from "@/lib/time";
 
-// Dữ liệu một lần tải của MW-02. Mỗi trường là kết quả của một lời gọi API ghi ở UI-Screens MW-02, nhưng cách gọi chưa chốt
-// vì chưa nối backend; tại đây chỉ là dữ liệu mô phỏng, nên màn hình chỉ phụ thuộc hình dạng này.
+// Dữ liệu một lần tải của MW-02. Mỗi trường là kết quả của một lời gọi API ghi ở UI-Screens MW-02.
+// Spa, nhân viên, số lịch chờ xác nhận lấy từ API thật (`live-snapshot.ts`); lịch lưu trú, chuồng, khoản chưa thanh toán còn là dữ liệu mô phỏng (`mock-data.ts`); ca làm chưa có API.
 export type DashboardSnapshot = {
   // Thời điểm tải dữ liệu gần nhất (ISO 8601); mọi “hôm nay”, “hiện tại” đều tính từ đây, không đọc đồng hồ máy.
   now: string;

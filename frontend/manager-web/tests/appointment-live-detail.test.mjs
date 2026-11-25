@@ -16,7 +16,7 @@ const HOTEL_ID = "5f1c2a9b-7e44-4c0a-9d21-0a1b2c3d4e88";
 
 const http = (status, code, detail) => new ApiError({ kind: "http", status, code, title: "Lỗi", detail });
 
-function renderDetail(appointmentId, { appointment, pet, error } = {}) {
+function renderDetail(appointmentId, { appointment, pet, error, photos, photosError } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retryOnMount: false } } });
   if (appointment !== undefined) {
     client.setQueryData(appointmentKeys.detail(appointmentId), appointment);
@@ -24,9 +24,16 @@ function renderDetail(appointmentId, { appointment, pet, error } = {}) {
   if (pet !== undefined && appointment?.petId) {
     client.setQueryData(petKeys.detail(appointment.petId), pet);
   }
+  if (photos !== undefined) {
+    client.setQueryData(appointmentKeys.photos(appointmentId), photos);
+  }
   if (error !== undefined) {
     const query = client.getQueryCache().build(client, { queryKey: appointmentKeys.detail(appointmentId) });
     query.setState({ ...query.state, status: "error", fetchStatus: "idle", error, errorUpdatedAt: Date.now() });
+  }
+  if (photosError !== undefined) {
+    const query = client.getQueryCache().build(client, { queryKey: appointmentKeys.photos(appointmentId) });
+    query.setState({ ...query.state, status: "error", fetchStatus: "idle", error: photosError, errorUpdatedAt: Date.now() });
   }
   return renderToStaticMarkup(
     React.createElement(
@@ -132,4 +139,89 @@ test("AppointmentDetailScreen: ID mô phỏng giữ nguyên nhánh mô phỏng c
   const html = renderToStaticMarkup(React.createElement(AppointmentDetailScreen, { appointmentId: NAU }));
   assert.ok(html.includes("Ảnh minh chứng"));
   assert.ok(html.includes("Lịch spa của Nâu"));
+});
+
+const SAMPLE_SPA_APPOINTMENT = {
+  appointmentId: SPA_ID,
+  type: "Spa",
+  customerId: "cust-01",
+  customerName: "Nguyễn Văn A",
+  petId: "pet-01",
+  petName: "Miu Miu",
+  status: "Completed",
+  sizeGroup: "Small",
+  slotStart: "2026-11-25T09:00:00+07:00",
+  slotEnd: "2026-11-25T10:00:00+07:00",
+  createdAt: "2026-11-20T10:00:00+07:00",
+  updatedAt: "2026-11-20T10:00:00+07:00",
+};
+
+const SAMPLE_SPA_PET = {
+  petId: "pet-01",
+  customerId: "cust-01",
+  name: "Miu Miu",
+  species: "Cat",
+  breed: "Anh lông ngắn",
+  temperament: "Calm",
+  weightKg: 4,
+  sizeGroup: "Small",
+  isActive: true,
+};
+
+test("lịch spa hoàn tất có ảnh Trước và Sau: hiện Ảnh minh chứng, Chỉ xem, 2 ảnh và không có nút", () => {
+  const photos = [
+    { photoId: "p1", kind: "Before", url: "https://example.test/before.jpg", uploadedAt: "2026-11-25T09:10:00+07:00" },
+    { photoId: "p2", kind: "After", url: "https://example.test/after.jpg", uploadedAt: "2026-11-25T09:55:00+07:00" },
+  ];
+  const html = renderDetail(SPA_ID, { appointment: SAMPLE_SPA_APPOINTMENT, pet: SAMPLE_SPA_PET, photos });
+  assert.ok(html.includes("Ảnh minh chứng"));
+  assert.ok(html.includes("Chỉ xem"));
+  assert.equal((html.match(/<img/g) ?? []).length, 2);
+  assert.ok(html.includes('alt="Ảnh trước chăm sóc của Miu Miu"'));
+  assert.equal((html.match(/<button/g) ?? []).length, 0);
+});
+
+test("lịch spa chưa có dữ liệu ảnh: hiển thị Đang tải ảnh minh chứng…", () => {
+  const html = renderDetail(SPA_ID, { appointment: SAMPLE_SPA_APPOINTMENT, pet: SAMPLE_SPA_PET });
+  assert.ok(html.includes("Đang tải ảnh minh chứng…"));
+});
+
+test("lịch spa ảnh bị lỗi 500: hiển thị role alert và nút Thử lại", () => {
+  const html = renderDetail(SPA_ID, {
+    appointment: SAMPLE_SPA_APPOINTMENT,
+    pet: SAMPLE_SPA_PET,
+    photosError: http(500, "INTERNAL_ERROR", "Lỗi máy chủ."),
+  });
+  assert.match(html, /role="alert"/);
+  assert.ok(html.includes("Thử lại"));
+});
+
+test("lịch lưu trú thật không hiển thị vùng Ảnh minh chứng", () => {
+  const appointment = {
+    appointmentId: HOTEL_ID,
+    type: "Hotel",
+    customerId: "cust-02",
+    customerName: "Trần Thị B",
+    petId: "pet-02",
+    petName: "Lu Lu",
+    status: "Confirmed",
+    sizeGroup: "Medium",
+    plannedCheckIn: "2026-11-26T09:00:00+07:00",
+    plannedCheckOut: "2026-11-28T12:00:00+07:00",
+    createdAt: "2026-11-20T10:00:00+07:00",
+    updatedAt: "2026-11-20T10:00:00+07:00",
+  };
+  const pet = {
+    petId: "pet-02",
+    customerId: "cust-02",
+    name: "Lu Lu",
+    species: "Dog",
+    breed: "Poodle",
+    temperament: "Normal",
+    weightKg: 8,
+    sizeGroup: "Medium",
+    isActive: true,
+  };
+  const html = renderDetail(HOTEL_ID, { appointment, pet });
+  assert.ok(!html.includes("Ảnh minh chứng"));
 });
