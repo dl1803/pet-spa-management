@@ -8470,8 +8470,49 @@ var tests = new (string Name, Func<Task> Run)[]
             "CheckIn of a hotel stay without a body must return Ok with status InStay.");
         Check(scenario.Stay.Status == AppointmentStatus.InStay, "The stay must be moved to InStay.");
 
+        scenario.Stay.Status = AppointmentStatus.Confirmed;
+        var withEmptyObj = await controller.CheckIn(scenario.Stay.AppointmentId, new ActualWeightRequest(null), CancellationToken.None) as OkObjectResult;
+        Check(withEmptyObj?.Value is AppointmentStatusResponse { Status: AppointmentStatus.InStay },
+            "CheckIn of a hotel stay with empty body {} must return Ok with status InStay.");
+
+        var threwInvalidSpaWeight = false;
+        try
+        {
+            var spaController = new AppointmentsController(null!, checkInService: scenario.Service)
+            {
+                ControllerContext = WeightTestManagerContext(),
+            };
+            await spaController.CheckIn(Guid.NewGuid(), new ActualWeightRequest(0m), CancellationToken.None);
+        }
+        catch (FluentValidation.ValidationException)
+        {
+            threwInvalidSpaWeight = true;
+        }
+        Check(threwInvalidSpaWeight, "CheckIn of a spa appointment with invalid weight must throw ValidationException.");
+
         Check(await FailureCodeAsync(() => controller.CheckIn(Guid.NewGuid(), null, CancellationToken.None)) == ErrorCodes.NotFound,
             "An unknown appointment must still be NOT_FOUND.");
+    }),
+    ("ValidationFilter: bỏ qua validation khi action có [SkipValidation]", async () =>
+    {
+        var filter = new ValidationFilter();
+        var actionDescriptor = new Microsoft.AspNetCore.Mvc.Controllers.ControllerActionDescriptor
+        {
+            MethodInfo = typeof(AppointmentsController).GetMethod(nameof(AppointmentsController.CheckIn))!,
+            EndpointMetadata = [new SkipValidationAttribute()],
+        };
+        var actionContext = new ActionContext(
+            new DefaultHttpContext(),
+            new Microsoft.AspNetCore.Routing.RouteData(),
+            actionDescriptor);
+        var executingContext = new ActionExecutingContext(
+            actionContext,
+            [],
+            new Dictionary<string, object?> { ["request"] = new ActualWeightRequest(null) },
+            null!);
+        var nextCalled = false;
+        await filter.OnActionExecutionAsync(executingContext, () => { nextCalled = true; return Task.FromResult<ActionExecutedContext>(null!); });
+        Check(nextCalled, "ValidationFilter must skip validation when [SkipValidation] is present.");
     }),
     ("CageListQueryValidator: page và pageSize trong giới hạn", () =>
     {
