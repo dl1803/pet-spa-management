@@ -38,7 +38,16 @@ export function ReceptionAppointmentsScreen() {
   const dateKey = resolveDateKey(searchParams.get("date"), todayKey);
   const dayStart = buildStoreDateTime(dateKey, "12:00");
 
-  const { rows: dayRows, unloadedCount, hasData, isPending, isForbidden, error, retry } = useReceptionAppointments(dateKey);
+  const {
+    rows: dayRows,
+    unloadedCount,
+    hasData,
+    isPending,
+    isFetching,
+    isForbidden,
+    error,
+    retry,
+  } = useReceptionAppointments(dateKey);
 
   if (isForbidden) {
     return <ForbiddenState />;
@@ -89,7 +98,7 @@ export function ReceptionAppointmentsScreen() {
       {error && (
         <div className="mb-4 flex flex-col items-start gap-3">
           <ErrorAlert error={error} className="w-full" />
-          <Button variant="secondary" onClick={retry}>
+          <Button variant="secondary" onClick={retry} loading={isFetching} loadingText="Đang tải lại…">
             Thử lại
           </Button>
         </div>

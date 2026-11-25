@@ -92,14 +92,18 @@ export function countByFilter(rows: ReceptionAppointmentRow[], dateKey: string):
   return counts;
 }
 
-// Sắp xếp theo giờ tăng dần; dòng không có giờ xếp cuối; không sửa mảng đầu vào.
+// Sắp xếp theo giờ tăng dần; dòng không có giờ xếp cuối; trùng giờ xếp theo mã lịch; không sửa mảng đầu vào.
 export function sortByTime(rows: ReceptionAppointmentRow[], dateKey: string): ReceptionAppointmentRow[] {
   return rows
     .map((row) => {
       const time = getRowTime(row.appointment, dateKey);
       return { row, timestamp: time === null ? Number.POSITIVE_INFINITY : Date.parse(time) };
     })
-    .sort((a, b) => a.timestamp - b.timestamp)
+    .sort(
+      (a, b) =>
+        a.timestamp - b.timestamp ||
+        a.row.appointment.appointmentId.localeCompare(b.row.appointment.appointmentId),
+    )
     .map((item) => item.row);
 }
 

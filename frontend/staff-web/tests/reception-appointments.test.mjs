@@ -328,3 +328,11 @@ test("ReceptionAppointmentsTable: chưa có loài/giống vẫn hiện tên thú
   assert.ok(html.includes("Cốm"));
   assert.ok(html.includes("Đã xếp chuồng"));
 });
+
+test("sortByTime: trùng mốc giờ thì sắp xếp ổn định theo appointmentId", () => {
+  const rowA = { appointment: apiAppointment({ appointmentId: "a2", slotStart: "2026-11-25T02:00:00Z" }), species: null, breed: null, cageCode: null };
+  const rowB = { appointment: apiAppointment({ appointmentId: "a1", slotStart: "2026-11-25T02:00:00Z" }), species: null, breed: null, cageCode: null };
+  const sorted = sortByTime([rowA, rowB], "2026-11-25");
+  assert.equal(sorted[0].appointment.appointmentId, "a1");
+  assert.equal(sorted[1].appointment.appointmentId, "a2");
+});

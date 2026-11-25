@@ -60,11 +60,14 @@ export function useReceptionAppointments(dateKey: string) {
     if (query.data) details.set(staffAppointmentIds[index], query.data);
   });
 
+  const hasData = pages.length > 0;
+
   return {
     rows: buildReceptionRows(dayAppointments, pets, details),
     unloadedCount: countUnloadedAppointments(pages),
-    hasData: pages.length > 0,
-    isPending: listQueries.every((query) => query.isPending),
+    hasData,
+    isPending: !hasData && listQueries.some((query) => query.isPending),
+    isFetching: listQueries.some((query) => query.isFetching),
     isForbidden: listQueries.some((query) => isForbiddenError(query.error)),
     error: listQueries.find((query) => query.isError)?.error ?? null,
     retry: () => {
