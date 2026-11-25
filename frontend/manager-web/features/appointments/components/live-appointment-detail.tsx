@@ -6,6 +6,7 @@ import { ForbiddenState } from "@/components/feedback/forbidden-state";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { LiveAppointmentHeader } from "@/features/appointments/components/live-appointment-header";
+import { LiveEvidencePhotos } from "@/features/appointments/components/live-evidence-photos";
 import { isForbiddenError, toApiError } from "@/lib/api/errors";
 import { formatAppointmentCode } from "@/lib/format";
 import { useAppointment } from "@/lib/queries/appointments";
@@ -58,6 +59,7 @@ export function LiveAppointmentDetail({ appointmentId }: { appointmentId: string
     <div className="flex flex-col gap-5">
       <p className="text-[13px] text-muted">Lịch hẹn › {formatAppointmentCode(data.appointmentId)}</p>
       <LiveAppointmentHeader appointment={data} />
+      {data.type === "Spa" && <LiveEvidencePhotos appointmentId={data.appointmentId} petName={data.petName ?? "thú cưng"} />}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import {
   getHotelSuggestions,
   getSuggestions,
   listAppointments,
+  listPhotos,
   rejectAppointment,
   updateAppointment,
   type ListAppointmentsParams,
@@ -22,6 +23,7 @@ export const appointmentKeys = {
   list: (params: ListAppointmentsParams) => ["appointments", "list", params] as const,
   detail: (appointmentId: string) => ["appointments", "detail", appointmentId] as const,
   suggestions: (appointmentId: string) => ["appointments", "detail", appointmentId, "suggestions"] as const,
+  photos: (appointmentId: string) => ["appointments", "detail", appointmentId, "photos"] as const,
 };
 
 // MW-04 vùng 2: tối đa 50 lịch Chờ xác nhận một lần (UI-Screens), không phân trang trên giao diện.
@@ -86,6 +88,15 @@ export function useAppointment(appointmentId: string) {
   return useQuery({
     queryKey: appointmentKeys.detail(appointmentId),
     queryFn: () => getAppointment(appointmentId),
+  });
+}
+
+// MW-05 vùng 4: ảnh minh chứng của một lịch spa (chỉ xem). URL ảnh sống 60 phút nên không đặt staleTime dài:
+// mở lại hoặc quay lại tab sẽ tải URL mới.
+export function useAppointmentPhotos(appointmentId: string) {
+  return useQuery({
+    queryKey: appointmentKeys.photos(appointmentId),
+    queryFn: () => listPhotos(appointmentId),
   });
 }
 

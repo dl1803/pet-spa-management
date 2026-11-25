@@ -8,6 +8,7 @@ import type {
   ConfirmHotelRequest,
   ConfirmSpaRequest,
   HotelSuggestions,
+  Photo,
   SpaSuggestions,
   StatusResult,
   UpdateAppointmentRequest,
@@ -64,6 +65,13 @@ export async function updateAppointment(appointmentId: string, request: UpdateAp
 // POST /appointments/{id}/cancel (cancelAppointment): Quản lý gửi { reason }; 200 { status: "Cancelled" }.
 export async function cancelAppointment(appointmentId: string, request: CancelRequest) {
   const { data } = await apiClient.post<StatusResult>(`/appointments/${encodeURIComponent(appointmentId)}/cancel`, request);
+  return data;
+}
+
+// GET /appointments/{id}/photos (listPhotos): Quản lý xem ảnh của mọi lịch; mảng ảnh theo thứ tự tải lên, không phân trang.
+// `url` là URL tạm thời (60 phút); 403 nếu ngoài phạm vi, 404 nếu không có lịch.
+export async function listPhotos(appointmentId: string) {
+  const { data } = await apiClient.get<Photo[]>(`/appointments/${encodeURIComponent(appointmentId)}/photos`);
   return data;
 }
 
