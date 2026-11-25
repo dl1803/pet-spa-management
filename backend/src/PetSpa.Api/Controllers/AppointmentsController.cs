@@ -73,13 +73,13 @@ public sealed class AppointmentsController(
     [HttpGet]
     [Authorize]
     [EndpointSummary("Xem danh sách lịch hẹn theo phạm vi vai trò")]
-    [EndpointDescription("Lọc theo phạm vi vai trò ở backend. Khách hàng: chỉ lịch hẹn của mình, lọc tùy chọn theo type (Spa, Hotel), status và petId. Xem lịch sử sử dụng dịch vụ: status = Completed kèm petId; thú cưng không thuộc khách trả 403 FORBIDDEN, không tìm thấy trả 404. Quản lý, lễ tân: toàn cửa hàng, lọc tùy chọn theo type, status (status = Pending cho danh sách Chờ xác nhận) và petId, lịch tạo sớm nhất trước. Nhân viên spa: chỉ lịch spa đang được phân công cho mình, lọc tùy chọn theo type, status và petId, lịch tạo sớm nhất trước. Tài khoản nhân viên không có hồ sơ nhận 403 FORBIDDEN. Mặc định page = 1, pageSize = 20 (tối đa 100).")]
+    [EndpointDescription("Lọc theo phạm vi vai trò ở backend. Khách hàng: chỉ lịch hẹn của mình, lọc tùy chọn theo type (Spa, Hotel), status và petId. Xem lịch sử sử dụng dịch vụ: status = Completed kèm petId; thú cưng không thuộc khách trả 403 FORBIDDEN, không tìm thấy trả 404. Quản lý, lễ tân: toàn cửa hàng, lọc tùy chọn theo type, status (status = Pending cho danh sách Chờ xác nhận) và petId, lịch tạo sớm nhất trước. Nhân viên spa: chỉ lịch spa đang được phân công cho mình, lọc tùy chọn theo type, status và petId, lịch tạo sớm nhất trước. Tài khoản nhân viên không có hồ sơ nhận 403 FORBIDDEN. Lịch sử công việc của nhân viên spa (FR-EXE-06): status = Completed, chỉ gồm lịch spa mình được phân công. Tham số date (yyyy-MM-dd, theo múi giờ cửa hàng) áp dụng cho mọi vai trò trong phạm vi đã nêu: lịch spa khớp theo ngày giờ bắt đầu, lịch lưu trú khớp khi khoảng lưu trú dự kiến giao với ngày đó; date ngoài khoảng 2000-01-01 đến 2100-12-31 nhận 400 VALIDATION_ERROR. Mỗi lịch hẹn kèm customerName và petName. Mặc định page = 1, pageSize = 20 (tối đa 100).")]
     public async Task<IActionResult> List([FromQuery] ListAppointmentsQuery query, CancellationToken ct)
     {
         var result = await appointmentQueryService.ListAsync(
-            User.ToCurrentUser(), query.Type, query.Status, query.PetId, query.Page, query.PageSize, ct);
+            User.ToCurrentUser(), query.Type, query.Status, query.PetId, query.Page, query.PageSize, query.Date, ct);
 
-        var items = result.Items.Select(i => AppointmentResponse.From(i.Appointment, i.PetName)).ToList();
+        var items = result.Items.Select(i => AppointmentResponse.From(i.Appointment, i.PetName, i.CustomerName)).ToList();
         return Ok(new PagedResult<AppointmentResponse>(items, result.Page, result.PageSize, result.Total));
     }
 
