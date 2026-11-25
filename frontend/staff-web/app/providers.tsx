@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { ToastProvider } from "@/components/feedback/toast";
 import { SessionProvider } from "@/lib/auth/session-context";
 import { makeQueryClient } from "@/lib/query-client";
+import { ServingCustomerProvider } from "@/lib/serving-customer";
 
 let browserQueryClient: QueryClient | undefined;
 
@@ -18,7 +19,9 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={getQueryClient()}>
       <ToastProvider>
-        <SessionProvider>{children}</SessionProvider>
+        <SessionProvider>
+          <ServingCustomerProvider>{children}</ServingCustomerProvider>
+        </SessionProvider>
       </ToastProvider>
     </QueryClientProvider>
   );
