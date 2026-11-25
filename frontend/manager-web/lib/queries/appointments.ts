@@ -12,6 +12,7 @@ import {
   type ListAppointmentsParams,
 } from "@/lib/api/endpoints/appointments";
 import type {
+  AppointmentType,
   CancelRequest,
   ConfirmHotelRequest,
   ConfirmSpaRequest,
@@ -24,6 +25,8 @@ export const appointmentKeys = {
   detail: (appointmentId: string) => ["appointments", "detail", appointmentId] as const,
   suggestions: (appointmentId: string) => ["appointments", "detail", appointmentId, "suggestions"] as const,
   photos: (appointmentId: string) => ["appointments", "detail", appointmentId, "photos"] as const,
+  dashboardSpaToday: ["appointments", "dashboard", "spa-today"] as const,
+  dashboardPendingCount: (type: AppointmentType) => ["appointments", "dashboard", "pending-count", type] as const,
 };
 
 // MW-04 vùng 2: tối đa 50 lịch Chờ xác nhận một lần (UI-Screens), không phân trang trên giao diện.

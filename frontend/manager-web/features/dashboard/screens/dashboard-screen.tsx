@@ -1,30 +1,33 @@
-// features/dashboard/screens/dashboard-screen.tsx
-import { AttentionList } from "@/features/dashboard/components/attention-list";
-import { KpiSummary } from "@/features/dashboard/components/kpi-summary";
-import { OccupiedCages } from "@/features/dashboard/components/occupied-cages";
-import { StaffTimeline } from "@/features/dashboard/components/staff-timeline";
-import { MOCK_DASHBOARD } from "@/features/dashboard/mock-data";
-import { buildAttentionItems, describeUpdatedAt, listOccupiedCages } from "@/features/dashboard/overview";
+"use client";
 
-// MW-02 Tổng quan và giám sát tiến độ – UI-Screens.md. Chỉ xem, không có thao tác ghi.
-// Dữ liệu mô phỏng, chưa gọi API (nối API thật ở bước sau). Chưa có nút “Tất cả lịch hẹn” vì trang MW-03 chưa có.
+import { ErrorAlert } from "@/components/feedback/error-alert";
+import { ForbiddenState } from "@/components/feedback/forbidden-state";
+import { Button } from "@/components/ui/button";
+import { DashboardView } from "@/features/dashboard/components/dashboard-view";
+import { useDashboardSnapshot } from "@/features/dashboard/use-dashboard-snapshot";
+import { isForbiddenError } from "@/lib/api/errors";
+
+// MW-02 – Dữ liệu spa lấy từ API thật; chuồng, khoản chưa thanh toán, lịch lưu trú vẫn là dữ liệu mô phỏng cho tới khi nối API riêng.
 export function DashboardScreen() {
-  const snapshot = MOCK_DASHBOARD;
-
+  const result = useDashboardSnapshot();
+  if (result.status === "success") return <DashboardView snapshot={result.snapshot} />;
   return (
     <div className="flex flex-col gap-5">
-      <header>
-        <h1>Tổng quan hôm nay</h1>
-        <p className="mt-1 text-muted">{describeUpdatedAt(snapshot.now)}</p>
-      </header>
-      <KpiSummary snapshot={snapshot} />
-      <div className="grid grid-cols-[minmax(0,1fr)_340px] items-start gap-5 max-[1100px]:grid-cols-1">
-        <StaffTimeline snapshot={snapshot} />
-        <div className="flex flex-col gap-5">
-          <AttentionList items={buildAttentionItems(snapshot)} />
-          <OccupiedCages cages={listOccupiedCages(snapshot)} />
+      <h1>Tổng quan hôm nay</h1>
+      {result.status === "pending" ? (
+        <p role="status" aria-busy="true" className="text-muted">
+          Đang tải tổng quan…
+        </p>
+      ) : isForbiddenError(result.error) ? (
+        <ForbiddenState />
+      ) : (
+        <div className="flex flex-col items-start gap-3">
+          <ErrorAlert error={result.error} className="w-full" />
+          <Button variant="secondary" onClick={result.retry}>
+            Thử lại
+          </Button>
         </div>
-      </div>
+      )}
     </div>
   );
 }

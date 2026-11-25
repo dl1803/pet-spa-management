@@ -4,7 +4,7 @@ import { LiveAppointmentDetail } from "@/features/appointments/components/live-a
 import { findMockSpaAppointment } from "@/features/appointments/evidence";
 
 export function AppointmentDetailScreen({ appointmentId }: { appointmentId: string }) {
-  // Lịch trong dữ liệu mô phỏng của trang tổng quan vẫn dùng nhánh mô phỏng; nhánh này bỏ khi vùng ảnh/tiến độ nối API thật.
+  // Trang Tổng quan đã dùng lịch thật nên không còn liên kết tới nhánh mô phỏng; nhánh này chỉ còn làm nơi đặt thẻ Cập nhật trạng thái cho tới khi thẻ nối API thật, rồi bỏ.
   if (findMockSpaAppointment(appointmentId) !== null) return <AppointmentDetailContent appointmentId={appointmentId} />;
   return <LiveAppointmentDetail appointmentId={appointmentId} />;
 }

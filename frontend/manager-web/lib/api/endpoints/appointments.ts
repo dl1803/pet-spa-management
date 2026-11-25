@@ -14,10 +14,11 @@ import type {
   UpdateAppointmentRequest,
 } from "@/lib/api/types";
 
-// Chỉ khai báo tham số màn đang dùng; openapi còn `date`, `petId` (backend hiện chưa lọc theo `date`).
+// Chỉ khai báo tham số màn đang dùng; openapi còn `petId`. `date` (YYYY-MM-DD, ngày theo múi giờ cửa hàng) có trong openapi; màn Tổng quan vẫn lọc lại theo ngày ở web (UI-Screens G-06).
 export type ListAppointmentsParams = {
   type?: AppointmentType;
   status?: AppointmentStatus;
+  date?: string;
   page?: number;
   pageSize?: number;
 };
