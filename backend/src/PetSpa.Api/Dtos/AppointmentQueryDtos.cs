@@ -10,6 +10,7 @@ public sealed class ListAppointmentsQuery
     public AppointmentType? Type { get; init; }
     public AppointmentStatus? Status { get; init; }
     public Guid? PetId { get; init; }
+    public DateOnly? Date { get; init; }
     public int Page { get; init; } = 1;
     public int PageSize { get; init; } = 20;
 }

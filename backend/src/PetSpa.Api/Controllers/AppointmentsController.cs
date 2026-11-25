@@ -73,7 +73,7 @@ public sealed class AppointmentsController(
     public async Task<IActionResult> List([FromQuery] ListAppointmentsQuery query, CancellationToken ct)
     {
         var result = await appointmentQueryService.ListAsync(
-            User.ToCurrentUser(), query.Type, query.Status, query.PetId, query.Page, query.PageSize, ct);
+            User.ToCurrentUser(), query.Type, query.Status, query.PetId, query.Page, query.PageSize, query.Date, ct);
 
         var items = result.Items.Select(i => AppointmentResponse.From(i.Appointment, i.PetName)).ToList();
         return Ok(new PagedResult<AppointmentResponse>(items, result.Page, result.PageSize, result.Total));

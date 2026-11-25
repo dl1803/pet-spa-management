@@ -14,10 +14,10 @@ public sealed class AppointmentQueryService(
 {
     public async Task<PagedResult<AppointmentListItem>> ListAsync(
         CurrentUser user, AppointmentType? type, AppointmentStatus? status, Guid? petId, int page, int pageSize,
-        CancellationToken ct = default)
+        DateOnly? date = null, CancellationToken ct = default)
     {
         if (user.Role == UserRole.Manager)
-            return await appointments.ListAllAsync(type, status, petId, page, pageSize, ct);
+            return await appointments.ListAllAsync(type, status, petId, date, page, pageSize, ct);
 
         if (user.Role == UserRole.Staff)
         {
@@ -25,8 +25,8 @@ public sealed class AppointmentQueryService(
                 ?? throw new BusinessException(ErrorCodes.Forbidden);
 
             return staffRole == StaffRole.Receptionist
-                ? await appointments.ListAllAsync(type, status, petId, page, pageSize, ct)
-                : await appointments.ListBySpaStaffUserAsync(user.UserId, type, status, petId, page, pageSize, ct);
+                ? await appointments.ListAllAsync(type, status, petId, date, page, pageSize, ct)
+                : await appointments.ListBySpaStaffUserAsync(user.UserId, type, status, petId, date, page, pageSize, ct);
         }
 
         EnsureCustomer(user);
@@ -40,7 +40,7 @@ public sealed class AppointmentQueryService(
             OwnershipGuard.EnsureOwner(user, pet.OwnerUserId);
         }
 
-        return await appointments.ListByCustomerUserAsync(user.UserId, type, status, petId, page, pageSize, ct);
+        return await appointments.ListByCustomerUserAsync(user.UserId, type, status, petId, date, page, pageSize, ct);
     }
 
     public async Task<AppointmentDetailData> GetAsync(

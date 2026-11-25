@@ -7,10 +7,10 @@ using PetSpa.Domain.Enums;
 namespace PetSpa.Infrastructure.Persistence.Repositories;
 
 // Adapter của IAppointmentQueryRepository.
-public sealed class AppointmentQueryRepository(AppDbContext db) : IAppointmentQueryRepository
+public sealed class AppointmentQueryRepository(AppDbContext db, ShopTimeZone shopTimeZone) : IAppointmentQueryRepository
 {
     public async Task<PagedResult<AppointmentListItem>> ListByCustomerUserAsync(
-        Guid customerUserId, AppointmentType? type, AppointmentStatus? status, Guid? petId, int page, int pageSize,
+        Guid customerUserId, AppointmentType? type, AppointmentStatus? status, Guid? petId, DateOnly? date, int page, int pageSize,
         CancellationToken ct = default)
     {
         var appointments = db.Set<Appointment>().AsNoTracking();
@@ -21,6 +21,8 @@ public sealed class AppointmentQueryRepository(AppDbContext db) : IAppointmentQu
         if (status is { } wantedStatus) appointments = appointments.Where(a => a.Status == wantedStatus);
 
         if (petId is { } wantedPetId) appointments = appointments.Where(a => a.PetId == wantedPetId);
+
+        appointments = WhereInDay(appointments, date);
 
         // Phạm vi theo token (BR-16): chỉ lịch của khách có Customer.UserId trùng người gọi.
         var query =
@@ -43,7 +45,8 @@ public sealed class AppointmentQueryRepository(AppDbContext db) : IAppointmentQu
     }
 
     public async Task<PagedResult<AppointmentListItem>> ListAllAsync(
-        AppointmentType? type, AppointmentStatus? status, Guid? petId, int page, int pageSize, CancellationToken ct = default)
+        AppointmentType? type, AppointmentStatus? status, Guid? petId, DateOnly? date, int page, int pageSize,
+        CancellationToken ct = default)
     {
         var appointments = db.Set<Appointment>().AsNoTracking();
 
@@ -53,6 +56,8 @@ public sealed class AppointmentQueryRepository(AppDbContext db) : IAppointmentQu
         if (status is { } wantedStatus) appointments = appointments.Where(a => a.Status == wantedStatus);
 
         if (petId is { } wantedPetId) appointments = appointments.Where(a => a.PetId == wantedPetId);
+
+        appointments = WhereInDay(appointments, date);
 
         var query =
             from a in appointments
@@ -72,7 +77,7 @@ public sealed class AppointmentQueryRepository(AppDbContext db) : IAppointmentQu
     }
 
     public async Task<PagedResult<AppointmentListItem>> ListBySpaStaffUserAsync(
-        Guid staffUserId, AppointmentType? type, AppointmentStatus? status, Guid? petId, int page, int pageSize,
+        Guid staffUserId, AppointmentType? type, AppointmentStatus? status, Guid? petId, DateOnly? date, int page, int pageSize,
         CancellationToken ct = default)
     {
         var appointments = db.Set<Appointment>().AsNoTracking();
@@ -83,6 +88,8 @@ public sealed class AppointmentQueryRepository(AppDbContext db) : IAppointmentQu
         if (status is { } wantedStatus) appointments = appointments.Where(a => a.Status == wantedStatus);
 
         if (petId is { } wantedPetId) appointments = appointments.Where(a => a.PetId == wantedPetId);
+
+        appointments = WhereInDay(appointments, date);
 
         var query =
             from a in appointments
@@ -162,5 +169,24 @@ public sealed class AppointmentQueryRepository(AppDbContext db) : IAppointmentQu
             .Where(a => a.AppointmentId == appointmentId)
             .Select(a => (AppointmentType?)(a is SpaAppointment ? AppointmentType.Spa : AppointmentType.Hotel))
             .FirstOrDefaultAsync(ct);
+
+    private IQueryable<Appointment> WhereInDay(IQueryable<Appointment> appointments, DateOnly? date)
+    {
+        if (date is not { } day) return appointments;
+
+        var dayStart = shopTimeZone.ToUtc(day, TimeOnly.MinValue);
+        var dayEnd = shopTimeZone.ToUtc(day.AddDays(1), TimeOnly.MinValue);
+
+        var spaIds = db.Set<SpaAppointment>().AsNoTracking()
+            .Where(s => s.SlotStart >= dayStart && s.SlotStart < dayEnd)
+            .Select(s => s.AppointmentId);
+
+        var stayIds = db.Set<HotelAppointment>().AsNoTracking()
+            .Where(h => (h.PlannedCheckIn >= dayStart && h.PlannedCheckIn < dayEnd)
+                || (h.PlannedCheckOut >= dayStart && h.PlannedCheckOut < dayEnd))
+            .Select(h => h.AppointmentId);
+
+        return appointments.Where(a => spaIds.Contains(a.AppointmentId) || stayIds.Contains(a.AppointmentId));
+    }
 }
 

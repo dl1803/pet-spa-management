@@ -27,14 +27,15 @@ public interface IAppointmentQueryRepository
     // Lịch hẹn của khách hàng có tài khoản (Customer.UserId = customerUserId), mới tạo trước.
     // petId: chỉ lấy lịch của thú cưng này (xem lịch sử sử dụng dịch vụ).
     Task<PagedResult<AppointmentListItem>> ListByCustomerUserAsync(
-        Guid customerUserId, AppointmentType? type, AppointmentStatus? status, Guid? petId, int page, int pageSize,
+        Guid customerUserId, AppointmentType? type, AppointmentStatus? status, Guid? petId, DateOnly? date, int page, int pageSize,
         CancellationToken ct = default);
 
     Task<PagedResult<AppointmentListItem>> ListAllAsync(
-        AppointmentType? type, AppointmentStatus? status, Guid? petId, int page, int pageSize, CancellationToken ct = default);
+        AppointmentType? type, AppointmentStatus? status, Guid? petId, DateOnly? date, int page, int pageSize,
+        CancellationToken ct = default);
 
     Task<PagedResult<AppointmentListItem>> ListBySpaStaffUserAsync(
-        Guid staffUserId, AppointmentType? type, AppointmentStatus? status, Guid? petId, int page, int pageSize,
+        Guid staffUserId, AppointmentType? type, AppointmentStatus? status, Guid? petId, DateOnly? date, int page, int pageSize,
         CancellationToken ct = default);
 
     Task<bool> IsAssignedToSpaStaffAsync(Guid appointmentId, Guid staffUserId, CancellationToken ct = default);

@@ -5,6 +5,9 @@ namespace PetSpa.Api.Validators;
 
 public sealed class ListAppointmentsQueryValidator : AbstractValidator<ListAppointmentsQuery>
 {
+    private static readonly DateOnly EarliestDate = new(2000, 1, 1);
+    private static readonly DateOnly LatestDate = new(2100, 12, 31);
+
     public ListAppointmentsQueryValidator()
     {
         RuleFor(x => x.Page)
@@ -12,6 +15,10 @@ public sealed class ListAppointmentsQueryValidator : AbstractValidator<ListAppoi
 
         RuleFor(x => x.PageSize)
             .InclusiveBetween(1, 100).WithMessage("pageSize phải từ 1 đến 100.");
+
+        RuleFor(x => x.Date)
+            .Must(date => date is null || (date.Value >= EarliestDate && date.Value <= LatestDate))
+            .WithMessage("date phải từ 2000-01-01 đến 2100-12-31 (định dạng yyyy-MM-dd).");
     }
 }
 
