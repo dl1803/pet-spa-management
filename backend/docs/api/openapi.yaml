@@ -535,7 +535,7 @@ paths:
       tags: ["Lịch hẹn – đặt lịch & truy vấn"]
       operationId: listAppointments
       summary: Danh sách lịch hẹn, lịch sử, tổng quan tiến độ
-      description: "Lọc theo phạm vi vai trò ở backend: KH của mình; LT, QL toàn cửa hàng; NVS được phân công / công việc của mình (BR-16)."
+      description: "Lọc theo phạm vi vai trò ở backend: KH của mình; LT, QL toàn cửa hàng; NVS được phân công / công việc của mình (BR-16). Lịch sử công việc của NVS (FR-EXE-06): status = Completed. Mỗi lịch hẹn kèm customerName và petName."
       x-roles: [KH, LT, NVS, QL]
       x-fr: [FR-BOOK-04, FR-BOOK-05, FR-EXE-01, FR-EXE-06, FR-EXE-08]
       parameters:
@@ -547,6 +547,7 @@ paths:
           schema: { $ref: '#/components/schemas/AppointmentStatus' }
         - name: date
           in: query
+          description: "Ngày theo múi giờ cửa hàng (yyyy-MM-dd, từ 2000-01-01 đến 2100-12-31). Lịch spa khớp khi giờ bắt đầu rơi vào ngày đó; lịch lưu trú khớp khi ngày nhận hoặc ngày trả dự kiến rơi vào ngày đó."
           schema: { type: string, format: date }
         - name: petId
           in: query
