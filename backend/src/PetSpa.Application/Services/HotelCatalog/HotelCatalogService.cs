@@ -1,3 +1,4 @@
+using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
@@ -33,6 +34,9 @@ public sealed class HotelCatalogService(
         if (!await repository.SetCageActiveAsync(cageId, isActive, ct))
             throw new BusinessException(ErrorCodes.NotFound);
     }
+
+    public Task<PagedResult<CageStatus>> ListCagesAsync(int page, int pageSize, CancellationToken ct = default) =>
+        repository.ListCageStatusesAsync(page, pageSize, ct);
 
     public Task<IReadOnlyList<HotelPricing>> ListLodgingPricesAsync(CancellationToken ct = default) =>
         repository.ListPricingAsync(ct);
