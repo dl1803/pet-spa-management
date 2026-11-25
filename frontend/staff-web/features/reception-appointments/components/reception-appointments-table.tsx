@@ -22,6 +22,7 @@ function Assignee({ row }: { row: ReceptionAppointmentRow }) {
       : (appointment.staff ?? []).flatMap((member) => (member.fullName ? [member.fullName] : []));
   if (names.length > 0) return <>{names.join(", ")}</>;
   if (appointment.status === "Pending") return <span className="text-muted">Chờ quản lý xếp</span>;
+  if (appointment.type === "Hotel" && appointment.cageId) return <>Đã xếp chuồng</>;
   return <>—</>;
 }
 
@@ -61,10 +62,16 @@ export function ReceptionAppointmentsTable({ rows, dateKey }: { rows: ReceptionA
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2.5">
-                    <PetAvatar species={species} size="sm" />
+                    {species ? (
+                      <PetAvatar species={species} size="sm" />
+                    ) : (
+                      <span aria-hidden="true" className="size-[34px] shrink-0 rounded-[11px] bg-mist" />
+                    )}
                     <div>
                       <span className="block font-semibold">{name}</span>
-                      <span className="block text-xs text-muted">{`${SPECIES_LABELS[species]} ${breed}`}</span>
+                      <span className="block text-xs text-muted">
+                        {species ? `${SPECIES_LABELS[species]} ${breed ?? ""}`.trim() : "—"}
+                      </span>
                     </div>
                   </div>
                 </td>

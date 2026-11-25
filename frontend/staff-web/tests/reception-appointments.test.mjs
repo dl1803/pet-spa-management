@@ -4,10 +4,16 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ReceptionAppointmentsTable } from "../features/reception-appointments/components/reception-appointments-table.tsx";
 import {
+  belongsToDate,
+  buildReceptionListParams,
+  buildReceptionRows,
   countByFilter,
+  countUnloadedAppointments,
   getHotelEvent,
   getRowTime,
   matchesFilter,
+  mergeAppointmentPages,
+  RECEPTION_LISTED_STATUSES,
   resolveDateKey,
   sortByTime,
 } from "../features/reception-appointments/list.ts";
@@ -226,4 +232,107 @@ test("ReceptionAppointmentsTable: cấu trúc bảng, cột, nút Tiếp nhận,
     React.createElement(ReceptionAppointmentsTable, { rows: [confirmedCheckOutDay], dateKey: DATE_KEY }),
   );
   assert.doesNotMatch(checkOutDayHtml, /Tiếp nhận<\/a>|Trả thú cưng<\/a>/);
+});
+
+const apiAppointment = (overrides = {}) => ({
+  appointmentId: "a1",
+  type: "Spa",
+  customerId: "c1",
+  petId: "p1",
+  petName: "Bông",
+  status: "Confirmed",
+  sizeGroup: "Small",
+  slotStart: "2026-11-25T02:00:00Z",
+  slotEnd: "2026-11-25T03:00:00Z",
+  createdAt: "2026-11-20T00:00:00Z",
+  updatedAt: "2026-11-20T00:00:00Z",
+  ...overrides,
+});
+const apiPage = (items, total = items.length) => ({ items, page: 1, pageSize: 100, total });
+
+test("buildReceptionListParams: gọi từng trạng thái, trang 1, pageSize 100, không có date", () => {
+  assert.deepEqual([...RECEPTION_LISTED_STATUSES], ["Pending", "Confirmed", "Received", "InProgress", "InStay"]);
+  assert.deepEqual(buildReceptionListParams("InStay"), { status: "InStay", page: 1, pageSize: 100 });
+});
+
+test("mergeAppointmentPages: bỏ trùng theo ID, giữ bản ở trang đứng sau", () => {
+  const merged = mergeAppointmentPages([
+    apiPage([apiAppointment({ status: "Confirmed" }), apiAppointment({ appointmentId: "a2" })]),
+    apiPage([apiAppointment({ status: "Received" })]),
+  ]);
+  assert.equal(merged.length, 2);
+  assert.equal(merged.find((a) => a.appointmentId === "a1").status, "Received");
+});
+
+test("countUnloadedAppointments: cộng phần backend có nhưng chưa tải", () => {
+  assert.equal(countUnloadedAppointments([apiPage([apiAppointment()], 101), apiPage([], 0)]), 100);
+  assert.equal(countUnloadedAppointments([apiPage([apiAppointment()], 1)]), 0);
+});
+
+test("belongsToDate: spa theo giờ bắt đầu, lưu trú theo ngày nhận hoặc trả, tính theo múi giờ cửa hàng", () => {
+  // 2026-11-24T17:30:00Z = 00:30 ngày 2026-11-25 (UTC+7)
+  assert.equal(belongsToDate(apiAppointment({ slotStart: "2026-11-24T17:30:00Z" }), "2026-11-25"), true);
+  assert.equal(belongsToDate(apiAppointment({ slotStart: "2026-11-25T17:30:00Z" }), "2026-11-25"), false);
+  const hotel = apiAppointment({
+    type: "Hotel",
+    slotStart: null,
+    slotEnd: null,
+    plannedCheckIn: "2026-11-23T03:00:00Z",
+    plannedCheckOut: "2026-11-25T05:00:00Z",
+  });
+  assert.equal(belongsToDate(hotel, "2026-11-23"), true);
+  assert.equal(belongsToDate(hotel, "2026-11-25"), true);
+  assert.equal(belongsToDate(hotel, "2026-11-24"), false);
+});
+
+test("buildReceptionRows: ghép loài, giống và nhân viên; thiếu dữ liệu thì null, cageCode luôn null", () => {
+  const appointment = apiAppointment();
+  const full = buildReceptionRows(
+    [appointment],
+    new Map([["p1", { species: "Dog", breed: "Poodle" }]]),
+    new Map([["a1", { ...appointment, staff: [{ staffId: "s1", fullName: "Hạnh", isHolding: true }] }]]),
+  );
+  assert.equal(full[0].species, "Dog");
+  assert.equal(full[0].breed, "Poodle");
+  assert.equal(full[0].appointment.staff[0].fullName, "Hạnh");
+  assert.equal(full[0].cageCode, null);
+
+  const empty = buildReceptionRows([appointment], new Map(), new Map());
+  assert.equal(empty[0].species, null);
+  assert.equal(empty[0].breed, null);
+  assert.equal(empty[0].appointment, appointment);
+});
+
+test("ReceptionAppointmentsTable: chưa có loài/giống vẫn hiện tên thú cưng; lưu trú có chuồng chưa rõ mã hiện “Đã xếp chuồng”", () => {
+  const spaRow = buildReceptionRows([apiAppointment({ slotStart: "2026-11-25T02:00:00Z" })], new Map(), new Map())[0];
+  const hotelRow = buildReceptionRows(
+    [
+      apiAppointment({
+        appointmentId: "a3",
+        type: "Hotel",
+        petName: "Cốm",
+        slotStart: null,
+        slotEnd: null,
+        plannedCheckIn: "2026-11-25T03:00:00Z",
+        plannedCheckOut: "2026-11-27T03:00:00Z",
+        cageId: "cage-1",
+      }),
+    ],
+    new Map(),
+    new Map(),
+  )[0];
+  const html = renderToStaticMarkup(
+    React.createElement(ReceptionAppointmentsTable, { rows: [spaRow, hotelRow], dateKey: "2026-11-25" }),
+  );
+  assert.ok(html.includes("Bông"));
+  assert.ok(html.includes("Cốm"));
+  assert.ok(html.includes("Đã xếp chuồng"));
+});
+
+test("sortByTime: trùng mốc giờ thì sắp xếp ổn định theo appointmentId", () => {
+  const rowA = { appointment: apiAppointment({ appointmentId: "a2", slotStart: "2026-11-25T02:00:00Z" }), species: null, breed: null, cageCode: null };
+  const rowB = { appointment: apiAppointment({ appointmentId: "a1", slotStart: "2026-11-25T02:00:00Z" }), species: null, breed: null, cageCode: null };
+  const sorted = sortByTime([rowA, rowB], "2026-11-25");
+  assert.equal(sorted[0].appointment.appointmentId, "a1");
+  assert.equal(sorted[1].appointment.appointmentId, "a2");
 });

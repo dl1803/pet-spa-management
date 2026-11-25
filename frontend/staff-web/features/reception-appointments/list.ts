@@ -1,11 +1,20 @@
-import type { AppointmentDetail, Species } from "@/lib/api/types";
+import type { ListAppointmentsParams } from "@/lib/api/endpoints/appointments";
+import type {
+  Appointment,
+  AppointmentDetail,
+  AppointmentPage,
+  AppointmentStatus,
+  Pet,
+  Species,
+} from "@/lib/api/types";
 import { addDaysToDateKey, getStoreDateKey } from "@/lib/time";
 
 // Thông tin một dòng lịch hẹn trong danh sách của lễ tân.
 export type ReceptionAppointmentRow = {
   appointment: AppointmentDetail;
-  species: Species;
-  breed: string;
+  // null khi hồ sơ thú cưng chưa tải được.
+  species: Species | null;
+  breed: string | null;
   cageCode: string | null;
 };
 
@@ -83,14 +92,72 @@ export function countByFilter(rows: ReceptionAppointmentRow[], dateKey: string):
   return counts;
 }
 
-// Sắp xếp theo giờ tăng dần; dòng không có giờ xếp cuối; không sửa mảng đầu vào.
+// Sắp xếp theo giờ tăng dần; dòng không có giờ xếp cuối; trùng giờ xếp theo mã lịch; không sửa mảng đầu vào.
 export function sortByTime(rows: ReceptionAppointmentRow[], dateKey: string): ReceptionAppointmentRow[] {
   return rows
     .map((row) => {
       const time = getRowTime(row.appointment, dateKey);
       return { row, timestamp: time === null ? Number.POSITIVE_INFINITY : Date.parse(time) };
     })
-    .sort((a, b) => a.timestamp - b.timestamp)
+    .sort(
+      (a, b) =>
+        a.timestamp - b.timestamp ||
+        a.row.appointment.appointmentId.localeCompare(b.row.appointment.appointmentId),
+    )
     .map((item) => item.row);
+}
+
+// pageSize lớn nhất backend nhận (ListAppointmentsQueryValidator: 1 đến 100).
+export const RECEPTION_LIST_PAGE_SIZE = 100;
+// Làm mới danh sách 60 giây một lần.
+export const RECEPTION_LIST_REFETCH_MS = 60_000;
+
+// Gọi riêng từng trạng thái còn xử lý tại quầy vì API chỉ lọc một status mỗi lần, sắp lịch tạo sớm nhất trước và chưa lọc theo ngày:
+// gọi không lọc thì lịch Hoàn tất/Đã hủy tích lũy sẽ đẩy lịch mới ra khỏi trang đầu.
+export const RECEPTION_LISTED_STATUSES = ["Pending", "Confirmed", "Received", "InProgress", "InStay"] as const satisfies readonly AppointmentStatus[];
+
+export type ReceptionListedStatus = (typeof RECEPTION_LISTED_STATUSES)[number];
+
+export function buildReceptionListParams(status: ReceptionListedStatus): ListAppointmentsParams {
+  return { status, page: 1, pageSize: RECEPTION_LIST_PAGE_SIZE };
+}
+
+// Các trang tải theo từng trạng thái không cùng thời điểm nên một lịch có thể xuất hiện hai lần: giữ bản ở trang đứng sau.
+export function mergeAppointmentPages(pages: readonly AppointmentPage[]): Appointment[] {
+  const byId = new Map<string, Appointment>();
+  for (const page of pages) {
+    for (const appointment of page.items) byId.set(appointment.appointmentId, appointment);
+  }
+  return [...byId.values()];
+}
+
+// Số lịch backend có nhưng chưa nằm trong trang đã tải.
+export function countUnloadedAppointments(pages: readonly AppointmentPage[]): number {
+  return pages.reduce((sum, page) => sum + Math.max(0, page.total - page.items.length), 0);
+}
+
+// Lịch thuộc ngày đang xem: spa theo giờ bắt đầu; lưu trú theo ngày nhận hoặc ngày trả (theo múi giờ cửa hàng).
+export function belongsToDate(appointment: Appointment, dateKey: string): boolean {
+  if (appointment.type === "Spa") return toDateKey(appointment.slotStart) === dateKey;
+  return toDateKey(appointment.plannedCheckIn) === dateKey || toDateKey(appointment.plannedCheckOut) === dateKey;
+}
+
+// Ghép lịch với hồ sơ thú cưng (loài, giống) và chi tiết lịch spa (nhân viên). Chưa có dữ liệu thì để null/bỏ trống.
+// Backend chưa có API đọc mã chuồng cho lễ tân nên cageCode luôn là null.
+export function buildReceptionRows(
+  appointments: readonly Appointment[],
+  pets: ReadonlyMap<string, Pet>,
+  details: ReadonlyMap<string, AppointmentDetail>,
+): ReceptionAppointmentRow[] {
+  return appointments.map((appointment) => {
+    const pet = pets.get(appointment.petId);
+    const staff = details.get(appointment.appointmentId)?.staff;
+    return {
+      appointment: staff === undefined ? appointment : { ...appointment, staff },
+      species: pet?.species ?? null,
+      breed: pet?.breed ?? null,
+      cageCode: null,
+    };
+  });
 }
 
