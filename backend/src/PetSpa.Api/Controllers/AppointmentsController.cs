@@ -169,8 +169,8 @@ public sealed class AppointmentsController(
 
     [HttpPost("{id}/check-in")]
     [Authorize(Policy = AuthorizationPolicies.ReceptionistOrManager)]
-    [EndpointSummary("Lễ tân hoặc quản lý tiếp nhận thú cưng lịch spa và đối chiếu cân nặng")]
-    [EndpointDescription("Chỉ lễ tân và quản lý. Lịch spa: body { actualWeightKg }; lịch Đã xác nhận chuyển sang Đã tiếp nhận khi chưa quá Booking.HoldMinutes sau giờ hẹn, đồng thời ghi nhận và đối chiếu cân nặng thực tế (BR-23). Trả { status, weightCheck } với weightCheck.result là OK, PRICE_DECREASED hoặc NEEDS_CONFIRMATION; newSizeGroup, oldAmount, newAmount có khi kết quả khác OK. PRICE_DECREASED hạ nhóm kích cỡ của lịch, giảm chi phí và cập nhật hồ sơ thú cưng; OK chỉ ghi nhận cân nặng, giữ nguyên chi phí và cập nhật hồ sơ thú cưng; NEEDS_CONFIRMATION tính lại chi phí, tạo yêu cầu xác nhận chi phí mới (expiresAt là hạn phản hồi), giữ nguyên nhóm kích cỡ và hồ sơ thú cưng. Thiếu hoặc sai cân nặng trả 400 VALIDATION_ERROR. Lịch không ở Đã xác nhận hoặc ngoài khoảng thời gian cho phép tiếp nhận trả 409 INVALID_TRANSITION; lịch đang chờ xác nhận chi phí mới trả 409 COST_CONFIRMATION_PENDING; không tìm thấy lịch spa trả 404 NOT_FOUND. Tiếp nhận lưu trú thuộc ID88.")]
+    [EndpointSummary("Lễ tân hoặc quản lý tiếp nhận thú cưng lịch spa hoặc lịch lưu trú")]
+    [EndpointDescription("Chỉ lễ tân và quản lý. Lịch spa: body { actualWeightKg }; lịch Đã xác nhận chuyển sang Đã tiếp nhận khi chưa quá Booking.HoldMinutes sau giờ hẹn, đồng thời ghi nhận và đối chiếu cân nặng thực tế (BR-23). Trả { status, weightCheck } với weightCheck.result là OK, PRICE_DECREASED hoặc NEEDS_CONFIRMATION; newSizeGroup, oldAmount, newAmount có khi kết quả khác OK. PRICE_DECREASED hạ nhóm kích cỡ của lịch, giảm chi phí và cập nhật hồ sơ thú cưng; OK chỉ ghi nhận cân nặng, giữ nguyên chi phí và cập nhật hồ sơ thú cưng; NEEDS_CONFIRMATION tính lại chi phí, tạo yêu cầu xác nhận chi phí mới (expiresAt là hạn phản hồi), giữ nguyên nhóm kích cỡ và hồ sơ thú cưng. Thiếu hoặc sai cân nặng trả 400 VALIDATION_ERROR. Lịch không ở Đã xác nhận hoặc ngoài khoảng thời gian cho phép tiếp nhận trả 409 INVALID_TRANSITION; lịch đang chờ xác nhận chi phí mới trả 409 COST_CONFIRMATION_PENDING; không tìm thấy lịch spa trả 404 NOT_FOUND. Lịch lưu trú: không body; lịch Đã xác nhận chuyển sang Đang lưu trú khi chưa quá Booking.HoldMinutes sau giờ nhận, đã đối chiếu cân nặng (POST /weight-check), không chờ xác nhận chi phí mới và tiền lưu trú (Stay) đã thanh toán; trả { status }. Lịch lưu trú không ở Đã xác nhận, đã quá thời gian giữ chỗ hoặc chưa đối chiếu cân nặng trả 409 INVALID_TRANSITION; đang chờ xác nhận chi phí mới trả 409 COST_CONFIRMATION_PENDING; chưa thanh toán tiền lưu trú trả 409 PAYMENT_NOT_DUE; không tìm thấy lịch trả 404 NOT_FOUND.")]
     public async Task<IActionResult> CheckIn(
         Guid id, [FromBody] ActualWeightRequest? request, CancellationToken ct)
     {
@@ -181,8 +181,8 @@ public sealed class AppointmentsController(
 
             if (type == AppointmentType.Hotel)
             {
-                // Tiếp nhận lịch lưu trú thuộc ID88 (D28–D29). Hiện tại lịch lưu trú chưa hỗ trợ check-in.
-                throw new BusinessException(ErrorCodes.NotFound);
+                var stayStatus = await checkInService.CheckInHotelAsync(User.ToCurrentUser(), id, ct);
+                return Ok(new AppointmentStatusResponse(stayStatus));
             }
         }
 

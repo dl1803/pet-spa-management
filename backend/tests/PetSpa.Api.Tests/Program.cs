@@ -8375,6 +8375,185 @@ var tests = new (string Name, Func<Task> Run)[]
         }
         Check(missingPaymentsThrew, "Calling EnsureHotelCheckInCostAndPaymentAsync without payments must throw InvalidOperationException.");
     }),
+    ("CheckInService.CheckInHotelAsync: Lễ tân và Quản lý chuyển lịch lưu trú Đã xác nhận sang Đang lưu trú khi đủ điều kiện, kể cả khi đến trước giờ nhận", async () =>
+    {
+        var receptionist = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+        var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+
+        var byReceptionist = CreateHotelCheckInScenario();
+        var status = await byReceptionist.Service.CheckInHotelAsync(receptionist, byReceptionist.Stay.AppointmentId);
+        Check(status == AppointmentStatus.InStay && byReceptionist.Stay.Status == AppointmentStatus.InStay,
+            "A receptionist must move a ready Confirmed stay to InStay.");
+        Check(byReceptionist.Hotels.SaveCalls == 1, "The InStay change must be saved exactly once.");
+        Check(byReceptionist.Guard.RunCalls == 1 && byReceptionist.Guard.LockedAppointmentId == byReceptionist.Stay.AppointmentId,
+            "The check-in must run in one transaction and lock the appointment row.");
+
+        var byManager = CreateHotelCheckInScenario(staffRole: null);
+        Check(await byManager.Service.CheckInHotelAsync(manager, byManager.Stay.AppointmentId) == AppointmentStatus.InStay,
+            "A manager must be able to check in a stay.");
+
+        var early = CreateHotelCheckInScenario(minutesAfterPlannedCheckIn: -60);
+        Check(await early.Service.CheckInHotelAsync(receptionist, early.Stay.AppointmentId) == AppointmentStatus.InStay,
+            "A stay arriving before the planned check-in must be accepted.");
+
+        var withinHold = CreateHotelCheckInScenario(minutesAfterPlannedCheckIn: 10);
+        Check(await withinHold.Service.CheckInHotelAsync(receptionist, withinHold.Stay.AppointmentId) == AppointmentStatus.InStay,
+            "A stay within the hold time after the planned check-in must be accepted.");
+    }),
+    ("CheckInService.CheckInHotelAsync: từ chối vai trò không được phép, lịch không tồn tại, sai trạng thái, quá thời gian giữ chỗ, thiếu đối chiếu cân nặng, chờ xác nhận chi phí hoặc chưa thanh toán tiền lưu trú", async () =>
+    {
+        var receptionist = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+
+        Task<string?> CodeAsync(
+            (CheckInService Service, HotelAppointment Stay, TestHotelAssignmentRepo Hotels, TestConcurrencyGuard Guard) scenario,
+            CurrentUser user) =>
+            FailureCodeAsync(() => scenario.Service.CheckInHotelAsync(user, scenario.Stay.AppointmentId));
+
+        var spaStaff = CreateHotelCheckInScenario(staffRole: StaffRole.SpaStaff);
+        Check(await CodeAsync(spaStaff, receptionist) == ErrorCodes.Forbidden, "Spa staff must not check in a stay.");
+        var noStaffRecord = CreateHotelCheckInScenario(staffRole: null);
+        Check(await CodeAsync(noStaffRecord, receptionist) == ErrorCodes.Forbidden, "A staff user without a staff role must be rejected.");
+        var customer = CreateHotelCheckInScenario(staffRole: null);
+        Check(await CodeAsync(customer, new CurrentUser(Guid.NewGuid(), UserRole.Customer)) == ErrorCodes.Forbidden, "A customer must not check in a stay.");
+        Check(spaStaff.Guard.RunCalls == 0 && spaStaff.Hotels.SaveCalls == 0 && spaStaff.Stay.Status == AppointmentStatus.Confirmed,
+            "A rejected role must not open a transaction or change the stay.");
+
+        var unknown = CreateHotelCheckInScenario();
+        Check(await FailureCodeAsync(() => unknown.Service.CheckInHotelAsync(receptionist, Guid.NewGuid())) == ErrorCodes.NotFound,
+            "An unknown appointment must be NOT_FOUND.");
+
+        foreach (var invalidStatus in new[] { AppointmentStatus.Pending, AppointmentStatus.InStay, AppointmentStatus.Completed, AppointmentStatus.Cancelled })
+        {
+            var wrongStatus = CreateHotelCheckInScenario(status: invalidStatus);
+            Check(await CodeAsync(wrongStatus, receptionist) == ErrorCodes.InvalidTransition, $"Check-in from {invalidStatus} must be INVALID_TRANSITION.");
+            Check(wrongStatus.Stay.Status == invalidStatus && wrongStatus.Hotels.SaveCalls == 0, $"A rejected check-in must keep {invalidStatus} and save nothing.");
+        }
+
+        var expired = CreateHotelCheckInScenario(minutesAfterPlannedCheckIn: 30);
+        Check(await CodeAsync(expired, receptionist) == ErrorCodes.InvalidTransition, "A stay past the hold time must be INVALID_TRANSITION.");
+
+        var notWeighed = CreateHotelCheckInScenario(weightKg: null);
+        Check(await CodeAsync(notWeighed, receptionist) == ErrorCodes.InvalidTransition, "A stay without a weight check must be INVALID_TRANSITION.");
+
+        var pending = CreateHotelCheckInScenario(pendingConfirmation: true);
+        Check(await CodeAsync(pending, receptionist) == ErrorCodes.CostConfirmationPending, "A stay waiting for a cost confirmation must be COST_CONFIRMATION_PENDING.");
+
+        var unpaid = CreateHotelCheckInScenario(stayPaid: false);
+        Check(await CodeAsync(unpaid, receptionist) == ErrorCodes.PaymentNotDue, "A stay with an unpaid Stay payment must be PAYMENT_NOT_DUE.");
+
+        var noPayment = CreateHotelCheckInScenario(stayPaid: null);
+        Check(await CodeAsync(noPayment, receptionist) == ErrorCodes.PaymentNotDue, "A stay without a Stay payment must be PAYMENT_NOT_DUE.");
+
+        foreach (var rejected in new[] { expired, notWeighed, pending, unpaid, noPayment })
+        {
+            Check(rejected.Stay.Status == AppointmentStatus.Confirmed && rejected.Hotels.SaveCalls == 0,
+                "A rejected check-in must keep the stay Confirmed and save nothing.");
+        }
+    }),
+    ("AppointmentsController.CheckIn tiếp nhận lịch lưu trú không body và trả { status } Đang lưu trú", async () =>
+    {
+        var scenario = CreateHotelCheckInScenario(staffRole: null);
+        var queryService = new AppointmentQueryService(
+            new TestAppointmentQueryRepo
+            {
+                FindTypeHandler = id => id == scenario.Stay.AppointmentId ? AppointmentType.Hotel : null,
+            },
+            new TestPetRepo(new Pet { PetId = Guid.NewGuid(), CustomerId = Guid.NewGuid() }, Guid.NewGuid()),
+            new TestStaffRoleReader(null));
+        var controller = new AppointmentsController(null!, appointmentQueryService: queryService, checkInService: scenario.Service)
+        {
+            ControllerContext = WeightTestManagerContext(),
+        };
+
+        var result = await controller.CheckIn(scenario.Stay.AppointmentId, null, CancellationToken.None) as OkObjectResult;
+        Check(result?.Value is AppointmentStatusResponse { Status: AppointmentStatus.InStay },
+            "CheckIn of a hotel stay without a body must return Ok with status InStay.");
+        Check(scenario.Stay.Status == AppointmentStatus.InStay, "The stay must be moved to InStay.");
+
+        Check(await FailureCodeAsync(() => controller.CheckIn(Guid.NewGuid(), null, CancellationToken.None)) == ErrorCodes.NotFound,
+            "An unknown appointment must still be NOT_FOUND.");
+    }),
+    ("CageListQueryValidator: page và pageSize trong giới hạn", () =>
+    {
+        var validator = new CageListQueryValidator();
+
+        Check(validator.Validate(new CageListQuery()).IsValid, "The defaults must pass.");
+        Check(validator.Validate(new CageListQuery { Page = 1_000_000, PageSize = 100 }).IsValid, "The upper limits must pass.");
+        Check(!validator.Validate(new CageListQuery { Page = 0 }).IsValid, "Page 0 must fail.");
+        Check(!validator.Validate(new CageListQuery { PageSize = 0 }).IsValid, "PageSize 0 must fail.");
+        Check(!validator.Validate(new CageListQuery { PageSize = 101 }).IsValid, "PageSize 101 must fail.");
+        return Task.CompletedTask;
+    }),
+    ("CagesController.List trả danh sách chuồng phân trang, chuồng trống có occupant null, chuồng đang chứa kèm thú cưng, khách hàng và thời điểm trả dự kiến", async () =>
+    {
+        var emptyCage = new Cage { CageId = Guid.NewGuid(), Code = "A01", Species = Species.Dog, SizeGroup = SizeGroup.Small, IsActive = true };
+        var busyCage = new Cage { CageId = Guid.NewGuid(), Code = "A02", Species = Species.Cat, SizeGroup = SizeGroup.Medium, IsActive = false };
+        var occupant = new CageOccupant(Guid.NewGuid(), "Mimi", Guid.NewGuid(), "Nguyễn Văn A", DateTimeOffset.UtcNow.AddDays(2));
+        var repo = new TestHotelCatalogRepo
+        {
+            CageStatuses = [new CageStatus(emptyCage, null), new CageStatus(busyCage, occupant)],
+        };
+        var controller = new CagesController(new HotelCatalogService(repo, new TestCatalogRepo(new ServiceWithPricing(new Service(), []), [])));
+
+        var first = await controller.List(new CageListQuery { Page = 1, PageSize = 1 }, CancellationToken.None) as OkObjectResult;
+        var firstPage = first?.Value as PagedResult<CageStatusResponse>;
+        Check(firstPage is not null && firstPage.Total == 2 && firstPage.Page == 1 && firstPage.PageSize == 1 && firstPage.Items.Count == 1,
+            "The first page must carry the page info and one item.");
+        Check(firstPage!.Items[0].CageId == emptyCage.CageId && firstPage.Items[0].Code == "A01" && firstPage.Items[0].Occupant is null,
+            "An empty cage must have a null occupant.");
+
+        var second = await controller.List(new CageListQuery { Page = 2, PageSize = 1 }, CancellationToken.None) as OkObjectResult;
+        var secondItem = (second?.Value as PagedResult<CageStatusResponse>)?.Items.SingleOrDefault();
+        Check(secondItem is not null && secondItem.Species == Species.Cat && secondItem.SizeGroup == SizeGroup.Medium && !secondItem.IsActive,
+            "The cage fields must be mapped, including a deactivated cage.");
+        Check(secondItem!.Occupant is { PetName: "Mimi", CustomerName: "Nguyễn Văn A" } mapped
+                && mapped.PetId == occupant.PetId && mapped.CustomerId == occupant.CustomerId && mapped.PlannedCheckOut == occupant.PlannedCheckOut,
+            "An occupied cage must show the pet, the customer and the planned check-out.");
+    }),
+    ("CheckOutService.ResolveHotelReturnAsync: xác định lịch đang lưu trú và thời điểm trả mà không đổi dữ liệu; từ chối vai trò không được phép, lịch không tồn tại và lịch không ở Đang lưu trú", async () =>
+    {
+        HotelAppointment NewStay(AppointmentStatus status)
+        {
+            var stay = WeightTestHotel(Guid.NewGuid(), SizeGroup.Small, status);
+            stay.CageId = Guid.NewGuid();
+            return stay;
+        }
+
+        CheckOutService Create(HotelAppointment? stay, StaffRole? staffRole) =>
+            new(new TestHotelAssignmentRepo(null, [], []) { Appointment = stay }, new TestStaffRoleReader(staffRole));
+
+        var receptionist = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+        var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+
+        var inStay = NewStay(AppointmentStatus.InStay);
+        var before = DateTimeOffset.UtcNow;
+        var target = await Create(inStay, StaffRole.Receptionist).ResolveHotelReturnAsync(receptionist, inStay.AppointmentId);
+        var after = DateTimeOffset.UtcNow;
+        Check(ReferenceEquals(target.Stay, inStay), "The target must be the InStay appointment.");
+        Check(target.ReturnedAt >= before && target.ReturnedAt <= after, "The return time must be the current time.");
+        Check(inStay.Status == AppointmentStatus.InStay && inStay.ActualCheckOut is null && inStay.CageId is not null,
+            "Resolving the return must not change the stay.");
+
+        var byManager = await Create(inStay, null).ResolveHotelReturnAsync(manager, inStay.AppointmentId);
+        Check(ReferenceEquals(byManager.Stay, inStay), "A manager must be able to resolve the return.");
+
+        Check(await FailureCodeAsync(() => Create(inStay, StaffRole.SpaStaff).ResolveHotelReturnAsync(receptionist, inStay.AppointmentId)) == ErrorCodes.Forbidden,
+            "Spa staff must be rejected.");
+        Check(await FailureCodeAsync(() => Create(inStay, null).ResolveHotelReturnAsync(receptionist, inStay.AppointmentId)) == ErrorCodes.Forbidden,
+            "A staff user without a staff role must be rejected.");
+        Check(await FailureCodeAsync(() => Create(inStay, null).ResolveHotelReturnAsync(new CurrentUser(Guid.NewGuid(), UserRole.Customer), inStay.AppointmentId)) == ErrorCodes.Forbidden,
+            "A customer must be rejected.");
+
+        Check(await FailureCodeAsync(() => Create(null, StaffRole.Receptionist).ResolveHotelReturnAsync(receptionist, Guid.NewGuid())) == ErrorCodes.NotFound,
+            "An unknown or non-hotel appointment must be NOT_FOUND.");
+
+        foreach (var invalidStatus in new[] { AppointmentStatus.Pending, AppointmentStatus.Confirmed, AppointmentStatus.Completed, AppointmentStatus.Cancelled })
+        {
+            var wrongStatus = NewStay(invalidStatus);
+            Check(await FailureCodeAsync(() => Create(wrongStatus, StaffRole.Receptionist).ResolveHotelReturnAsync(receptionist, wrongStatus.AppointmentId)) == ErrorCodes.InvalidTransition,
+                $"A stay in {invalidStatus} must be INVALID_TRANSITION.");
+        }
+    }),
 };
 
 var failures = 0;
@@ -8421,6 +8600,62 @@ static (BookingService Service, TestScheduleRepo Schedule, CurrentUser User, Gui
         NoNotifier());
 
     return (bookingService, schedule, new CurrentUser(ownerUserId, UserRole.Customer), petId, serviceId, slotStart);
+}
+
+static (CheckInService Service, HotelAppointment Stay, TestHotelAssignmentRepo Hotels, TestConcurrencyGuard Guard)
+    CreateHotelCheckInScenario(
+        AppointmentStatus status = AppointmentStatus.Confirmed,
+        decimal? weightKg = 2.8m,
+        int minutesAfterPlannedCheckIn = 5,
+        bool pendingConfirmation = false,
+        bool? stayPaid = true,
+        StaffRole? staffRole = StaffRole.Receptionist)
+{
+    var stay = WeightTestHotel(Guid.NewGuid(), SizeGroup.Small, status);
+    stay.PlannedCheckIn = DateTimeOffset.UtcNow.AddMinutes(-minutesAfterPlannedCheckIn);
+    stay.ActualWeightKg = weightKg;
+
+    var confirmations = new TestCostConfirmationRepo();
+    if (pendingConfirmation)
+    {
+        confirmations.Add(new CostConfirmation
+        {
+            ConfirmationId = Guid.NewGuid(),
+            AppointmentId = stay.AppointmentId,
+            ActualWeightKg = 3.4m,
+            NewSizeGroup = SizeGroup.Medium,
+            OldAmount = 300000m,
+            NewAmount = 450000m,
+            Status = ConfirmationStatus.Pending,
+            CreatedAt = DateTimeOffset.UtcNow,
+            ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(20),
+        });
+    }
+
+    var payments = new TestPaymentRepo(null);
+    if (stayPaid is { } paid)
+    {
+        var payment = OnlinePayment(PaymentKind.Stay, 300000m);
+        payment.AppointmentId = stay.AppointmentId;
+        if (paid)
+            payment.MarkPaid(AppointmentStatus.Confirmed, 300000m, PaymentMethod.Cash, Guid.NewGuid());
+        payments.Items.Add(payment);
+    }
+
+    var hotels = new TestHotelAssignmentRepo(null, [], []) { Appointment = stay };
+    var guard = new TestConcurrencyGuard();
+    var service = new CheckInService(
+        new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()),
+        guard,
+        new TestStaffRoleReader(staffRole),
+        null!,
+        hotels,
+        null!,
+        new ShopTimeZone(TimeZoneInfo.Utc),
+        confirmations,
+        payments);
+
+    return (service, stay, hotels, guard);
 }
 
 static AppointmentNotifier NoNotifier() => TestNotifiers.NoNotifier();
@@ -8906,6 +9141,11 @@ sealed class TestHotelCatalogRepo : IHotelCatalogRepository
 {
     public List<HotelPricing> Prices { get; set; } = [];
     public decimal LateFee { get; set; } = 0m;
+    public List<CageStatus> CageStatuses { get; set; } = [];
+
+    public Task<PagedResult<CageStatus>> ListCageStatusesAsync(int page, int pageSize, CancellationToken ct = default) =>
+        Task.FromResult(new PagedResult<CageStatus>(
+            CageStatuses.Skip((page - 1) * pageSize).Take(pageSize).ToList(), page, pageSize, CageStatuses.Count));
 
     public Task AddCageAsync(Cage cage, CancellationToken ct = default) => Task.CompletedTask;
     public Task<bool> UpdateCageAsync(Guid cageId, string? code, Species? species, SizeGroup? sizeGroup, CancellationToken ct = default) => Task.FromResult(true);
