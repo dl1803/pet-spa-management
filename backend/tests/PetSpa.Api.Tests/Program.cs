@@ -1034,6 +1034,41 @@ var tests = new (string Name, Func<Task> Run)[]
             && repo.LastSpaStaffStatus == AppointmentStatus.Completed && repo.LastSpaStaffDate == day,
             "Combined filters must all reach the assignment-scoped query unchanged.");
     }),
+    ("AppointmentQueryRepository.WhereInDay: dịch sang SQL Npgsql theo đúng loại lịch và giao cắt ngày lưu trú", () =>
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql("Host=localhost;Database=petspa;Username=test;Password=test")
+            .Options;
+        using var db = new AppDbContext(options);
+        var zone = TimeZoneInfo.CreateCustomTimeZone("UTC+7", TimeSpan.FromHours(7), "UTC+7", "UTC+7");
+        var repo = new PetSpa.Infrastructure.Persistence.Repositories.AppointmentQueryRepository(db, new ShopTimeZone(zone));
+        var baseQuery = db.Set<Appointment>().AsNoTracking();
+        var day = new DateOnly(2026, 11, 22);
+
+        static string WhereClause(string sql)
+        {
+            var index = sql.IndexOf("WHERE ", StringComparison.Ordinal);
+            return index < 0 ? string.Empty : sql[index..];
+        }
+
+        var noDateWhere = WhereClause(repo.WhereInDay(baseQuery, null, null).ToQueryString());
+        Check(noDateWhere.Length == 0,
+            "Without a date, WhereInDay must not emit a WHERE clause.");
+
+        var spaWhere = WhereClause(repo.WhereInDay(baseQuery, day, AppointmentType.Spa).ToQueryString());
+        Check(spaWhere.Contains("SlotStart") && !spaWhere.Contains("PlannedCheckIn") && !spaWhere.Contains("PlannedCheckOut"),
+            "Spa date filter must query only SlotStart and skip hotel columns.");
+
+        var hotelWhere = WhereClause(repo.WhereInDay(baseQuery, day, AppointmentType.Hotel).ToQueryString());
+        Check(hotelWhere.Contains("PlannedCheckIn") && hotelWhere.Contains("PlannedCheckOut") && !hotelWhere.Contains("SlotStart"),
+            "Hotel date filter must query PlannedCheckIn and PlannedCheckOut overlap and skip spa columns.");
+
+        var bothWhere = WhereClause(repo.WhereInDay(baseQuery, day, null).ToQueryString());
+        Check(bothWhere.Contains("SlotStart") && bothWhere.Contains("PlannedCheckIn") && bothWhere.Contains("PlannedCheckOut"),
+            "Unfiltered type with date must cover both spa and hotel schedules.");
+
+        return Task.CompletedTask;
+    }),
     ("AppointmentQueryService.GetAsync: Quản lý, Lễ tân xem lịch bất kỳ; Nhân viên spa chỉ xem lịch được phân công; Khách hàng chỉ xem lịch của mình", async () =>
     {
         var ownerUserId = Guid.NewGuid();

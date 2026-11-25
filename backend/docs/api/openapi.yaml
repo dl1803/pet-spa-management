@@ -547,7 +547,7 @@ paths:
           schema: { $ref: '#/components/schemas/AppointmentStatus' }
         - name: date
           in: query
-          description: "Ngày theo múi giờ cửa hàng (yyyy-MM-dd, từ 2000-01-01 đến 2100-12-31). Lịch spa khớp khi giờ bắt đầu rơi vào ngày đó; lịch lưu trú khớp khi ngày nhận hoặc ngày trả dự kiến rơi vào ngày đó."
+          description: "Ngày theo múi giờ cửa hàng (yyyy-MM-dd, từ 2000-01-01 đến 2100-12-31). Lịch spa khớp khi giờ bắt đầu rơi vào ngày đó; lịch lưu trú khớp khi khoảng lưu trú dự kiến giao với ngày đó."
           schema: { type: string, format: date }
         - name: petId
           in: query

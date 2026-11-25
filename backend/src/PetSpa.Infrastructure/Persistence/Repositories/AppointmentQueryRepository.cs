@@ -22,7 +22,7 @@ public sealed class AppointmentQueryRepository(AppDbContext db, ShopTimeZone sho
 
         if (petId is { } wantedPetId) appointments = appointments.Where(a => a.PetId == wantedPetId);
 
-        appointments = WhereInDay(appointments, date);
+        appointments = WhereInDay(appointments, date, type);
 
         // Phạm vi theo token (BR-16): chỉ lịch của khách có Customer.UserId trùng người gọi.
         var query =
@@ -57,7 +57,7 @@ public sealed class AppointmentQueryRepository(AppDbContext db, ShopTimeZone sho
 
         if (petId is { } wantedPetId) appointments = appointments.Where(a => a.PetId == wantedPetId);
 
-        appointments = WhereInDay(appointments, date);
+        appointments = WhereInDay(appointments, date, type);
 
         var query =
             from a in appointments
@@ -90,7 +90,7 @@ public sealed class AppointmentQueryRepository(AppDbContext db, ShopTimeZone sho
 
         if (petId is { } wantedPetId) appointments = appointments.Where(a => a.PetId == wantedPetId);
 
-        appointments = WhereInDay(appointments, date);
+        appointments = WhereInDay(appointments, date, AppointmentType.Spa);
 
         var query =
             from a in appointments
@@ -173,23 +173,36 @@ public sealed class AppointmentQueryRepository(AppDbContext db, ShopTimeZone sho
             .Select(a => (AppointmentType?)(a is SpaAppointment ? AppointmentType.Spa : AppointmentType.Hotel))
             .FirstOrDefaultAsync(ct);
 
-    private IQueryable<Appointment> WhereInDay(IQueryable<Appointment> appointments, DateOnly? date)
+    internal IQueryable<Appointment> WhereInDay(IQueryable<Appointment> appointments, DateOnly? date, AppointmentType? type)
     {
         if (date is not { } day) return appointments;
 
         var dayStart = shopTimeZone.ToUtc(day, TimeOnly.MinValue);
         var dayEnd = shopTimeZone.ToUtc(day.AddDays(1), TimeOnly.MinValue);
 
-        var spaIds = db.Set<SpaAppointment>().AsNoTracking()
+        IQueryable<Guid> SpaIds() => db.Set<SpaAppointment>().AsNoTracking()
             .Where(s => s.SlotStart >= dayStart && s.SlotStart < dayEnd)
             .Select(s => s.AppointmentId);
 
-        var stayIds = db.Set<HotelAppointment>().AsNoTracking()
-            .Where(h => (h.PlannedCheckIn >= dayStart && h.PlannedCheckIn < dayEnd)
-                || (h.PlannedCheckOut >= dayStart && h.PlannedCheckOut < dayEnd))
+        IQueryable<Guid> StayIds() => db.Set<HotelAppointment>().AsNoTracking()
+            .Where(h => h.PlannedCheckIn < dayEnd && h.PlannedCheckOut > dayStart)
             .Select(h => h.AppointmentId);
 
-        return appointments.Where(a => spaIds.Contains(a.AppointmentId) || stayIds.Contains(a.AppointmentId));
+        if (type == AppointmentType.Spa)
+        {
+            var spaIds = SpaIds();
+            return appointments.Where(a => spaIds.Contains(a.AppointmentId));
+        }
+
+        if (type == AppointmentType.Hotel)
+        {
+            var stayIds = StayIds();
+            return appointments.Where(a => stayIds.Contains(a.AppointmentId));
+        }
+
+        var allSpaIds = SpaIds();
+        var allStayIds = StayIds();
+        return appointments.Where(a => allSpaIds.Contains(a.AppointmentId) || allStayIds.Contains(a.AppointmentId));
     }
 }
 

@@ -229,7 +229,7 @@ SA 5.1.3 và các nguồn không quy định các điểm dưới đây; `openap
 | 17 | SA UC-23 và SA 5.1.3 không nêu việc chặn ghi nhận tiền lưu trú khi lịch đang chờ xác nhận chi phí mới, trong khi Requirements FR-EXE-10 và SA UC-30 yêu cầu. | Chặn `POST /payments/{id}/counter` (khoản `Stay`) bằng 409 `COST_CONFIRMATION_PENDING`. |
 | 18 | SA 5.4 không ghi lý do hủy khi `InProgress`/`InStay` và chỉ cho `Received` lý do (b), (e), trong khi `/cancel` của QL không giới hạn theo trạng thái. | QL gửi `StoreUnable` hoặc `CustomerBeyondDeadline` ở mọi trạng thái trước `Completed` (SA 5.4 cập nhật tương ứng). |
 | 19 | Requirements FR-EXE-10 yêu cầu kiểm tra chuồng đã gán khi nhóm kích cỡ đổi nhưng SA 5.1.3 không nêu kết quả được trả ở đâu. | `POST /cost-confirmation/respond` (lịch lưu trú, `accept = true`) trả thêm `cageSuitable` (bool, tùy chọn). |
-| 20 | Tham số `date` của `GET /appointments` có trong SA 5.1.3 nhưng không nêu cách áp dụng cho từng loại lịch hẹn. | `date` (yyyy-MM-dd, múi giờ cửa hàng) áp dụng cho mọi vai trò trong phạm vi sẵn có: lịch spa khớp khi `slotStart` rơi vào ngày đó; lịch lưu trú khớp khi `plannedCheckIn` hoặc `plannedCheckOut` rơi vào ngày đó. |
+| 20 | Tham số `date` của `GET /appointments` có trong SA 5.1.3 nhưng không nêu cách áp dụng cho từng loại lịch hẹn. | `date` (yyyy-MM-dd, múi giờ cửa hàng) áp dụng cho mọi vai trò trong phạm vi sẵn có: lịch spa khớp khi `slotStart` rơi vào ngày đó; lịch lưu trú khớp khi khoảng `[plannedCheckIn, plannedCheckOut)` giao với ngày đó (`plannedCheckIn < dayEnd && plannedCheckOut > dayStart`). |
 
 ## 9. Kiểm tra đã thực hiện
 
