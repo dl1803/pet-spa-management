@@ -35,9 +35,14 @@ export function sortPhotosForDisplay(photos: Photo[]): Photo[] {
 // Ảnh tải lên sau cùng của một loại; null khi lịch chưa có ảnh loại đó.
 export function pickLatestPhoto(photos: Photo[], kind: PhotoKind): Photo | null {
   let latest: Photo | null = null;
+  let latestTime = -Infinity;
   for (const photo of photos) {
     if (photo.kind !== kind) continue;
-    if (latest === null || Date.parse(photo.uploadedAt) >= Date.parse(latest.uploadedAt)) latest = photo;
+    const time = Date.parse(photo.uploadedAt);
+    if (!Number.isNaN(time) && time >= latestTime) {
+      latest = photo;
+      latestTime = time;
+    }
   }
   return latest;
 }

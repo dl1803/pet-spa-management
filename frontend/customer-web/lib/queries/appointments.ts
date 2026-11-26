@@ -58,13 +58,18 @@ export function useAppointment(appointmentId: string | null | undefined) {
   });
 }
 
-// GET /appointments/{appointmentId}/photos. Không đặt staleTime: URL ảnh chỉ sống 60 phút nên mở lại trang hoặc quay lại tab
-// sẽ tải URL mới. Không dùng placeholderData/initialData: ảnh phải luôn thuộc đúng lịch đang xem.
+const PHOTOS_STALE_TIME_MS = 10 * 60 * 1000;
+
+// GET /appointments/{appointmentId}/photos. URL ảnh ký của backend có hiệu lực 60 phút nên cache 10 phút để tránh
+// gọi lại hàng loạt khi đổi tab hoặc chuyển thú cưng, nhưng vẫn đảm bảo URL luôn còn hạn.
+// Không dùng placeholderData/initialData: ảnh phải luôn thuộc đúng lịch đang xem.
 export function useAppointmentPhotos(appointmentId: string, { enabled }: { enabled: boolean }) {
+  const isValidId = appointmentId.trim().length > 0;
   return useQuery({
     queryKey: appointmentKeys.photos(appointmentId),
     queryFn: () => listAppointmentPhotos(appointmentId),
-    enabled,
+    enabled: enabled && isValidId,
+    staleTime: PHOTOS_STALE_TIME_MS,
   });
 }
 

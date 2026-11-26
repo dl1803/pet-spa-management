@@ -5,9 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Photo } from "@/lib/api/types";
+import { formatPhotoStamp } from "@/lib/format";
 import { getPhotoAlt, sortPhotosForDisplay } from "@/lib/photos";
 
-const PHOTO_GRID = "grid grid-cols-[repeat(auto-fill,minmax(180px,240px))] gap-3";
+const PHOTO_GRID = "grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(180px,240px))] gap-3";
 
 type AppointmentPhotosCardProps = {
   // true khi lịch spa chưa thể có ảnh (Chờ xác nhận, Đã xác nhận): chỉ hiện lời nhắn, không có dữ liệu ảnh.
@@ -40,7 +41,7 @@ export function AppointmentPhotosCard({ isAwaiting, photos, error, isRetrying, o
       <ul className={PHOTO_GRID}>
         {sortPhotosForDisplay(photos).map((photo) => (
           <li key={photo.photoId}>
-            <PhotoTile photo={photo} alt={getPhotoAlt(photo.kind)} />
+            <PhotoTile photo={photo} alt={`${getPhotoAlt(photo.kind)} (${formatPhotoStamp(photo.uploadedAt)})`} />
           </li>
         ))}
       </ul>
