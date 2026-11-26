@@ -6,6 +6,7 @@ import { useState } from "react";
 import { NotificationItem } from "@/components/domain/notification-item";
 import { ErrorAlert } from "@/components/feedback/error-alert";
 import { ForbiddenState } from "@/components/feedback/forbidden-state";
+import { useToast } from "@/components/feedback/toast";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -13,7 +14,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { isForbiddenError } from "@/lib/api/errors";
 import type { Notification } from "@/lib/api/types";
-import { useNotificationList } from "@/lib/queries/notifications";
+import { useMarkNotificationRead, useNotificationList } from "@/lib/queries/notifications";
 import { getStoreDateKey } from "@/lib/time";
 
 const TITLE = "Thông báo";
@@ -28,13 +29,16 @@ function mergeNotificationPages(pages: { items: Notification[] }[]): Notificatio
   return [...byId.values()];
 }
 
-// Đánh dấu đã đọc (POST /notifications/{id}/read) và mở chi tiết lịch chưa nối ở bước này: bấm vào thông báo chưa đọc chưa làm gì.
-function handleRead() {}
-
 export function NotificationsScreen() {
+  const { showError } = useToast();
   const [now] = useState(() => new Date());
   const todayKey = getStoreDateKey(now);
   const query = useNotificationList();
+  const { mutate: markRead } = useMarkNotificationRead();
+
+  function handleRead(notificationId: string) {
+    markRead(notificationId, { onError: (failure) => showError(failure) });
+  }
 
   if (query.data === undefined) {
     return (

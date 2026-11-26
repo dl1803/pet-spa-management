@@ -14,9 +14,14 @@ export function BrandMark() {
   );
 }
 
-type SiteHeaderProps = { role: StaffRole | null; pending?: boolean; onLogout?: () => void };
+type SiteHeaderProps = {
+  role: StaffRole | null;
+  pending?: boolean;
+  unreadNotifications?: number | null;
+  onLogout?: () => void;
+};
 
-export function SiteHeader({ role, pending, onLogout }: SiteHeaderProps) {
+export function SiteHeader({ role, pending, unreadNotifications, onLogout }: SiteHeaderProps) {
   return (
     <header className="sticky top-0 z-40 bg-lagoon-700 text-white">
       <div className="mx-auto flex h-16 max-w-[1320px] items-center gap-5 px-6 max-[980px]:gap-3 max-[980px]:px-3">
@@ -32,8 +37,8 @@ export function SiteHeader({ role, pending, onLogout }: SiteHeaderProps) {
             </small>
           </span>
         </Link>
-        <Suspense fallback={<HeaderNav pathname={null} role={role} pending={pending} onLogout={onLogout} />}>
-          <ActiveHeaderNav role={role} pending={pending} onLogout={onLogout} />
+        <Suspense fallback={<HeaderNav pathname={null} role={role} pending={pending} unreadNotifications={unreadNotifications} onLogout={onLogout} />}>
+          <ActiveHeaderNav role={role} pending={pending} unreadNotifications={unreadNotifications} onLogout={onLogout} />
         </Suspense>
       </div>
     </header>

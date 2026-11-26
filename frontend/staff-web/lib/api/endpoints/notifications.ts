@@ -12,3 +12,8 @@ export async function listNotifications(params: ListNotificationsParams = {}) {
   const { data } = await apiClient.get<NotificationPage>("/notifications", { params });
   return data;
 }
+
+// POST /notifications/{id}/read (markNotificationRead): đánh dấu thông báo của chính mình đã đọc; trả 204 không có body.
+export async function markNotificationRead(notificationId: string): Promise<void> {
+  await apiClient.post(`/notifications/${encodeURIComponent(notificationId)}/read`);
+}

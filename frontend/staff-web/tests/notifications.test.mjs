@@ -4,6 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { NotificationItem } from "../components/domain/notification-item.tsx";
+import { ToastProvider } from "../components/feedback/toast.tsx";
 import { NotificationsScreen } from "../features/notifications/screens/notifications-screen.tsx";
 import { MOCK_NOTIFICATIONS } from "../features/notifications/mock-data.ts";
 import { NOTIFICATIONS_PAGE_SIZE, getNextNotificationPage, notificationKeys } from "../lib/queries/notifications.ts";
@@ -51,6 +52,8 @@ test("thiếu appointmentId vẫn có tiêu đề; loại ngoài phạm vi nhân
   assert.match(render({ ...base, type: "ConfirmedAssigned", appointmentId: null }), /Bạn được phân công lịch hẹn/);
   assert.match(render({ ...base, type: "Cancelled" }), /Lịch hẹn đã hủy/);
   assert.match(render({ ...base, type: "PaymentRecorded", appointmentId: null }), />Thông báo</);
+  assert.doesNotMatch(render({ ...base, type: "ConfirmedAssigned", appointmentId: null }), /Xem lịch hẹn/);
+  assert.match(render(MOCK_NOTIFICATIONS[0]), /<a[^>]*href="\/lich-hen\/1041a0b2-0000-4000-8000-000000000001"[^>]*>Xem lịch hẹn<\/a>/);
 });
 
 test("nội dung thông báo được escape", () => {
@@ -63,7 +66,9 @@ test("nội dung thông báo được escape", () => {
 function renderScreen(pages) {
   const client = new QueryClient();
   if (pages) client.setQueryData(notificationKeys.list(NOTIFICATIONS_PAGE_SIZE), { pages, pageParams: pages.map((_, index) => index + 1) });
-  return renderToStaticMarkup(React.createElement(QueryClientProvider, { client }, React.createElement(NotificationsScreen)));
+  return renderToStaticMarkup(
+    React.createElement(QueryClientProvider, { client }, React.createElement(ToastProvider, null, React.createElement(NotificationsScreen))),
+  );
 }
 const page = (items, extra = {}) => ({ items, page: 1, pageSize: NOTIFICATIONS_PAGE_SIZE, total: items.length, unread: 1, ...extra });
 

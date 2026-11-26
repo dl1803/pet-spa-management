@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import test, { after, before } from "node:test";
 import { apiClient } from "../lib/api/client.ts";
-import { listNotifications } from "../lib/api/endpoints/notifications.ts";
+import { listNotifications, markNotificationRead } from "../lib/api/endpoints/notifications.ts";
+import { notificationKeys } from "../lib/queries/notifications.ts";
 
 const requests = [];
 let nextResponse = { status: 200, body: {} };
@@ -15,6 +16,10 @@ const server = createServer((request, response) => {
     const url = new URL(request.url, "http://localhost");
     requests.push({ method: request.method, pathname: url.pathname, query: Object.fromEntries(url.searchParams) });
     response.statusCode = nextResponse.status;
+    if (nextResponse.status === 204) {
+      response.end();
+      return;
+    }
     response.setHeader("Content-Type", nextResponse.status >= 400 ? "application/problem+json" : "application/json");
     response.end(JSON.stringify(nextResponse.body));
   });
@@ -64,6 +69,26 @@ test("listNotifications: lỗi 403 giữ nguyên status và code của error env
   await assert.rejects(listNotifications({ page: 1, pageSize: 20 }), (error) => {
     assert.equal(error.status, 403);
     assert.equal(error.code, "FORBIDDEN");
+    return true;
+  });
+});
+
+test("notificationKeys: cấu trúc all, lists, list và unread", () => {
+  assert.deepEqual(notificationKeys.all, ["notifications"]);
+  assert.deepEqual(notificationKeys.lists(), ["notifications", "list"]);
+  assert.deepEqual(notificationKeys.list(20), ["notifications", "list", 20]);
+  assert.deepEqual(notificationKeys.unread(), ["notifications", "unread"]);
+});
+
+test("markNotificationRead: POST /notifications/{id}/read mã hóa id, chấp nhận 204 rỗng, giữ lỗi 404", async () => {
+  reply(204, null);
+  await markNotificationRead("a b/c");
+  assert.deepEqual(requests, [{ method: "POST", pathname: "/api/v1/notifications/a%20b%2Fc/read", query: {} }]);
+
+  reply(404, { status: 404, code: "NOT_FOUND", title: "Không tìm thấy", detail: "Không tìm thấy thông báo." });
+  await assert.rejects(markNotificationRead("missing"), (error) => {
+    assert.equal(error.status, 404);
+    assert.equal(error.code, "NOT_FOUND");
     return true;
   });
 });
