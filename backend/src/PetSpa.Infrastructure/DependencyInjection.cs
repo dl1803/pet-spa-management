@@ -103,6 +103,7 @@ public static class DependencyInjection
         services.AddScoped<IHotelAssignmentRepository, HotelAssignmentRepository>();
         services.AddScoped<IAppointmentChangeRepository, AppointmentChangeRepository>();
         services.AddScoped<ICostConfirmationRepository, CostConfirmationRepository>();
+        services.AddScoped<IAutoCancellationRepository, AutoCancellationRepository>();
         services.AddScoped<IConcurrencyGuard, PostgresConcurrencyGuard>();
         services.AddScoped<IAccountRepository, AccountRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
