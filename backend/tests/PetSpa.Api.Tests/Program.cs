@@ -8901,6 +8901,106 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(await FailureCodeAsync(() => customer.Service.CheckOutHotelAsync(new CurrentUser(Guid.NewGuid(), UserRole.Customer), customer.Stay.AppointmentId)) == ErrorCodes.Forbidden,
             "A customer must be rejected.");
     }),
+    ("AutoCancellationService.CancelNoShowsAsync: hủy lịch spa và lưu trú Confirmed quá giờ giữ chỗ, bỏ qua lịch không còn đủ điều kiện sau khi khóa", async () =>
+    {
+        var spaDue = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromMinutes(-20));
+        var hotelDue = OldHotelAppointment(AppointmentStatus.Confirmed, TimeSpan.FromMinutes(-20));
+        var hotelWeighed = OldHotelAppointment(AppointmentStatus.Confirmed, TimeSpan.FromMinutes(-20));
+        hotelWeighed.RecordWeight(4.5m);
+        var hotelPendingCost = OldHotelAppointment(AppointmentStatus.Confirmed, TimeSpan.FromMinutes(-20));
+        var cageId = hotelDue.CageId;
+        var receivedInTime = OldSpaAppointment(AppointmentStatus.Received, TimeSpan.FromMinutes(-20));
+        var withinHold = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromMinutes(-5));
+        var missingId = Guid.NewGuid();
+        var ids = new[]
+        {
+            spaDue.AppointmentId, receivedInTime.AppointmentId, hotelDue.AppointmentId,
+            hotelWeighed.AppointmentId, hotelPendingCost.AppointmentId, withinHold.AppointmentId, missingId,
+        };
+
+        var candidates = new TestAutoCancellationRepo(ids);
+        var store = new TestAppointmentStoreRepo([spaDue, hotelDue, hotelWeighed, hotelPendingCost, receivedInTime, withinHold]);
+        var confirmations = new TestCostConfirmationRepo();
+        confirmations.Items.Add(new CostConfirmation
+        {
+            ConfirmationId = Guid.NewGuid(),
+            AppointmentId = hotelPendingCost.AppointmentId,
+            ActualWeightKg = 5.0m,
+            NewSizeGroup = SizeGroup.Medium,
+            OldAmount = 100000m,
+            NewAmount = 150000m,
+            Status = ConfirmationStatus.Pending,
+            CreatedAt = DateTimeOffset.UtcNow,
+            ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(30),
+        });
+        var guard = new TrackingConcurrencyGuard();
+        var service = new AutoCancellationService(
+            candidates, store, new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()), guard, confirmations);
+
+        var before = DateTimeOffset.UtcNow;
+        var cancelled = await service.CancelNoShowsAsync();
+        var after = DateTimeOffset.UtcNow;
+
+        Check(cancelled == 2, "Chỉ hai lịch quá giờ giữ chỗ và còn Confirmed được hủy.");
+        Check(spaDue.Status == AppointmentStatus.Cancelled && spaDue.CancelReason == CancelReason.NoShow && spaDue.CancelledAt is not null,
+            "Lịch spa quá giờ phải chuyển Cancelled với lý do NoShow.");
+        Check(hotelDue.Status == AppointmentStatus.Cancelled && hotelDue.CancelReason == CancelReason.NoShow && hotelDue.CageId == cageId,
+            "Lịch lưu trú quá giờ phải chuyển Cancelled với lý do NoShow; chuồng được giải phóng nhờ đổi trạng thái, CageId giữ nguyên.");
+        Check(hotelWeighed.Status == AppointmentStatus.Confirmed && hotelWeighed.CancelReason is null,
+            "Lịch lưu trú đã cân nặng thực tế không bị hủy NoShow.");
+        Check(hotelPendingCost.Status == AppointmentStatus.Confirmed && hotelPendingCost.CancelReason is null,
+            "Lịch lưu trú đang chờ xác nhận chi phí không bị hủy NoShow.");
+        Check(receivedInTime.Status == AppointmentStatus.Received && receivedInTime.CancelReason is null,
+            "Lịch đã được tiếp nhận kịp (đọc lại sau khi khóa) không bị hủy.");
+        Check(withinHold.Status == AppointmentStatus.Confirmed && withinHold.CancelReason is null,
+            "Lịch chưa quá thời gian giữ chỗ không bị hủy.");
+        Check(store.SavedCancellations.Count == 2
+              && store.SavedCancellations.Contains(spaDue) && store.SavedCancellations.Contains(hotelDue),
+            "Chỉ hai lịch bị hủy được lưu.");
+        Check(guard.RunCalls == ids.Length && guard.LockedAppointments.SequenceEqual(ids),
+            "Mỗi ứng viên chạy trong một giao dịch riêng và được khóa dòng theo thứ tự truy vấn.");
+        Check(candidates.LastStartedBefore is { } cutoff && cutoff >= before.AddMinutes(-15) && cutoff <= after.AddMinutes(-15),
+            "Mốc cắt phải bằng bây giờ trừ Booking.HoldMinutes (15 phút).");
+    }),
+    ("AutoCancellationService.CancelNoShowsAsync: dùng Booking.HoldMinutes cấu hình, chạy lặp không xử lý trùng, không có ứng viên thì không mở giao dịch, dừng khi bị hủy", async () =>
+    {
+        var within30 = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromMinutes(-20));
+        var past30 = OldHotelAppointment(AppointmentStatus.Confirmed, TimeSpan.FromMinutes(-40));
+        var ids = new[] { within30.AppointmentId, past30.AppointmentId };
+
+        var candidates = new TestAutoCancellationRepo(ids);
+        var store = new TestAppointmentStoreRepo([within30, past30]);
+        var guard = new TrackingConcurrencyGuard();
+        var assignments = new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()) { HoldMinutes = 30 };
+        var service = new AutoCancellationService(candidates, store, assignments, guard);
+
+        var first = await service.CancelNoShowsAsync();
+        Check(first == 1 && past30.Status == AppointmentStatus.Cancelled && within30.Status == AppointmentStatus.Confirmed,
+            "Phải dùng Booking.HoldMinutes cấu hình (30 phút): chỉ lịch quá 30 phút bị hủy.");
+
+        var second = await service.CancelNoShowsAsync();
+        Check(second == 0 && store.SavedCancellations.Count == 1,
+            "Chạy lặp không được hủy hoặc lưu lại lịch đã xử lý.");
+
+        var emptyGuard = new TrackingConcurrencyGuard();
+        var emptyService = new AutoCancellationService(new TestAutoCancellationRepo([]), store, assignments, emptyGuard);
+        Check(await emptyService.CancelNoShowsAsync() == 0 && emptyGuard.RunCalls == 0,
+            "Không có ứng viên thì không mở giao dịch nào.");
+
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var stopped = false;
+        try
+        {
+            await service.CancelNoShowsAsync(cancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            stopped = true;
+        }
+
+        Check(stopped, "Khi bị hủy, tác vụ phải dừng trước khi xử lý lịch kế tiếp.");
+    }),
 };
 
 var failures = 0;
@@ -10627,6 +10727,57 @@ sealed class TestAppointmentProgressRepo : IAppointmentProgressRepository
         SaveCalls++;
         return Task.CompletedTask;
     }
+}
+
+sealed class TestAutoCancellationRepo(IReadOnlyList<Guid> noShowIds) : IAutoCancellationRepository
+{
+    public DateTimeOffset? LastStartedBefore { get; private set; }
+
+    public Task<IReadOnlyList<Guid>> ListNoShowCandidateIdsAsync(
+        DateTimeOffset startedBefore, CancellationToken ct = default)
+    {
+        LastStartedBefore = startedBefore;
+        return Task.FromResult(noShowIds);
+    }
+
+    public Task<IReadOnlyList<Guid>> ListOverdueCostConfirmationAppointmentIdsAsync(
+        DateTimeOffset now, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<Guid>>([]);
+}
+
+sealed class TestAppointmentStoreRepo(IEnumerable<Appointment> appointments) : IAppointmentChangeRepository
+{
+    private readonly Dictionary<Guid, Appointment> items = appointments.ToDictionary(a => a.AppointmentId);
+
+    public List<Appointment> SavedCancellations { get; } = [];
+
+    public Task<Appointment?> FindForUpdateAsync(Guid appointmentId, CancellationToken ct = default)
+    {
+        items.TryGetValue(appointmentId, out var found);
+        return Task.FromResult<Appointment?>(found);
+    }
+
+    public Task SaveCancellationAsync(Appointment appointment, CancellationToken ct = default)
+    {
+        SavedCancellations.Add(appointment);
+        return Task.CompletedTask;
+    }
+
+    public Task<int> GetChangeCancelDeadlineMinutesAsync(CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
+    public Task<AppointmentChangeTarget?> FindTargetAsync(Guid appointmentId, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
+    public Task SaveSpaChangeAsync(
+        SpaAppointment appointment, IReadOnlyList<Guid> serviceIds, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
+    public Task SaveHotelChangeAsync(HotelAppointment appointment, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+
+    public Task<IReadOnlyList<Guid>> ListHoldingStaffIdsAsync(Guid appointmentId, CancellationToken ct = default) =>
+        throw new NotSupportedException();
 }
 
 sealed class ProgressFixture

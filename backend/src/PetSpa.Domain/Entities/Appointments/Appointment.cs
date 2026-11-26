@@ -70,6 +70,19 @@ public abstract class Appointment
         UpdatedAt = now;
     }
 
+    public bool IsNoShowDue(DateTimeOffset now, int holdMinutes) =>
+        Status == AppointmentStatus.Confirmed
+        && ActualWeightKg is null
+        && now > GetScheduledStart().AddMinutes(holdMinutes);
+
+    public void CancelAsNoShow(DateTimeOffset now, int holdMinutes)
+    {
+        if (!IsNoShowDue(now, holdMinutes))
+            throw new BusinessException(ErrorCodes.InvalidTransition);
+
+        Cancel(PetSpa.Domain.Enums.CancelReason.NoShow);
+    }
+
     protected void BeginCustomerChange()
     {
         EnsureChangeableByCustomer();
