@@ -8712,7 +8712,7 @@ var tests = new (string Name, Func<Task> Run)[]
         }
 
         CheckOutService Create(HotelAppointment? stay, StaffRole? staffRole) =>
-            new(new TestHotelAssignmentRepo(null, [], []) { Appointment = stay }, new TestStaffRoleReader(staffRole));
+            new(new TestHotelAssignmentRepo(null, [], []) { Appointment = stay }, new TestStaffRoleReader(staffRole), new TestHotelCatalogRepo(), new TestPaymentRepo(null), new TestConcurrencyGuard());
 
         var receptionist = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
         var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
@@ -8745,6 +8745,161 @@ var tests = new (string Name, Func<Task> Run)[]
             Check(await FailureCodeAsync(() => Create(wrongStatus, StaffRole.Receptionist).ResolveHotelReturnAsync(receptionist, wrongStatus.AppointmentId)) == ErrorCodes.InvalidTransition,
                 $"A stay in {invalidStatus} must be INVALID_TRANSITION.");
         }
+    }),
+    ("CheckOutService.CalculateLateFeeAsync: trả sớm hoặc trễ trong thời gian miễn phí không tính phí; từ phút thứ 31 mỗi 60 phút một lần theo mức phí cấu hình; không đổi dữ liệu lịch", async () =>
+    {
+        var planned = new DateTimeOffset(2026, 12, 10, 12, 0, 0, TimeSpan.Zero);
+
+        CheckOutService Create(TestHotelCatalogRepo catalog) =>
+            new(new TestHotelAssignmentRepo(null, [], []), new TestStaffRoleReader(StaffRole.Receptionist), catalog, new TestPaymentRepo(null), new TestConcurrencyGuard());
+
+        async Task<decimal> FeeAsync(CheckOutService service, int minutesAfterPlanned)
+        {
+            var stay = WeightTestHotel(Guid.NewGuid(), SizeGroup.Small, AppointmentStatus.InStay);
+            stay.PlannedCheckOut = planned;
+
+            var fee = await service.CalculateLateFeeAsync(new HotelReturnTarget(stay, planned.AddMinutes(minutesAfterPlanned)));
+
+            Check(stay.Status == AppointmentStatus.InStay && stay.ActualCheckOut is null,
+                "Calculating the late fee must not change the stay.");
+
+            return fee;
+        }
+
+        var standard = Create(new TestHotelCatalogRepo { LateFee = 50000m });
+        Check(await FeeAsync(standard, -120) == 0m, "An early return must not be charged.");
+        Check(await FeeAsync(standard, 0) == 0m, "A return exactly on time must not be charged.");
+        Check(await FeeAsync(standard, 30) == 0m, "A return 30 minutes late must not be charged.");
+        Check(await FeeAsync(standard, 31) == 50000m, "A return 31 minutes late must be charged one block.");
+        Check(await FeeAsync(standard, 90) == 50000m, "A return 90 minutes late must still be one block.");
+        Check(await FeeAsync(standard, 91) == 100000m, "A return 91 minutes late must be two blocks.");
+        Check(await FeeAsync(standard, 150) == 100000m, "A return 150 minutes late must still be two blocks.");
+        Check(await FeeAsync(standard, 151) == 150000m, "A return 151 minutes late must be three blocks.");
+
+        var custom = Create(new TestHotelCatalogRepo { LateFee = 20000m, LateGraceMinutes = 15, LateBlockMinutes = 30 });
+        Check(await FeeAsync(custom, 15) == 0m, "The grace period must follow the configuration.");
+        Check(await FeeAsync(custom, 16) == 20000m, "A return just past the configured grace period must be one block.");
+        Check(await FeeAsync(custom, 45) == 20000m, "A return 45 minutes late with 30-minute blocks must be one block.");
+        Check(await FeeAsync(custom, 46) == 40000m, "A return 46 minutes late with 30-minute blocks must be two blocks.");
+
+        var free = Create(new TestHotelCatalogRepo());
+        Check(await FeeAsync(free, 600) == 0m, "A zero fee per block must never charge.");
+    }),
+    ("CheckOutService.CheckOutHotelAsync: trả sớm hoặc trễ trong thời gian miễn phí hoàn tất ngay không tạo khoản phí; trễ quá thời gian miễn phí tạo khoản LateFee chưa thanh toán, giữ lịch Đang lưu trú và trả PAYMENT_NOT_DUE; hoàn tất khi phí đã thanh toán", async () =>
+    {
+        var receptionist = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+        var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+
+        (CheckOutService Service, HotelAppointment Stay, TestHotelAssignmentRepo Assignments, TestPaymentRepo Payments, TestConcurrencyGuard Guard) Create(
+            int minutesLate,
+            AppointmentStatus status = AppointmentStatus.InStay,
+            StaffRole? staffRole = StaffRole.Receptionist,
+            decimal feePerBlock = 50000m)
+        {
+            var stay = WeightTestHotel(Guid.NewGuid(), SizeGroup.Small, status);
+            stay.CageId = Guid.NewGuid();
+            stay.PlannedCheckOut = DateTimeOffset.UtcNow.AddMinutes(-minutesLate);
+
+            var assignments = new TestHotelAssignmentRepo(null, [], []) { Appointment = stay };
+            var payments = new TestPaymentRepo(null);
+            var guard = new TestConcurrencyGuard();
+            var service = new CheckOutService(
+                assignments, new TestStaffRoleReader(staffRole), new TestHotelCatalogRepo { LateFee = feePerBlock }, payments, guard);
+
+            return (service, stay, assignments, payments, guard);
+        }
+
+        Payment LateFeeOf(HotelAppointment stay, decimal amount, bool paid)
+        {
+            var payment = OnlinePayment(PaymentKind.LateFee, amount);
+            payment.AppointmentId = stay.AppointmentId;
+            if (paid)
+                payment.MarkPaid(AppointmentStatus.InStay, amount, PaymentMethod.Cash, Guid.NewGuid());
+
+            return payment;
+        }
+
+        foreach (var minutesLate in new[] { -120, 10 })
+        {
+            var fixture = Create(minutesLate);
+            var before = DateTimeOffset.UtcNow;
+            var result = await fixture.Service.CheckOutHotelAsync(receptionist, fixture.Stay.AppointmentId);
+            var after = DateTimeOffset.UtcNow;
+
+            Check(result.Status == AppointmentStatus.Completed && result.LateFee is null,
+                "A return without a late fee must complete without a late fee amount.");
+            Check(fixture.Stay.Status == AppointmentStatus.Completed
+                    && fixture.Stay.ActualCheckOut >= before && fixture.Stay.ActualCheckOut <= after,
+                "The stay must be Completed with the actual check-out recorded.");
+            Check(fixture.Stay.CageId is not null, "Completing the stay must not clear the cage; the cage is released by the status.");
+            Check(fixture.Payments.AddedPayments.Count == 0, "No late fee payment must be created.");
+            Check(fixture.Assignments.SaveCalls == 1 && fixture.Guard.RunCalls == 1 && fixture.Guard.LockedAppointmentId == fixture.Stay.AppointmentId,
+                "The return must be saved once inside a transaction that locks the appointment.");
+        }
+
+        var byManager = Create(-120, staffRole: null);
+        Check((await byManager.Service.CheckOutHotelAsync(manager, byManager.Stay.AppointmentId)).Status == AppointmentStatus.Completed,
+            "A manager must be able to complete the return.");
+
+        var noFeeConfigured = Create(100, feePerBlock: 0m);
+        var noFeeResult = await noFeeConfigured.Service.CheckOutHotelAsync(receptionist, noFeeConfigured.Stay.AppointmentId);
+        Check(noFeeResult.Status == AppointmentStatus.Completed && noFeeResult.LateFee is null && noFeeConfigured.Payments.AddedPayments.Count == 0,
+            "A zero fee per block must complete without creating a late fee.");
+
+        var late = Create(100);
+        var lateCode = await FailureCodeAsync(() => late.Service.CheckOutHotelAsync(receptionist, late.Stay.AppointmentId));
+        Check(lateCode == ErrorCodes.PaymentNotDue, "A late return must be rejected with PAYMENT_NOT_DUE until the late fee is paid.");
+        Check(late.Stay.Status == AppointmentStatus.InStay && late.Stay.ActualCheckOut is not null,
+            "The stay must stay InStay with the actual check-out recorded.");
+        Check(late.Payments.AddedPayments.Count == 1, "Exactly one late fee must be created.");
+        var created = late.Payments.AddedPayments[0];
+        Check(created.AppointmentId == late.Stay.AppointmentId && created.Kind == PaymentKind.LateFee
+                && created.Status == PaymentStatus.Unpaid && created.Amount == 100000m,
+            "Two blocks of 50000 must create one unpaid LateFee of 100000.");
+        Check(late.Assignments.SaveCalls == 1, "The recorded check-out and the late fee must be saved before the error is thrown.");
+
+        var recordedAt = DateTimeOffset.UtcNow.AddMinutes(-5);
+
+        var unpaidFee = Create(100, feePerBlock: 70000m);
+        unpaidFee.Stay.ActualCheckOut = recordedAt;
+        unpaidFee.Payments.Items.Add(LateFeeOf(unpaidFee.Stay, 100000m, paid: false));
+        Check(await FailureCodeAsync(() => unpaidFee.Service.CheckOutHotelAsync(receptionist, unpaidFee.Stay.AppointmentId)) == ErrorCodes.PaymentNotDue,
+            "An existing unpaid late fee must keep rejecting with PAYMENT_NOT_DUE.");
+        Check(unpaidFee.Stay.Status == AppointmentStatus.InStay && unpaidFee.Stay.ActualCheckOut == recordedAt && unpaidFee.Payments.AddedPayments.Count == 0,
+            "A repeated call must not create another late fee or move the recorded check-out.");
+
+        var paidFee = Create(100, feePerBlock: 70000m);
+        paidFee.Stay.ActualCheckOut = recordedAt;
+        paidFee.Payments.Items.Add(LateFeeOf(paidFee.Stay, 100000m, paid: true));
+        var paidResult = await paidFee.Service.CheckOutHotelAsync(receptionist, paidFee.Stay.AppointmentId);
+        Check(paidResult.Status == AppointmentStatus.Completed && paidResult.LateFee == 100000m,
+            "A paid late fee must allow completion and report the recorded amount, not a recalculated one.");
+        Check(paidFee.Stay.Status == AppointmentStatus.Completed && paidFee.Stay.ActualCheckOut == recordedAt && paidFee.Payments.AddedPayments.Count == 0,
+            "Completion must keep the recorded check-out and must not create another payment.");
+
+        foreach (var invalidStatus in new[] { AppointmentStatus.Pending, AppointmentStatus.Confirmed, AppointmentStatus.Completed, AppointmentStatus.Cancelled })
+        {
+            var wrong = Create(100, invalidStatus);
+            Check(await FailureCodeAsync(() => wrong.Service.CheckOutHotelAsync(receptionist, wrong.Stay.AppointmentId)) == ErrorCodes.InvalidTransition,
+                $"A stay in {invalidStatus} must be INVALID_TRANSITION.");
+            Check(wrong.Stay.Status == invalidStatus && wrong.Stay.ActualCheckOut is null
+                    && wrong.Payments.AddedPayments.Count == 0 && wrong.Assignments.SaveCalls == 0,
+                $"A stay in {invalidStatus} must not be changed.");
+        }
+
+        var missing = Create(100);
+        Check(await FailureCodeAsync(() => missing.Service.CheckOutHotelAsync(receptionist, Guid.NewGuid())) == ErrorCodes.NotFound,
+            "An unknown appointment must be NOT_FOUND.");
+
+        var spaStaff = Create(-120, staffRole: StaffRole.SpaStaff);
+        Check(await FailureCodeAsync(() => spaStaff.Service.CheckOutHotelAsync(receptionist, spaStaff.Stay.AppointmentId)) == ErrorCodes.Forbidden,
+            "Spa staff must be rejected.");
+        Check(spaStaff.Guard.RunCalls == 0 && spaStaff.Stay.Status == AppointmentStatus.InStay,
+            "A rejected role must be refused before the transaction opens and must not change the stay.");
+
+        var customer = Create(-120);
+        Check(await FailureCodeAsync(() => customer.Service.CheckOutHotelAsync(new CurrentUser(Guid.NewGuid(), UserRole.Customer), customer.Stay.AppointmentId)) == ErrorCodes.Forbidden,
+            "A customer must be rejected.");
     }),
 };
 
@@ -9333,6 +9488,8 @@ sealed class TestHotelCatalogRepo : IHotelCatalogRepository
 {
     public List<HotelPricing> Prices { get; set; } = [];
     public decimal LateFee { get; set; } = 0m;
+    public int LateGraceMinutes { get; set; } = 30;
+    public int LateBlockMinutes { get; set; } = 60;
     public List<CageStatus> CageStatuses { get; set; } = [];
 
     public Task<PagedResult<CageStatus>> ListCageStatusesAsync(int page, int pageSize, CancellationToken ct = default) =>
@@ -9344,6 +9501,8 @@ sealed class TestHotelCatalogRepo : IHotelCatalogRepository
     public Task<bool> SetCageActiveAsync(Guid cageId, bool isActive, CancellationToken ct = default) => Task.FromResult(true);
     public Task<IReadOnlyList<HotelPricing>> ListPricingAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<HotelPricing>>(Prices);
     public Task<decimal> GetLateFeePerBlockAsync(CancellationToken ct = default) => Task.FromResult(LateFee);
+    public Task<int> GetLateGraceMinutesAsync(CancellationToken ct = default) => Task.FromResult(LateGraceMinutes);
+    public Task<int> GetLateBlockMinutesAsync(CancellationToken ct = default) => Task.FromResult(LateBlockMinutes);
     public Task SetLodgingPricesAsync(IReadOnlyList<HotelPricing> prices, decimal lateFeePerBlock, CancellationToken ct = default)
     {
         Prices = prices.ToList();

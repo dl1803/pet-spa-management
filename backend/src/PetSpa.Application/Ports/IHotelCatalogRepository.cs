@@ -24,6 +24,10 @@ public interface IHotelCatalogRepository
 
     Task<decimal> GetLateFeePerBlockAsync(CancellationToken ct = default);
 
+    Task<int> GetLateGraceMinutesAsync(CancellationToken ct = default);
+
+    Task<int> GetLateBlockMinutesAsync(CancellationToken ct = default);
+
     Task SetLodgingPricesAsync(
         IReadOnlyList<HotelPricing> prices, decimal lateFeePerBlock, CancellationToken ct = default);
 }
