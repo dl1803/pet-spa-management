@@ -76,3 +76,15 @@ export async function listPhotos(appointmentId: string) {
   return data;
 }
 
+// POST /appointments/{id}/start (startAppointment): lịch spa Đã tiếp nhận → Đang thực hiện; Quản lý được gọi (SpaStaffOrManager). 200 { status: "InProgress" }.
+export async function startAppointment(appointmentId: string) {
+  const { data } = await apiClient.post<StatusResult>(`/appointments/${encodeURIComponent(appointmentId)}/start`);
+  return data;
+}
+
+// POST /appointments/{id}/complete (completeAppointment): lịch spa Đang thực hiện → Hoàn tất; Quản lý được gọi (SpaStaffOrManager). 200 { status: "Completed" }.
+export async function completeAppointment(appointmentId: string) {
+  const { data } = await apiClient.post<StatusResult>(`/appointments/${encodeURIComponent(appointmentId)}/complete`);
+  return data;
+}
+

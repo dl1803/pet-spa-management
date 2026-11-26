@@ -3,10 +3,8 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ApiError } from "../lib/api/errors.ts";
-import { MOCK_SPA_TODAY } from "../lib/mock-shop-day.ts";
 import { StatusUpdateCard } from "../features/appointments/components/status-update-card.tsx";
 import { findMockSpaAppointment } from "../features/appointments/evidence.ts";
-import { advanceMockSpaStatus } from "../features/appointments/mock-status.ts";
 import {
   STATUS_MESSAGES,
   classifyStatusUpdateError,
@@ -28,7 +26,6 @@ const renderCard = (id) => {
   const { appointment, photos } = mock(id);
   return renderToStaticMarkup(React.createElement(StatusUpdateCard, { appointment, photos, onAdvance: noop }));
 };
-const isConflict = (code) => (error) => error instanceof ApiError && error.status === 409 && error.code === code;
 
 // Lịch “Nâu” đủ điều kiện hoàn tất: mọi dịch vụ xong và có ảnh sau.
 function readyToComplete() {
@@ -65,42 +62,6 @@ test("getStatusLockReasons: theo dữ liệu mô phỏng", () => {
   assert.deepEqual(getStatusLockReasons(getSpaStatusStep("InProgress"), nau.appointment, nau.photos), [STATUS_MESSAGES.completionRequired]);
   const ready = readyToComplete();
   assert.deepEqual(getStatusLockReasons(getSpaStatusStep("InProgress"), ready.appointment, ready.photos), []);
-});
-
-test("advanceMockSpaStatus: thành công và từng lỗi 409", () => {
-  const muoc = mock(MUOC);
-  assert.deepEqual(advanceMockSpaStatus(muoc.appointment, muoc.photos, "start"), { status: "InProgress" });
-
-  const bong = mock(BONG);
-  assert.throws(() => advanceMockSpaStatus(bong.appointment, bong.photos, "start"), isConflict("PHOTO_REQUIRED"));
-  const beforeOnly = [{ photoId: "p", kind: "Before", url: "x", uploadedAt: "2026-10-06T09:10:00+07:00" }];
-  assert.throws(() => advanceMockSpaStatus(bong.appointment, beforeOnly, "start"), isConflict("COST_CONFIRMATION_PENDING"));
-
-  const nau = mock(NAU);
-  assert.throws(() => advanceMockSpaStatus(nau.appointment, nau.photos, "complete"), isConflict("SERVICES_INCOMPLETE"));
-  const allDoneNoAfter = { ...nau.appointment, services: [{ serviceId: "s1", isDone: true }] };
-  assert.throws(() => advanceMockSpaStatus(allDoneNoAfter, nau.photos, "complete"), isConflict("PHOTO_REQUIRED"));
-  const ready = readyToComplete();
-  assert.deepEqual(advanceMockSpaStatus(ready.appointment, ready.photos, "complete"), { status: "Completed" });
-
-  assert.throws(() => advanceMockSpaStatus(muoc.appointment, muoc.photos, "complete"), isConflict("INVALID_TRANSITION"));
-});
-
-test("khóa nút và kết quả mô phỏng luôn khớp nhau trên mọi lịch spa mô phỏng", () => {
-  for (const { id } of MOCK_SPA_TODAY.map((item) => ({ id: item.appointmentId }))) {
-    const { appointment, photos } = mock(id);
-    for (const action of ["start", "complete"]) {
-      const step = getSpaStatusStep(appointment.status);
-      const allowed = step !== null && step.action === action && getStatusLockReasons(step, appointment, photos).length === 0;
-      let succeeded = true;
-      try {
-        advanceMockSpaStatus(appointment, photos, action);
-      } catch {
-        succeeded = false;
-      }
-      assert.equal(succeeded, allowed, `${appointment.petName} ${action}`);
-    }
-  }
 });
 
 test("classifyStatusUpdateError: lý do dưới nút, ErrorAlert cho lỗi còn lại", () => {

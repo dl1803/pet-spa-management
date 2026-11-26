@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { LiveAppointmentHeader } from "@/features/appointments/components/live-appointment-header";
 import { LiveEvidencePhotos } from "@/features/appointments/components/live-evidence-photos";
+import { LiveStatusUpdate } from "@/features/appointments/components/live-status-update";
 import { isForbiddenError, toApiError } from "@/lib/api/errors";
 import { formatAppointmentCode } from "@/lib/format";
 import { useAppointment } from "@/lib/queries/appointments";
@@ -59,7 +60,12 @@ export function LiveAppointmentDetail({ appointmentId }: { appointmentId: string
     <div className="flex flex-col gap-5">
       <p className="text-[13px] text-muted">Lịch hẹn › {formatAppointmentCode(data.appointmentId)}</p>
       <LiveAppointmentHeader appointment={data} />
-      {data.type === "Spa" && <LiveEvidencePhotos appointmentId={data.appointmentId} petName={data.petName ?? "thú cưng"} />}
+      {data.type === "Spa" && (
+        <div className="grid grid-cols-[minmax(0,1fr)_340px] items-start gap-5 max-[1100px]:grid-cols-1">
+          <LiveEvidencePhotos appointmentId={data.appointmentId} petName={data.petName ?? "thú cưng"} />
+          <LiveStatusUpdate appointment={data} />
+        </div>
+      )}
     </div>
   );
 }

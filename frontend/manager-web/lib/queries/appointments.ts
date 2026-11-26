@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   cancelAppointment,
+  completeAppointment,
   confirmAppointment,
   getAppointment,
   getHotelSuggestions,
@@ -8,6 +9,7 @@ import {
   listAppointments,
   listPhotos,
   rejectAppointment,
+  startAppointment,
   updateAppointment,
   type ListAppointmentsParams,
 } from "@/lib/api/endpoints/appointments";
@@ -123,6 +125,24 @@ export function useCancelAppointment() {
     onSettled: () => {
       void refreshAppointments();
     },
+  });
+}
+
+// MW-05 vùng 7: Bắt đầu thực hiện / Chuyển sang Hoàn tất. Tải lại cả khi lỗi và chờ tải xong các truy vấn đang hiển thị
+// (chi tiết, ảnh) để thẻ không còn nút của bước cũ khi mutation kết thúc; truy vấn không hiển thị chỉ bị đánh dấu cũ.
+export function useStartAppointment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (appointmentId: string) => startAppointment(appointmentId),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: appointmentKeys.all }),
+  });
+}
+
+export function useCompleteAppointment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (appointmentId: string) => completeAppointment(appointmentId),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: appointmentKeys.all }),
   });
 }
 
