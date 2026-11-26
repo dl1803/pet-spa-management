@@ -7,6 +7,7 @@ import type {
   PaymentKind,
   PaymentMethod,
   PaymentStatus,
+  PhotoKind,
   SizeGroup,
   Species,
   Temperament,
@@ -69,6 +70,11 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   Cash: "Tiền mặt",
   BankQR: "Chuyển khoản QR",
   Online: "Trực tuyến",
+};
+
+export const PHOTO_KIND_LABELS: Record<PhotoKind, string> = {
+  Before: "Trước",
+  After: "Sau",
 };
 
 export const GATEWAY_LABELS: Record<Gateway, string> = {

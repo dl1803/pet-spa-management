@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { APPOINTMENT_CANCELLED_MESSAGE } from "@/features/appointments/change-cancel";
 import { AppointmentDetailHeader } from "@/features/appointments/components/appointment-detail-header";
 import { AppointmentPaymentCard } from "@/features/appointments/components/appointment-payment-card";
+import { AppointmentPhotosCard } from "@/features/appointments/components/appointment-photos-card";
 import { CancelAppointmentDialog } from "@/features/appointments/components/cancel-appointment-dialog";
 import { ChangeCancelBlock } from "@/features/appointments/components/change-cancel-block";
 import { OnlinePaymentDialog } from "@/features/appointments/components/online-payment-dialog";
@@ -20,7 +21,8 @@ import type { Payment } from "@/lib/api/types";
 import { isChangeWindowClosedError } from "@/lib/appointments";
 import { formatAppointmentCode } from "@/lib/format";
 import { findSpaPayment, getPaymentResultState, ONLINE_PAYMENT_GATEWAY, rememberPaymentAppointment } from "@/lib/payments";
-import { useAppointment, useCancelAppointment } from "@/lib/queries/appointments";
+import { getPhotoSectionMode } from "@/lib/photos";
+import { useAppointment, useAppointmentPhotos, useCancelAppointment } from "@/lib/queries/appointments";
 import { useAppointmentPayments, usePayOnline } from "@/lib/queries/payments";
 import { usePet } from "@/lib/queries/pets";
 import { PAYMENT_RETURN_PARAM, PAYMENT_RETURN_VALUE, ROUTES, WINDOW_CLOSED_PARAM, WINDOW_CLOSED_VALUE } from "@/lib/routes";
@@ -70,6 +72,10 @@ export function AppointmentDetailScreen() {
   const resultState =
     isCompletedSpa && isPaymentReturn && payments.error === null ? getPaymentResultState(spaPayment, checkCount) : null;
   const payOnline = usePayOnline(id);
+
+  // Ảnh chỉ được tải khi lịch spa có thể đã có ảnh; lịch lưu trú và lịch spa đã hủy không hiện khối ảnh.
+  const photoMode = appointment === undefined ? "hidden" : getPhotoSectionMode(appointment);
+  const photos = useAppointmentPhotos(id, { enabled: photoMode === "live" });
 
   const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
   const [isWindowClosedByCancel, setIsWindowClosedByCancel] = useState(false);
@@ -163,6 +169,15 @@ export function AppointmentDetailScreen() {
           <PaymentResultAlert state={resultState} payment={spaPayment} onRetry={openPaymentDialog} />
         )}
         <AppointmentDetailHeader appointment={appointment} petName={petName} species={pet?.species ?? null} />
+        {photoMode !== "hidden" && (
+          <AppointmentPhotosCard
+            isAwaiting={photoMode === "awaiting"}
+            photos={photos.data}
+            error={photos.error}
+            isRetrying={photos.isFetching}
+            onRetry={() => void photos.refetch()}
+          />
+        )}
         {isCompletedSpa && (
           <AppointmentPaymentCard
             payment={spaPayment}

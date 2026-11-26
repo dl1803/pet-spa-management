@@ -4,10 +4,11 @@ import { AppointmentTypeLabel } from "@/components/domain/appointment-type-label
 import { StatusBadge } from "@/components/domain/status-badge";
 import { Card, CardBody } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { HistoryPhotos } from "@/features/history/components/history-photos";
 import { getErrorMessage } from "@/lib/api/errors";
 import type { Appointment, AppointmentDetail } from "@/lib/api/types";
 import { formatAppointmentCode, formatDate, formatShortDate, formatTime, formatTimeRange } from "@/lib/format";
-import { useAppointment } from "@/lib/queries/appointments";
+import { useAppointment, useAppointmentPhotos } from "@/lib/queries/appointments";
 import { countNights } from "@/lib/time";
 
 type HistoryView = {
@@ -52,6 +53,8 @@ export function HistoryCard({ appointment }: HistoryCardProps) {
   // Dịch vụ và nhân viên chỉ có ở chi tiết lịch spa (UI-Screens G-05); tải khi thẻ hiện ra. Lịch lưu trú không cần.
   const detail = useAppointment(appointment.type === "Spa" ? appointment.appointmentId : null);
   const view = getHistoryView(detail.data ?? appointment);
+  // Ảnh nhỏ Trước/Sau chỉ có ở lịch spa; cũng tải khi thẻ hiện ra.
+  const photos = useAppointmentPhotos(appointment.appointmentId, { enabled: appointment.type === "Spa" });
 
   return (
     <Card>
@@ -83,6 +86,14 @@ export function HistoryCard({ appointment }: HistoryCardProps) {
             )}
             {view.note && <div className="mt-1 text-xs leading-5 text-muted">{view.note}</div>}
           </div>
+          {appointment.type === "Spa" && (
+            <HistoryPhotos
+              photos={photos.data}
+              error={photos.error}
+              isRetrying={photos.isFetching}
+              onRetry={() => void photos.refetch()}
+            />
+          )}
         </div>
       </CardBody>
     </Card>
