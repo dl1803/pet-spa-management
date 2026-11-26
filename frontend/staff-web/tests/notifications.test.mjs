@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { NotificationItem } from "../components/domain/notification-item.tsx";
 import { NotificationsScreen } from "../features/notifications/screens/notifications-screen.tsx";
 import { MOCK_NOTIFICATIONS } from "../features/notifications/mock-data.ts";
+import { NOTIFICATIONS_PAGE_SIZE, getNextNotificationPage, notificationKeys } from "../lib/queries/notifications.ts";
 
 const noop = () => {};
 const count = (html, pattern) => (html.match(pattern) ?? []).length;
@@ -57,12 +59,49 @@ test("nội dung thông báo được escape", () => {
   assert.match(html, /&lt;script&gt;/);
 });
 
-test("màn thông báo: tiêu đề, mô tả, 4 thông báo, không có tab", () => {
-  const html = renderToStaticMarkup(React.createElement(NotificationsScreen));
+// Dữ liệu API đặt sẵn vào bộ nhớ đệm của TanStack Query; render phía máy chủ không gọi API.
+function renderScreen(pages) {
+  const client = new QueryClient();
+  if (pages) client.setQueryData(notificationKeys.list(NOTIFICATIONS_PAGE_SIZE), { pages, pageParams: pages.map((_, index) => index + 1) });
+  return renderToStaticMarkup(React.createElement(QueryClientProvider, { client }, React.createElement(NotificationsScreen)));
+}
+const page = (items, extra = {}) => ({ items, page: 1, pageSize: NOTIFICATIONS_PAGE_SIZE, total: items.length, unread: 1, ...extra });
+
+test("màn thông báo: tiêu đề, mô tả, 4 thông báo từ API, không có tab", () => {
+  const html = renderScreen([page(MOCK_NOTIFICATIONS)]);
   assert.match(html, /<h1>Thông báo<\/h1>/);
   assert.match(html, /Phân công và thay đổi về lịch hẹn của bạn\./);
   assert.equal(count(html, /<li>/g), 4);
   assert.equal(count(html, /\(chưa đọc\)/g), 1);
   assert.doesNotMatch(html, /role="tablist"/);
   assert.doesNotMatch(html, /Xem thêm/);
+});
+
+test("màn thông báo: đang tải lần đầu hiện khung xương, chưa có dòng thông báo", () => {
+  const html = renderScreen(null);
+  assert.match(html, /role="status"[^>]*aria-busy="true"/);
+  assert.match(html, /Đang tải thông báo…/);
+  assert.equal(count(html, /<li>/g), 0);
+});
+
+test("màn thông báo: danh sách rỗng hiện Chưa có thông báo nào", () => {
+  const html = renderScreen([page([], { unread: 0 })]);
+  assert.match(html, /Chưa có thông báo nào/);
+  assert.equal(count(html, /<li>/g), 0);
+});
+
+test("màn thông báo: còn trang sau thì có Xem thêm; gộp theo notificationId khi hai trang trùng dòng", () => {
+  const first = page(MOCK_NOTIFICATIONS.slice(0, 3), { total: 45 });
+  const second = page(MOCK_NOTIFICATIONS.slice(2), { page: 2, total: 45 });
+  const html = renderScreen([first, second]);
+  assert.equal(count(html, /<li>/g), 4);
+  const more = renderScreen([first]);
+  assert.match(more, /Xem thêm/);
+  assert.equal(count(more, /<li>/g), 3);
+});
+
+test("trang kế tiếp: còn thông báo chưa tải thì +1, hết thì undefined", () => {
+  assert.equal(getNextNotificationPage({ items: [], page: 1, pageSize: 20, total: 21, unread: 0 }), 2);
+  assert.equal(getNextNotificationPage({ items: [], page: 2, pageSize: 20, total: 40, unread: 0 }), undefined);
+  assert.equal(getNextNotificationPage({ items: [], page: 1, pageSize: 20, total: 0, unread: 0 }), undefined);
 });

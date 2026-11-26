@@ -150,6 +150,15 @@ export type Notification = {
   createdAt: string;
 };
 
+export type NotificationPage = {
+  items: Notification[];
+  page: number;
+  pageSize: number;
+  total: number;
+  // Tổng số thông báo chưa đọc của người gọi (không chỉ trong trang này).
+  unread: number;
+};
+
 export type Customer = {
   customerId: string;
   fullName: string;
