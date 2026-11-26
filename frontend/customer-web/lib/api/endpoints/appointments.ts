@@ -5,6 +5,7 @@ import type {
   AppointmentStatus,
   HotelBookingCreated,
   HotelBookingRequest,
+  Photo,
   SpaBookingCreated,
   SpaBookingRequest,
   SpaSlots,
@@ -77,6 +78,14 @@ export type UpdateAppointmentVariables = {
 // Lỗi: 400 VALIDATION_ERROR, 403, 404, 409 CHANGE_WINDOW_CLOSED, SLOT_FULL, NO_CAPACITY, INVALID_TRANSITION.
 export async function updateAppointment({ appointmentId, request }: UpdateAppointmentVariables) {
   const { data } = await apiClient.put<StatusResult>(`/appointments/${encodeURIComponent(appointmentId)}`, request);
+  return data;
+}
+
+// GET /appointments/{id}/photos: ảnh trước/sau chăm sóc của một lịch spa, theo thứ tự tải lên, không phân trang.
+// `url` là URL tạm thời (60 phút) do backend ký sau khi kiểm tra quyền sở hữu (BR-16); khóa lưu trữ không được trả.
+// Lỗi: 403 FORBIDDEN (lịch của khách khác), 404 NOT_FOUND.
+export async function listAppointmentPhotos(appointmentId: string) {
+  const { data } = await apiClient.get<Photo[]>(`/appointments/${encodeURIComponent(appointmentId)}/photos`);
   return data;
 }
 

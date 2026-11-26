@@ -210,6 +210,17 @@ export type StatusResult = {
   status: AppointmentStatus;
 };
 
+export type PhotoKind = "Before" | "After";
+
+export type Photo = {
+  photoId: string;
+  kind: PhotoKind;
+  // URL tạm thời do backend cấp (hiệu lực 60 phút); chỉ dùng làm src của thẻ img.
+  url: string;
+  // ISO 8601.
+  uploadedAt: string;
+};
+
 export type Payment = {
   paymentId: string;
   appointmentId: string;

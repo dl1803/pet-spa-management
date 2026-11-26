@@ -86,3 +86,8 @@ export function formatDayAndTime(value: string) {
   return `${formatWeekdayShort(value)} ${formatShortDate(value)}, ${formatTime(value)}`;
 }
 
+// Giờ và ngày chụp ảnh theo múi giờ cửa hàng: "09:10, 06/10" (API không trả người chụp).
+export function formatPhotoStamp(value: string) {
+  return `${formatTime(value)}, ${formatShortDate(value)}`;
+}
+

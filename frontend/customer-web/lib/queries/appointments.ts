@@ -4,6 +4,7 @@ import {
   createHotelAppointment,
   createSpaAppointment,
   getAppointment,
+  listAppointmentPhotos,
   listAppointments,
 } from "@/lib/api/endpoints/appointments";
 import type { Appointment, AppointmentStatus, HotelBookingRequest, SpaBookingRequest } from "@/lib/api/types";
@@ -23,6 +24,7 @@ export const appointmentKeys = {
   list: (filter: AppointmentListFilter) => ["appointments", "list", filter] as const,
   detail: (appointmentId: string) => ["appointments", "detail", appointmentId] as const,
   payments: (appointmentId: string) => ["appointments", "detail", appointmentId, "payments"] as const,
+  photos: (appointmentId: string) => ["appointments", "detail", appointmentId, "photos"] as const,
 };
 
 // Tải lần lượt mọi trang rồi gộp. Gộp theo appointmentId để lịch mới tạo giữa hai lần tải không làm trùng dòng.
@@ -53,6 +55,16 @@ export function useAppointment(appointmentId: string | null | undefined) {
   return useQuery({
     queryKey: appointmentKeys.detail(appointmentId ?? ""),
     queryFn: isValidId ? () => getAppointment(appointmentId) : skipToken,
+  });
+}
+
+// GET /appointments/{appointmentId}/photos. Không đặt staleTime: URL ảnh chỉ sống 60 phút nên mở lại trang hoặc quay lại tab
+// sẽ tải URL mới. Không dùng placeholderData/initialData: ảnh phải luôn thuộc đúng lịch đang xem.
+export function useAppointmentPhotos(appointmentId: string, { enabled }: { enabled: boolean }) {
+  return useQuery({
+    queryKey: appointmentKeys.photos(appointmentId),
+    queryFn: () => listAppointmentPhotos(appointmentId),
+    enabled,
   });
 }
 
