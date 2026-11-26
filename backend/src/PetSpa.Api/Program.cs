@@ -70,6 +70,18 @@ builder.Services.AddSwaggerGen(options =>
         Description = "Backend phục vụ Web Khách hàng, Web Nhân viên và Web Quản lý."
     });
 
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Nhập JWT token (Swagger tự thêm tiền tố Bearer)."
+    });
+
+    options.OperationFilter<AuthorizeOperationFilter>();
+
     var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
     options.IncludeXmlComments(Path.Combine(AppContext.BaseDirectory, xmlFile));
 });
