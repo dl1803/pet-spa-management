@@ -5,12 +5,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "../components/feedback/toast.tsx";
 import { LiveAppointmentDetail } from "../features/appointments/components/live-appointment-detail.tsx";
-import { AppointmentDetailScreen } from "../features/appointments/screens/appointment-detail-screen.tsx";
 import { ApiError } from "../lib/api/errors.ts";
 import { appointmentKeys } from "../lib/queries/appointments.ts";
 import { petKeys } from "../lib/queries/pets.ts";
 
-const NAU = "5f1c0407-7e44-4c0a-9d21-0a1b2c3d4e00";
 const SPA_ID = "5f1c2a9b-7e44-4c0a-9d21-0a1b2c3d4e99";
 const HOTEL_ID = "5f1c2a9b-7e44-4c0a-9d21-0a1b2c3d4e88";
 
@@ -135,12 +133,6 @@ test("lỗi 500: hiển thị thông báo lỗi role alert và nút Thử lại"
   assert.ok(html.includes("Thử lại"));
 });
 
-test("AppointmentDetailScreen: ID mô phỏng giữ nguyên nhánh mô phỏng có ảnh minh chứng", () => {
-  const html = renderToStaticMarkup(React.createElement(AppointmentDetailScreen, { appointmentId: NAU }));
-  assert.ok(html.includes("Ảnh minh chứng"));
-  assert.ok(html.includes("Lịch spa của Nâu"));
-});
-
 const SAMPLE_SPA_APPOINTMENT = {
   appointmentId: SPA_ID,
   type: "Spa",
@@ -224,4 +216,38 @@ test("lịch lưu trú thật không hiển thị vùng Ảnh minh chứng", () 
   };
   const html = renderDetail(HOTEL_ID, { appointment, pet });
   assert.ok(!html.includes("Ảnh minh chứng"));
+});
+
+const spaAppointment = (status) => ({ ...SAMPLE_SPA_APPOINTMENT, status, services: [{ serviceId: "s1", isDone: false }] });
+const beforePhoto = { photoId: "p1", kind: "Before", url: "https://example.test/before.jpg", uploadedAt: "2026-11-25T09:10:00+07:00" };
+
+test("lịch spa thật đã tiếp nhận có ảnh trước: hiện thẻ Cập nhật trạng thái, nút Bắt đầu thực hiện bật", () => {
+  const html = renderDetail(SPA_ID, { appointment: spaAppointment("Received"), pet: SAMPLE_SPA_PET, photos: [beforePhoto] });
+  assert.ok(html.includes("Cập nhật trạng thái") && html.includes("Bắt đầu thực hiện"));
+  assert.ok(!/<button[^>]*disabled=""/.test(html));
+});
+
+test("lịch spa thật đã tiếp nhận chưa có ảnh trước: nút khóa kèm lý do", () => {
+  const html = renderDetail(SPA_ID, { appointment: spaAppointment("Received"), pet: SAMPLE_SPA_PET, photos: [] });
+  assert.match(html, /<button[^>]*disabled=""[^>]*>[\s\S]*Bắt đầu thực hiện/);
+  assert.ok(html.includes("Cần ảnh trước chăm sóc hợp lệ."));
+});
+
+test("lịch spa thật chưa có dữ liệu ảnh hoặc ảnh lỗi: chưa hiện thẻ Cập nhật trạng thái", () => {
+  const loading = renderDetail(SPA_ID, { appointment: spaAppointment("Received"), pet: SAMPLE_SPA_PET });
+  assert.ok(!loading.includes("Cập nhật trạng thái"));
+  const failed = renderDetail(SPA_ID, {
+    appointment: spaAppointment("Received"),
+    pet: SAMPLE_SPA_PET,
+    photosError: http(500, "INTERNAL_ERROR", "Lỗi máy chủ."),
+  });
+  assert.ok(!failed.includes("Cập nhật trạng thái"));
+});
+
+test("lịch lưu trú thật không hiển thị thẻ Cập nhật trạng thái", () => {
+  const html = renderDetail(HOTEL_ID, {
+    appointment: { ...SAMPLE_SPA_APPOINTMENT, appointmentId: HOTEL_ID, type: "Hotel", status: "Confirmed" },
+    pet: SAMPLE_SPA_PET,
+  });
+  assert.ok(!html.includes("Cập nhật trạng thái"));
 });

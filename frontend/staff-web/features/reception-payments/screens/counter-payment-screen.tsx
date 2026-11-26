@@ -10,9 +10,10 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PaymentsWorkspace } from "@/features/reception-payments/components/payments-workspace";
-import { mockListCounterPayments } from "@/features/reception-payments/mock-api";
+import { loadCounterPayments } from "@/features/reception-payments/load-payments";
 import { COUNTER_PAYMENTS_QUERY_KEY } from "@/features/reception-payments/payment";
 import { isForbiddenError } from "@/lib/api/errors";
+import { useSession } from "@/lib/auth/session-context";
 import { getStoreDateKey } from "@/lib/time";
 
 function PaymentsSkeleton() {
@@ -46,7 +47,10 @@ export function CounterPaymentScreen() {
   const searchParams = useSearchParams();
   const appointmentId = searchParams.get("appointmentId");
   const [todayKey] = useState(() => getStoreDateKey(new Date()));
-  const query = useQuery({ queryKey: COUNTER_PAYMENTS_QUERY_KEY, queryFn: mockListCounterPayments });
+  const { me } = useSession();
+  // Người xác nhận ở chân thẻ là Lễ tân đang đăng nhập (GET /me đã tải khi khôi phục phiên).
+  const confirmerName = me?.fullName?.trim() || me?.userName || "";
+  const query = useQuery({ queryKey: COUNTER_PAYMENTS_QUERY_KEY, queryFn: () => loadCounterPayments(confirmerName) });
 
   return (
     <>

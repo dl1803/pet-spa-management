@@ -39,10 +39,11 @@ export async function createHotelAppointment(request: HotelBookingRequest) {
   return data;
 }
 
-// Chỉ khai báo tham số màn đang dùng; openapi còn `date`, `petId` (backend hiện chưa lọc theo `date`).
+// Chỉ khai báo tham số màn đang dùng; openapi còn `petId`. `date` (YYYY-MM-DD, ngày theo múi giờ cửa hàng) do backend lọc.
 export type ListAppointmentsParams = {
   type?: AppointmentType;
   status?: AppointmentStatus;
+  date?: string;
   page?: number;
   pageSize?: number;
 };
