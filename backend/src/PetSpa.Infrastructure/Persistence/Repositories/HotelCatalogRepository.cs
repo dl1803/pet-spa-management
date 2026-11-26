@@ -12,6 +12,8 @@ namespace PetSpa.Infrastructure.Persistence.Repositories;
 public sealed class HotelCatalogRepository(AppDbContext db) : IHotelCatalogRepository
 {
     private const string LateFeeKey = "Hotel.LateFeePerBlock";
+    private const string LateGraceKey = "Hotel.LateGraceMinutes";
+    private const string LateBlockKey = "Hotel.LateBlockMinutes";
 
     public async Task AddCageAsync(Cage cage, CancellationToken ct = default)
     {
@@ -124,6 +126,34 @@ public sealed class HotelCatalogRepository(AppDbContext db) : IHotelCatalogRepos
         return decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var fee)
             ? fee
             : 0m;
+    }
+
+    public async Task<int> GetLateGraceMinutesAsync(CancellationToken ct = default)
+    {
+        const int defaultGraceMinutes = 30;
+
+        var value = await db.Set<SystemConfig>().AsNoTracking()
+            .Where(c => c.ConfigKey == LateGraceKey)
+            .Select(c => c.ConfigValue)
+            .FirstOrDefaultAsync(ct);
+
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes) && minutes >= 0
+            ? minutes
+            : defaultGraceMinutes;
+    }
+
+    public async Task<int> GetLateBlockMinutesAsync(CancellationToken ct = default)
+    {
+        const int defaultBlockMinutes = 60;
+
+        var value = await db.Set<SystemConfig>().AsNoTracking()
+            .Where(c => c.ConfigKey == LateBlockKey)
+            .Select(c => c.ConfigValue)
+            .FirstOrDefaultAsync(ct);
+
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes) && minutes > 0
+            ? minutes
+            : defaultBlockMinutes;
     }
 
     public async Task SetLodgingPricesAsync(
