@@ -101,6 +101,7 @@ export type HotelRescheduleValues = {
   checkInTime: string;
   checkOutDate: string;
   checkOutTime: string;
+  cageId: string;
 };
 
 export function createHotelRescheduleValues(appointment: AppointmentDetail): HotelRescheduleValues {
@@ -109,6 +110,7 @@ export function createHotelRescheduleValues(appointment: AppointmentDetail): Hot
     checkInTime: appointment.plannedCheckIn ? formatTime(appointment.plannedCheckIn) : "",
     checkOutDate: appointment.plannedCheckOut ? getStoreDateKey(appointment.plannedCheckOut) : "",
     checkOutTime: appointment.plannedCheckOut ? formatTime(appointment.plannedCheckOut) : "",
+    cageId: appointment.cageId ?? "",
   };
 }
 
@@ -151,13 +153,22 @@ export function validateHotelCheckOutAfterCheckIn(checkInDate: string, checkOutD
   return null;
 }
 
+// cageId chỉ gửi khi lịch lưu trú đã xác nhận và quản lý chọn chuồng khác chuồng hiện tại;
+// không gửi thì backend giữ chuồng hiện tại (gửi cho lịch Pending sẽ bị 400 VALIDATION_ERROR).
 export function buildHotelUpdateRequest(
   appointment: AppointmentDetail,
   values: HotelRescheduleValues,
 ): UpdateAppointmentRequest {
-  return {
+  const request: UpdateAppointmentRequest = {
     petId: appointment.petId,
     plannedCheckIn: buildStoreDateTime(values.checkInDate, values.checkInTime),
     plannedCheckOut: buildStoreDateTime(values.checkOutDate, values.checkOutTime),
   };
+
+  const currentCageId = appointment.cageId ?? "";
+  if (appointment.status === "Confirmed" && values.cageId && values.cageId !== currentCageId) {
+    request.cageId = values.cageId;
+  }
+
+  return request;
 }

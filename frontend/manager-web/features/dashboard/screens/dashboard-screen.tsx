@@ -7,7 +7,7 @@ import { DashboardView } from "@/features/dashboard/components/dashboard-view";
 import { useDashboardSnapshot } from "@/features/dashboard/use-dashboard-snapshot";
 import { isForbiddenError } from "@/lib/api/errors";
 
-// MW-02 – Dữ liệu spa lấy từ API thật; chuồng, khoản chưa thanh toán, lịch lưu trú vẫn là dữ liệu mô phỏng cho tới khi nối API riêng.
+// MW-02 – Dữ liệu tổng quan lấy từ API thật; chỉ ca làm (shifts) và bufferMinutes giữ tạm vì BE chưa có endpoint.
 export function DashboardScreen() {
   const result = useDashboardSnapshot();
   if (result.status === "success") return <DashboardView snapshot={result.snapshot} />;

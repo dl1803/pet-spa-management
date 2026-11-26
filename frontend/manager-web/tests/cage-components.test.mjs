@@ -103,3 +103,30 @@ test("CageForm sửa: tiêu đề Sửa chuồng; chuột lang chỉ còn 2 nhó
   assert.ok(!guinea.includes('<option value="Medium"'));
   assert.equal(count(edit, /<option value="(Small|Medium|Large)"/g), 3);
 });
+
+test("CageTable khi đang đổi trạng thái: khóa nút ngừng/mở lại và hiện nhãn đang xử lý cho đúng chuồng", () => {
+  const sample = [
+    { cageId: "c-stop", code: "S1", species: "Dog", sizeGroup: "Small", isActive: true, occupant: null },
+    { cageId: "c-reopen", code: "S2", species: "Cat", sizeGroup: "Medium", isActive: false, occupant: null },
+  ];
+  const stopping = render(CageTable, {
+    ...tableProps,
+    cages: sample,
+    isChangingStatus: true,
+    pendingCageId: "c-stop",
+  });
+  assert.ok(stopping.includes(">Đang ngừng…<"));
+  assert.ok(!stopping.includes(">Đang mở lại…<"));
+  assert.match(stopping, /aria-busy="true"[^>]*aria-label="Ngừng sử dụng chuồng S1"/);
+  assert.match(stopping, /disabled=""[^>]*aria-label="Mở lại chuồng S2"/);
+  assert.doesNotMatch(stopping, /disabled=""[^>]*aria-label="Sửa chuồng S1"/);
+
+  const reopening = render(CageTable, {
+    ...tableProps,
+    cages: sample,
+    isChangingStatus: true,
+    pendingCageId: "c-reopen",
+  });
+  assert.ok(reopening.includes(">Đang mở lại…<"));
+  assert.match(reopening, /aria-busy="true"[^>]*aria-label="Mở lại chuồng S2"/);
+});

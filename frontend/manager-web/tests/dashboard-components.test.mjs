@@ -18,8 +18,9 @@ test("KpiSummary: 4 thẻ đúng thứ tự; chỉ thẻ có trang đích mới 
   const html = render(KpiSummary, { snapshot: MOCK_DASHBOARD });
   for (const text of ["Chờ xác nhận", "Lịch spa hôm nay", "Chuồng đang chứa", "Khoản chưa thanh toán"]) assert.ok(html.includes(text), text);
   assert.ok(html.includes("3 / 11") && html.includes("690.000đ, đều là tiền lưu trú"));
-  assert.equal(count(html, /<a /g), 2);
+  assert.equal(count(html, /<a /g), 3);
   assert.match(html, /<a [^>]*href="\/cho-xac-nhan"/);
+  assert.match(html, /<a [^>]*href="\/chuong-va-gia"/);
   assert.match(html, /<a [^>]*href="\/thanh-toan"/);
   assert.equal(count(html, /bg-apricot-50/g), 1);
 });
@@ -61,11 +62,12 @@ test("AttentionList: mục có liên kết là <a>, mục chưa có trang đích
   assert.ok(render(AttentionList, { items: [] }).includes("Hiện không có việc cần chú ý."));
 });
 
-test("OccupiedCages: danh sách chuồng, không có liên kết; rỗng thì có câu thông báo", () => {
+test("OccupiedCages: danh sách chuồng kèm liên kết Xem tất cả tới Chuồng & giá; rỗng thì có câu thông báo", () => {
   const html = render(OccupiedCages, { cages: listOccupiedCages(MOCK_DASHBOARD) });
   assert.ok(html.includes("Chuồng đang chứa") && html.includes("B1, Tuyết") && html.includes("Trả 17:00 ngày 07/10"));
   assert.equal(count(html, /<li /g), 3);
-  assert.equal(count(html, /<a /g), 0);
+  assert.equal(count(html, /<a /g), 1);
+  assert.match(html, /<a [^>]*href="\/chuong-va-gia"[^>]*>Xem tất cả<\/a>/);
   assert.ok(render(OccupiedCages, { cages: [] }).includes("Hiện không có chuồng nào đang chứa thú cưng."));
 });
 

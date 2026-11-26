@@ -8,6 +8,7 @@ import { ConfirmDialog } from "../components/ui/confirm-dialog.tsx";
 import { LiveAppointmentHeader } from "../features/appointments/components/live-appointment-header.tsx";
 import { RescheduleHotelDialog } from "../features/appointments/components/reschedule-hotel-dialog.tsx";
 import { RescheduleSpaDialog } from "../features/appointments/components/reschedule-spa-dialog.tsx";
+import { cageKeys } from "../lib/queries/cages.ts";
 import { petKeys } from "../lib/queries/pets.ts";
 import { staffKeys } from "../lib/queries/staff.ts";
 
@@ -25,10 +26,16 @@ const mockStaffPage = {
   ],
 };
 
-function renderWithClient(element, { staffData } = {}) {
+function renderWithClient(element, { staffData, cagesData, petData } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retryOnMount: false } } });
   if (staffData !== undefined) {
     client.setQueryData(staffKeys.list({ page: 1, pageSize: 100 }), staffData);
+  }
+  if (cagesData !== undefined) {
+    client.setQueryData(cageKeys.list(), cagesData);
+  }
+  if (petData !== undefined) {
+    client.setQueryData(petKeys.detail(petData.petId), petData);
   }
   return renderToStaticMarkup(
     React.createElement(
@@ -100,8 +107,8 @@ test("RescheduleSpaDialog: lịch Confirmed có nhóm nhân viên, loại bỏ L
   assert.ok(!html.includes("Trần Thị Cũ"));
 });
 
-test("RescheduleHotelDialog: có 4 ô, không có nhóm nhân viên hoặc chuồng", () => {
-  const appointment = {
+test("RescheduleHotelDialog: Pending chỉ có 4 ô, không hiện chọn chuồng; Confirmed hiện chọn chuồng phù hợp", () => {
+  const confirmedHotel = {
     appointmentId: HOTEL_ID,
     type: "Hotel",
     customerId: "c1",
@@ -114,23 +121,58 @@ test("RescheduleHotelDialog: có 4 ô, không có nhóm nhân viên hoặc chu�
     createdAt: "",
     updatedAt: "",
   };
+  const pendingHotel = { ...confirmedHotel, status: "Pending", cageId: null };
 
-  const html = renderWithClient(
+  const pendingHtml = renderWithClient(
     React.createElement(RescheduleHotelDialog, {
-      appointment,
+      appointment: pendingHotel,
       onClose() {},
       fallbackFocusRef: { current: null },
     }),
   );
 
-  assert.ok(html.includes("Đổi lịch lưu trú LH-5F1C2A9B"));
-  assert.ok(html.includes("Ngày nhận"));
-  assert.ok(html.includes("Giờ nhận"));
-  assert.ok(html.includes("Ngày trả"));
-  assert.ok(html.includes("Giờ trả"));
-  assert.ok(!html.includes("Nhân viên"));
-  assert.ok(!html.includes("cage-01"));
-  assert.ok(!html.includes("Chọn chuồng"));
+  assert.ok(pendingHtml.includes("Đổi lịch lưu trú LH-5F1C2A9B"));
+  assert.ok(pendingHtml.includes("Ngày nhận") && pendingHtml.includes("Giờ nhận"));
+  assert.ok(pendingHtml.includes("Ngày trả") && pendingHtml.includes("Giờ trả"));
+  assert.ok(!pendingHtml.includes("Nhân viên"));
+  assert.ok(!pendingHtml.includes("Đang tải danh sách chuồng"));
+  assert.ok(!pendingHtml.includes(">Chuồng<"));
+
+  const loadingHtml = renderWithClient(
+    React.createElement(RescheduleHotelDialog, {
+      appointment: confirmedHotel,
+      onClose() {},
+      fallbackFocusRef: { current: null },
+    }),
+  );
+  assert.ok(loadingHtml.includes("Đang tải danh sách chuồng…"));
+
+  const cagesData = {
+    page: 1,
+    pageSize: 100,
+    total: 4,
+    items: [
+      { cageId: "cage-01", code: "C1", species: "Dog", sizeGroup: "Small", isActive: true, occupant: null },
+      { cageId: "cage-02", code: "C2", species: "Dog", sizeGroup: "Small", isActive: true, occupant: null },
+      { cageId: "cage-03", code: "C3", species: "Dog", sizeGroup: "Large", isActive: true, occupant: null },
+      { cageId: "cage-04", code: "C4", species: "Cat", sizeGroup: "Small", isActive: true, occupant: null },
+    ],
+  };
+  const confirmedHtml = renderWithClient(
+    React.createElement(RescheduleHotelDialog, {
+      appointment: confirmedHotel,
+      onClose() {},
+      fallbackFocusRef: { current: null },
+    }),
+    {
+      cagesData,
+      petData: { petId: "p1", customerId: "c1", name: "Bông", species: "Dog", weightKg: 4, sizeGroup: "Small", isActive: true },
+    },
+  );
+  assert.ok(confirmedHtml.includes(">Chuồng<"));
+  assert.ok(confirmedHtml.includes("C1 (giữ nguyên)"));
+  assert.ok(confirmedHtml.includes(">C2<"));
+  assert.ok(!confirmedHtml.includes(">C3<") && !confirmedHtml.includes(">C4<"));
 });
 
 test("LiveAppointmentHeader: có nút Đổi lịch với Pending/Confirmed, không có với Completed", () => {

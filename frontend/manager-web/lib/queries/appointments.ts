@@ -28,8 +28,24 @@ export const appointmentKeys = {
   suggestions: (appointmentId: string) => ["appointments", "detail", appointmentId, "suggestions"] as const,
   photos: (appointmentId: string) => ["appointments", "detail", appointmentId, "photos"] as const,
   dashboardSpaToday: ["appointments", "dashboard", "spa-today"] as const,
+  dashboardHotelToday: ["appointments", "dashboard", "hotel-today"] as const,
   dashboardPendingCount: (type: AppointmentType) => ["appointments", "dashboard", "pending-count", type] as const,
+  pendingTotal: ["appointments", "pending-total"] as const,
 };
+
+export const PENDING_COUNT_REFRESH_MS = 60_000;
+
+// Khung trang vùng C (UI-Screens 2.1): huy hiệu số lịch Chờ xác nhận ở thanh bên, làm mới 60 giây/lần.
+export function usePendingCount(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: appointmentKeys.pendingTotal,
+    queryFn: () => listAppointments({ status: "Pending", page: 1, pageSize: 1 }),
+    select: (page) => page.total,
+    enabled: options?.enabled,
+    refetchInterval: PENDING_COUNT_REFRESH_MS,
+    refetchIntervalInBackground: false,
+  });
+}
 
 // MW-04 vùng 2: tối đa 50 lịch Chờ xác nhận một lần (UI-Screens), không phân trang trên giao diện.
 export const PENDING_PAGE_SIZE = 50;

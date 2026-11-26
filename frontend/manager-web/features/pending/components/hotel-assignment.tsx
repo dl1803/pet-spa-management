@@ -17,8 +17,10 @@ import {
   useRefreshAppointments,
   useRejectAppointment,
 } from "@/lib/queries/appointments";
+import { useCages } from "@/lib/queries/cages";
+import { usePet } from "@/lib/queries/pets";
 import { countNights } from "@/lib/time";
-import { buildSuggestedCageChoices, canConfirmCage, getInitialCageId } from "../cage-selection";
+import { buildCageChoices, buildSuggestedCageChoices, canConfirmCage, getInitialCageId } from "../cage-selection";
 import { classifyHotelActionError, type HotelActionFailure } from "../hotel-action-error";
 import { getStayAssignedMessage, getStayRejectedMessage } from "../stay-summary";
 import { CageAssignmentPanel } from "./cage-assignment-panel";
@@ -32,13 +34,15 @@ type HotelAssignmentProps = {
 type InlineFailure = Extract<HotelActionFailure, { kind: "message" | "error" }>;
 
 // MW-04 vùng 6, 8 và hộp thoại MW-04·D1 cho lịch lưu trú Chờ xác nhận (UI-Screens.md). Đề xuất chuồng từ GET /appointments/{id}/suggestions,
-// xác nhận POST /appointments/{id}/confirm { cageId }, từ chối POST /appointments/{id}/reject. Backend quyết định chuồng phù hợp và
-// không trùng đêm (CAGE_CONFLICT); web chỉ gửi chuồng đã chọn. Backend chưa có GET /cages nên chỉ chọn được chuồng hệ thống đề xuất.
+// chuồng khác cùng loài từ GET /cages, xác nhận POST /appointments/{id}/confirm { cageId }, từ chối POST /appointments/{id}/reject.
+// Backend quyết định chuồng phù hợp và không trùng đêm (CAGE_CONFLICT); web chỉ gửi chuồng đã chọn.
 // Kết quả là phần thân và chân của thẻ chi tiết nên trả về hai khối liền nhau.
 export function HotelAssignment({ appointment, onProcessed }: HotelAssignmentProps) {
-  const { appointmentId, sizeGroup, plannedCheckIn, plannedCheckOut } = appointment;
+  const { appointmentId, petId, sizeGroup, plannedCheckIn, plannedCheckOut } = appointment;
   const { showError, showSuccess } = useToast();
   const { data: suggestions, error, isPending } = useHotelSuggestions(appointmentId);
+  const { data: cagesPage, isError: isCagesError, refetch: refetchCages } = useCages();
+  const { data: pet } = usePet(petId);
   const refreshAppointments = useRefreshAppointments();
   const confirm = useConfirmAppointment();
   const reject = useRejectAppointment();
@@ -48,9 +52,19 @@ export function HotelAssignment({ appointment, onProcessed }: HotelAssignmentPro
   const [isRejecting, setIsRejecting] = useState(false);
 
   // Lịch lưu trú luôn có đủ ngày nhận và ngày trả; thiếu thì coi như không có chuồng để chọn.
+  // Khi có danh sách chuồng thật và biết loài thú cưng, ghép cùng chuồng đề xuất để chọn được chuồng khác phù hợp (UI-Screens MW-04 vùng 8);
+  // nếu GET /cages chưa xong hoặc lỗi, vẫn dùng được chuồng hệ thống đề xuất.
+  const staySpecies = suggestions?.cage?.species ?? pet?.species ?? null;
   const choices =
     suggestions !== undefined && plannedCheckIn && plannedCheckOut
-      ? buildSuggestedCageChoices(suggestions, sizeGroup, plannedCheckIn, plannedCheckOut)
+      ? cagesPage !== undefined && staySpecies !== null
+        ? buildCageChoices(suggestions, cagesPage.items, {
+            species: staySpecies,
+            sizeGroup,
+            plannedCheckIn,
+            plannedCheckOut,
+          })
+        : buildSuggestedCageChoices(suggestions, sizeGroup, plannedCheckIn, plannedCheckOut)
       : [];
   const nights = plannedCheckIn && plannedCheckOut ? Math.max(countNights(plannedCheckIn, plannedCheckOut), 0) : 0;
   const cageId = chosenCageId ?? getInitialCageId(choices);
@@ -132,15 +146,27 @@ export function HotelAssignment({ appointment, onProcessed }: HotelAssignmentPro
       return <p className="text-muted">Chưa có chuồng phù hợp để chọn cho lịch này.</p>;
     }
     return (
-      <CageAssignmentPanel
-        species={choices[0].cage.species}
-        sizeGroup={sizeGroup}
-        nights={nights}
-        choices={choices}
-        selectedCageId={cageId}
-        onSelectedCageIdChange={setChosenCageId}
-        hasAlternatives={false}
-      />
+      <>
+        <CageAssignmentPanel
+          species={choices[0].cage.species}
+          sizeGroup={sizeGroup}
+          nights={nights}
+          choices={choices}
+          selectedCageId={cageId}
+          onSelectedCageIdChange={setChosenCageId}
+          hasAlternatives={choices.length > 1}
+        />
+        {isCagesError && (
+          <Alert tone="warn" className="mt-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span>Không tải được danh sách chuồng khác. Vẫn có thể xác nhận chuồng hệ thống đề xuất.</span>
+              <Button size="sm" variant="secondary" onClick={() => void refetchCages()}>
+                Thử lại
+              </Button>
+            </div>
+          </Alert>
+        )}
+      </>
     );
   }
 

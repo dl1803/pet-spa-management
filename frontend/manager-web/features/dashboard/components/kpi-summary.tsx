@@ -6,8 +6,8 @@ import { summarizeKpis, type DashboardSnapshot } from "@/features/dashboard/over
 import { formatMoney } from "@/lib/format";
 import { ROUTES } from "@/lib/routes";
 
-// Thẻ chỉ thành liên kết khi trang đích đã có: Chờ xác nhận → MW-04, Khoản chưa thanh toán → MW-10.
-// Lịch spa hôm nay (MW-03) và Chuồng đang chứa (MW-07) chưa có trang nên để là thẻ thường.
+// Thẻ chỉ thành liên kết khi trang đích đã có: Chờ xác nhận → MW-04, Chuồng đang chứa → MW-07, Khoản chưa thanh toán → MW-10.
+// Lịch spa hôm nay (MW-03) chưa có trang nên để là thẻ thường.
 function TileLink({ href, label, children }: { href: string; label: string; children: ReactNode }) {
   return (
     <Link href={href} aria-label={label} className="block rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lagoon">
@@ -26,7 +26,9 @@ export function KpiSummary({ snapshot }: { snapshot: DashboardSnapshot }) {
         <KpiTile icon="clipboard" label="Chờ xác nhận" value={String(kpis.pending.total)} caption={kpis.pending.caption} accent={kpis.pending.total > 0} />
       </TileLink>
       <KpiTile icon="droplet" label="Lịch spa hôm nay" value={String(kpis.spaToday.total)} caption={kpis.spaToday.caption} />
-      <KpiTile icon="grid" label="Chuồng đang chứa" value={`${kpis.cages.occupied} / ${kpis.cages.active}`} caption={kpis.cages.caption} />
+      <TileLink href={ROUTES.cages} label={`Chuồng đang chứa: ${kpis.cages.occupied} trên ${kpis.cages.active}. Mở trang chuồng và giá`}>
+        <KpiTile icon="grid" label="Chuồng đang chứa" value={`${kpis.cages.occupied} / ${kpis.cages.active}`} caption={kpis.cages.caption} />
+      </TileLink>
       <TileLink href={ROUTES.payments} label={`Khoản chưa thanh toán: ${kpis.unpaid.count}, ${formatMoney(kpis.unpaid.total)}. Mở trang thanh toán`}>
         <KpiTile icon="wallet" label="Khoản chưa thanh toán" value={String(kpis.unpaid.count)} caption={kpis.unpaid.caption} />
       </TileLink>

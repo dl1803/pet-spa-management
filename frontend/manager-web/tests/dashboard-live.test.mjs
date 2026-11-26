@@ -3,11 +3,20 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BUFFER_MINUTES, buildLiveSnapshot, keepStoreDay, needsDetail } from "../features/dashboard/live-snapshot.ts";
+import {
+  BUFFER_MINUTES,
+  buildLiveSnapshot,
+  DASHBOARD_PAGE_SIZE,
+  keepHotelStoreDay,
+  keepStoreDay,
+  needsDetail,
+} from "../features/dashboard/live-snapshot.ts";
 import { MOCK_DASHBOARD } from "../features/dashboard/mock-data.ts";
 import { DashboardScreen } from "../features/dashboard/screens/dashboard-screen.tsx";
 import { ApiError } from "../lib/api/errors.ts";
 import { appointmentKeys } from "../lib/queries/appointments.ts";
+import { cageKeys } from "../lib/queries/cages.ts";
+import { paymentKeys } from "../lib/queries/payments.ts";
 import { STAFF_PAGE_SIZE, staffKeys } from "../lib/queries/staff.ts";
 
 const DAY_KEY = "2026-11-27";
@@ -86,7 +95,16 @@ test("needsDetail: chỉ lấy chi tiết cho Confirmed, Received, InProgress", 
   assert.equal(needsDetail({ ...A1, status: "Cancelled" }), false);
 });
 
-test("buildLiveSnapshot: ghép chi tiết nhân viên, shifts rỗng, giữ khối chưa nối API từ MOCK_DASHBOARD", () => {
+test("keepHotelStoreDay: giữ lịch nhận hoặc trả đúng ngày cửa hàng", () => {
+  const items = [
+    { appointmentId: "h-in", plannedCheckIn: "2026-11-27T01:00:00+07:00", plannedCheckOut: "2026-11-28T10:00:00+07:00" },
+    { appointmentId: "h-out", plannedCheckIn: "2026-11-25T10:00:00+07:00", plannedCheckOut: "2026-11-27T17:00:00+07:00" },
+    { appointmentId: "h-mid", plannedCheckIn: "2026-11-25T10:00:00+07:00", plannedCheckOut: "2026-11-29T17:00:00+07:00" },
+  ];
+  assert.deepEqual(keepHotelStoreDay(items, DAY_KEY).map((x) => x.appointmentId), ["h-in", "h-out"]);
+});
+
+test("buildLiveSnapshot: ghép chi tiết nhân viên, dữ liệu chuồng/lưu trú/thanh toán thật, chỉ shifts rỗng", () => {
   const detailA1 = {
     ...A1,
     staff: [{ staffId: STAFF_HANH.staffId, fullName: STAFF_HANH.fullName, isHolding: true }],
@@ -97,6 +115,9 @@ test("buildLiveSnapshot: ghép chi tiết nhân viên, shifts rỗng, giữ kh�
     pendingCounts: { spa: 2, hotel: 1 },
     spaItems: [A1, A3],
     details: [detailA1],
+    hotelAppointments: MOCK_DASHBOARD.hotelAppointments,
+    cages: MOCK_DASHBOARD.cages,
+    unpaidPayments: MOCK_DASHBOARD.unpaidPayments,
   });
 
   assert.equal(snapshot.bufferMinutes, BUFFER_MINUTES);
@@ -173,6 +194,26 @@ test("DashboardScreen thành công: vẽ tiến độ spa, số liệu và giữ
       { page: 1, pageSize: STAFF_PAGE_SIZE, total: 3, items: [STAFF_HANH, STAFF_QUYEN, STAFF_AN] },
       { updatedAt: UPDATED_AT },
     );
+    client.setQueryData(
+      appointmentKeys.dashboardHotelToday,
+      { dateKey: DAY_KEY, items: MOCK_DASHBOARD.hotelAppointments },
+      { updatedAt: UPDATED_AT },
+    );
+    client.setQueryData(
+      cageKeys.list(),
+      { page: 1, pageSize: 100, total: MOCK_DASHBOARD.cages.length, items: MOCK_DASHBOARD.cages },
+      { updatedAt: UPDATED_AT },
+    );
+    client.setQueryData(
+      paymentKeys.list({ status: "Unpaid", page: 1, pageSize: DASHBOARD_PAGE_SIZE }),
+      {
+        page: 1,
+        pageSize: DASHBOARD_PAGE_SIZE,
+        total: MOCK_DASHBOARD.unpaidPayments.length,
+        items: MOCK_DASHBOARD.unpaidPayments,
+      },
+      { updatedAt: UPDATED_AT },
+    );
     client.setQueryData(appointmentKeys.detail(A1.appointmentId), detailA1, { updatedAt: UPDATED_AT });
     client.setQueryData(appointmentKeys.detail(A2.appointmentId), detailA2, { updatedAt: UPDATED_AT });
   });
@@ -183,5 +224,5 @@ test("DashboardScreen thành công: vẽ tiến độ spa, số liệu và giữ
   assert.ok(html.includes("Spa 2, lưu trú 1. Cần bạn xử lý"));
   assert.ok(html.includes("1 đang làm, 0 đã tiếp nhận, 1 chờ đến"));
   assert.ok(!html.includes("data-shift"));
-  assert.ok(html.includes("Chuồng đang chứa"));
+  assert.ok(html.includes("Chuồng đang chứa") && html.includes("3 / 11") && html.includes("Xem tất cả"));
 });
