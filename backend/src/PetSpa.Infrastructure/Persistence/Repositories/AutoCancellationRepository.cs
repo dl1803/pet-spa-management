@@ -28,4 +28,36 @@ public sealed class AutoCancellationRepository(AppDbContext db) : IAutoCancellat
             .Select(a => a.AppointmentId)
             .ToList();
     }
+
+    public async Task<IReadOnlyList<Guid>> ListOverdueCostConfirmationAppointmentIdsAsync(
+        DateTimeOffset now, CancellationToken ct = default)
+    {
+        var nowUtc = now.ToUniversalTime();
+
+        var spa = await (
+            from confirmation in db.Set<CostConfirmation>().AsNoTracking()
+            join appointment in db.Set<SpaAppointment>().AsNoTracking()
+                on confirmation.AppointmentId equals appointment.AppointmentId
+            where confirmation.Status == ConfirmationStatus.Pending
+                  && confirmation.ExpiresAt < nowUtc
+                  && appointment.Status == AppointmentStatus.Received
+            select new { confirmation.ConfirmationId, confirmation.AppointmentId, confirmation.ExpiresAt })
+            .ToListAsync(ct);
+
+        var hotel = await (
+            from confirmation in db.Set<CostConfirmation>().AsNoTracking()
+            join appointment in db.Set<HotelAppointment>().AsNoTracking()
+                on confirmation.AppointmentId equals appointment.AppointmentId
+            where confirmation.Status == ConfirmationStatus.Pending
+                  && confirmation.ExpiresAt < nowUtc
+                  && appointment.Status == AppointmentStatus.Confirmed
+            select new { confirmation.ConfirmationId, confirmation.AppointmentId, confirmation.ExpiresAt })
+            .ToListAsync(ct);
+
+        return spa.Concat(hotel)
+            .OrderBy(c => c.ExpiresAt)
+            .ThenBy(c => c.ConfirmationId)
+            .Select(c => c.AppointmentId)
+            .ToList();
+    }
 }

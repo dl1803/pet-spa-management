@@ -10559,6 +10559,10 @@ sealed class TestAutoCancellationRepo(IReadOnlyList<Guid> noShowIds) : IAutoCanc
         LastStartedBefore = startedBefore;
         return Task.FromResult(noShowIds);
     }
+
+    public Task<IReadOnlyList<Guid>> ListOverdueCostConfirmationAppointmentIdsAsync(
+        DateTimeOffset now, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<Guid>>([]);
 }
 
 sealed class TestAppointmentStoreRepo(IEnumerable<Appointment> appointments) : IAppointmentChangeRepository
