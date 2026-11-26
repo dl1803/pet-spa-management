@@ -6,7 +6,8 @@ public sealed class AutoCancellationService(
     IAutoCancellationRepository candidates,
     IAppointmentChangeRepository appointments,
     IAssignmentRepository assignments,
-    IConcurrencyGuard concurrency)
+    IConcurrencyGuard concurrency,
+    ICostConfirmationRepository? costConfirmations = null)
 {
     public async Task<int> CancelNoShowsAsync(CancellationToken ct = default)
     {
@@ -33,6 +34,9 @@ public sealed class AutoCancellationService(
             var appointment = await appointments.FindForUpdateAsync(appointmentId, ct);
             var now = DateTimeOffset.UtcNow;
             if (appointment is null || !appointment.IsNoShowDue(now, holdMinutes)) return false;
+
+            if (costConfirmations is not null && await costConfirmations.HasPendingAsync(appointmentId, ct))
+                return false;
 
             appointment.CancelAsNoShow(now, holdMinutes);
             await appointments.SaveCancellationAsync(appointment, ct);

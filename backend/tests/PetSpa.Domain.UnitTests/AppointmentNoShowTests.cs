@@ -146,4 +146,30 @@ public class AppointmentNoShowTests
         Assert.Equal(AppointmentStatus.Received, spa.Status);
         Assert.Null(spa.CancelReason);
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void IsNoShowDue_ConfirmedWithActualWeight_ReturnsFalse(bool isHotel)
+    {
+        var appointment = Create(isHotel, AppointmentStatus.Confirmed);
+        appointment.RecordWeight(4.5m);
+
+        Assert.False(appointment.IsNoShowDue(Start.AddHours(5), HoldMinutes));
+    }
+
+    [Fact]
+    public void CancelAsNoShow_ConfirmedHotelWithActualWeight_ThrowsInvalidTransitionAndKeepsState()
+    {
+        var stay = Hotel(AppointmentStatus.Confirmed);
+        stay.RecordWeight(4.5m);
+
+        var ex = Assert.Throws<BusinessException>(
+            () => stay.CancelAsNoShow(Start.AddHours(5), HoldMinutes));
+
+        Assert.Equal(ErrorCodes.InvalidTransition, ex.Code);
+        Assert.Equal(AppointmentStatus.Confirmed, stay.Status);
+        Assert.Null(stay.CancelReason);
+        Assert.Null(stay.CancelledAt);
+    }
 }

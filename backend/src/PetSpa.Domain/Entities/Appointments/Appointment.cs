@@ -71,7 +71,9 @@ public abstract class Appointment
     }
 
     public bool IsNoShowDue(DateTimeOffset now, int holdMinutes) =>
-        Status == AppointmentStatus.Confirmed && now > GetScheduledStart().AddMinutes(holdMinutes);
+        Status == AppointmentStatus.Confirmed
+        && ActualWeightKg is null
+        && now > GetScheduledStart().AddMinutes(holdMinutes);
 
     public void CancelAsNoShow(DateTimeOffset now, int holdMinutes)
     {

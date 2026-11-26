@@ -18,7 +18,11 @@ public sealed class AutoCancellationRepository(AppDbContext db) : IAutoCancellat
             .ToListAsync(ct);
 
         var hotel = await db.Set<HotelAppointment>().AsNoTracking()
-            .Where(a => a.Status == AppointmentStatus.Confirmed && a.PlannedCheckIn < cutoff)
+            .Where(a => a.Status == AppointmentStatus.Confirmed
+                && a.ActualWeightKg == null
+                && a.PlannedCheckIn < cutoff
+                && !db.Set<CostConfirmation>().Any(c =>
+                    c.AppointmentId == a.AppointmentId && c.Status == ConfirmationStatus.Pending))
             .Select(a => new { a.AppointmentId, Start = a.PlannedCheckIn })
             .ToListAsync(ct);
 

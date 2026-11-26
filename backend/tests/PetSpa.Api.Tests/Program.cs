@@ -8750,20 +8750,37 @@ var tests = new (string Name, Func<Task> Run)[]
     {
         var spaDue = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromMinutes(-20));
         var hotelDue = OldHotelAppointment(AppointmentStatus.Confirmed, TimeSpan.FromMinutes(-20));
+        var hotelWeighed = OldHotelAppointment(AppointmentStatus.Confirmed, TimeSpan.FromMinutes(-20));
+        hotelWeighed.RecordWeight(4.5m);
+        var hotelPendingCost = OldHotelAppointment(AppointmentStatus.Confirmed, TimeSpan.FromMinutes(-20));
         var cageId = hotelDue.CageId;
         var receivedInTime = OldSpaAppointment(AppointmentStatus.Received, TimeSpan.FromMinutes(-20));
         var withinHold = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromMinutes(-5));
         var missingId = Guid.NewGuid();
         var ids = new[]
         {
-            spaDue.AppointmentId, receivedInTime.AppointmentId, hotelDue.AppointmentId, withinHold.AppointmentId, missingId,
+            spaDue.AppointmentId, receivedInTime.AppointmentId, hotelDue.AppointmentId,
+            hotelWeighed.AppointmentId, hotelPendingCost.AppointmentId, withinHold.AppointmentId, missingId,
         };
 
         var candidates = new TestAutoCancellationRepo(ids);
-        var store = new TestAppointmentStoreRepo([spaDue, hotelDue, receivedInTime, withinHold]);
+        var store = new TestAppointmentStoreRepo([spaDue, hotelDue, hotelWeighed, hotelPendingCost, receivedInTime, withinHold]);
+        var confirmations = new TestCostConfirmationRepo();
+        confirmations.Items.Add(new CostConfirmation
+        {
+            ConfirmationId = Guid.NewGuid(),
+            AppointmentId = hotelPendingCost.AppointmentId,
+            ActualWeightKg = 5.0m,
+            NewSizeGroup = SizeGroup.Medium,
+            OldAmount = 100000m,
+            NewAmount = 150000m,
+            Status = ConfirmationStatus.Pending,
+            CreatedAt = DateTimeOffset.UtcNow,
+            ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(30),
+        });
         var guard = new TrackingConcurrencyGuard();
         var service = new AutoCancellationService(
-            candidates, store, new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()), guard);
+            candidates, store, new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()), guard, confirmations);
 
         var before = DateTimeOffset.UtcNow;
         var cancelled = await service.CancelNoShowsAsync();
@@ -8774,6 +8791,10 @@ var tests = new (string Name, Func<Task> Run)[]
             "Lịch spa quá giờ phải chuyển Cancelled với lý do NoShow.");
         Check(hotelDue.Status == AppointmentStatus.Cancelled && hotelDue.CancelReason == CancelReason.NoShow && hotelDue.CageId == cageId,
             "Lịch lưu trú quá giờ phải chuyển Cancelled với lý do NoShow; chuồng được giải phóng nhờ đổi trạng thái, CageId giữ nguyên.");
+        Check(hotelWeighed.Status == AppointmentStatus.Confirmed && hotelWeighed.CancelReason is null,
+            "Lịch lưu trú đã cân nặng thực tế không bị hủy NoShow.");
+        Check(hotelPendingCost.Status == AppointmentStatus.Confirmed && hotelPendingCost.CancelReason is null,
+            "Lịch lưu trú đang chờ xác nhận chi phí không bị hủy NoShow.");
         Check(receivedInTime.Status == AppointmentStatus.Received && receivedInTime.CancelReason is null,
             "Lịch đã được tiếp nhận kịp (đọc lại sau khi khóa) không bị hủy.");
         Check(withinHold.Status == AppointmentStatus.Confirmed && withinHold.CancelReason is null,
