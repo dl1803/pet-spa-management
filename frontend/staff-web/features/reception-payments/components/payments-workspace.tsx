@@ -7,7 +7,6 @@ import { Card, CardHeader } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { CounterPaymentForm } from "@/features/reception-payments/components/counter-payment-form";
 import { PaymentTicket } from "@/features/reception-payments/components/payment-ticket";
-import { mockPayAtCounter } from "@/features/reception-payments/mock-api";
 import {
   COUNTER_PAYMENTS_QUERY_KEY,
   describePaymentRow,
@@ -16,6 +15,7 @@ import {
   type CounterPaymentsData,
 } from "@/features/reception-payments/payment";
 import { toApiError } from "@/lib/api/errors";
+import { payAtCounter } from "@/lib/api/endpoints/payments";
 import type { CounterPaymentRequest } from "@/lib/api/types";
 import { formatMoney } from "@/lib/format";
 
@@ -40,7 +40,7 @@ export function PaymentsWorkspace({ data, appointmentId, todayKey }: PaymentsWor
   const selected = resolveSelectedRow(rows, selectedPaymentId, appointmentId);
 
   const payMutation = useMutation({
-    mutationFn: ({ paymentId, request }: PayVariables) => mockPayAtCounter(paymentId, request),
+    mutationFn: ({ paymentId, request }: PayVariables) => payAtCounter(paymentId, request),
     onSuccess: (_result, variables) => {
       showSuccess(`Đã ghi nhận thanh toán ${formatMoney(variables.amount)}`);
       // Trả về Promise để nút giữ trạng thái đang gửi tới khi danh sách tải lại, tránh thu một khoản hai lần.

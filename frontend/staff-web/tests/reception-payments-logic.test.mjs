@@ -10,7 +10,6 @@ import {
   toCounterPaymentRequest,
   validateReceivedAmount,
 } from "../features/reception-payments/forms.ts";
-import { mockListCounterPayments, mockPayAtCounter, resetMockPaymentStore } from "../features/reception-payments/mock-api.ts";
 import { createMockPaymentRows } from "../features/reception-payments/mock-data.ts";
 import {
   buildBreakdown,
@@ -191,43 +190,4 @@ test("yêu cầu gửi đi chỉ có method và receivedAmount, không có amoun
   assert.deepEqual(request, { method: "BankQR", receivedAmount: 250000 });
   assert.equal("amount" in request, false);
   assert.throws(() => toCounterPaymentRequest({ method: "Cash", receivedAmount: "abc", bankConfirmed: false }));
-});
-
-test("API mô phỏng: chỉ trả khoản chưa thu, ghi nhận xong thì khoản biến mất, không đổi số tiền", async () => {
-  resetMockPaymentStore(NOW);
-  const first = await mockListCounterPayments();
-  assert.equal(first.rows.length, 4);
-  assert.equal(first.confirmerName, "Thu Hà");
-  const target = first.rows[0].payment;
-  const result = await mockPayAtCounter(target.paymentId, { method: "Cash", receivedAmount: 300000 });
-  assert.deepEqual(result, { status: "Paid" });
-  const second = await mockListCounterPayments();
-  assert.equal(second.rows.length, 3);
-  assert.equal(second.rows.some((row) => row.payment.paymentId === target.paymentId), false);
-  assert.equal(second.rows.find((row) => row.payment.kind === "LateFee")?.payment.amount, 100000);
-});
-
-test("API mô phỏng: kết quả trả về là bản sao, sửa bản sao không làm đổi dữ liệu mô phỏng", async () => {
-  resetMockPaymentStore(NOW);
-  const data = await mockListCounterPayments();
-  data.rows[0].payment.amount = 1;
-  const again = await mockListCounterPayments();
-  assert.equal(again.rows[0].payment.amount, 250000);
-});
-
-test("API mô phỏng: nhận thấp hơn số phải trả thì từ chối 409 AMOUNT_MISMATCH và khoản vẫn chưa thu", async () => {
-  resetMockPaymentStore(NOW);
-  await assert.rejects(
-    () => mockPayAtCounter(cashStay.payment.paymentId, { method: "Cash", receivedAmount: 249999 }),
-    (error) => error.status === 409 && error.code === "AMOUNT_MISMATCH",
-  );
-  assert.equal((await mockListCounterPayments()).rows.length, 4);
-});
-
-test("API mô phỏng: khoản không tồn tại trả 404", async () => {
-  resetMockPaymentStore(NOW);
-  await assert.rejects(
-    () => mockPayAtCounter("không-có", { method: "Cash", receivedAmount: 1 }),
-    (error) => error.status === 404,
-  );
 });
