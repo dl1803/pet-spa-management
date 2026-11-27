@@ -6,9 +6,13 @@ import {
   getAppointment,
   listAppointmentPhotos,
   listAppointments,
+  respondCostConfirmation,
+  type RespondCostConfirmationVariables,
 } from "@/lib/api/endpoints/appointments";
 import type { Appointment, AppointmentStatus, HotelBookingRequest, SpaBookingRequest } from "@/lib/api/types";
+import { isCostConfirmationGoneError } from "@/lib/appointments";
 import { hotelKeys } from "@/lib/queries/hotel";
+import { petKeys } from "@/lib/queries/pets";
 import { spaSlotKeys } from "@/lib/queries/spa-slots";
 
 // pageSize lớn nhất backend nhận (ListAppointmentsQueryValidator: 1 đến 100).
@@ -84,6 +88,28 @@ export function useCancelAppointment() {
       void queryClient.invalidateQueries({ queryKey: appointmentKeys.all, refetchType: "all" });
       void queryClient.invalidateQueries({ queryKey: spaSlotKeys.all });
       void queryClient.invalidateQueries({ queryKey: hotelKeys.availabilityAll });
+    },
+  });
+}
+
+// POST /appointments/{appointmentId}/cost-confirmation/respond.
+// Đồng ý làm đổi cân nặng và nhóm trong hồ sơ thú cưng; từ chối hủy lịch nên làm đổi mốc giờ và chỗ trống.
+// Khi lỗi 404 hoặc 409 (yêu cầu đã hết hạn/thay đổi trạng thái) chỉ tải lại lịch hẹn, tránh gọi lại hàng loạt khi mất mạng.
+export function useRespondCostConfirmation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (variables: RespondCostConfirmationVariables) => respondCostConfirmation(variables),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: appointmentKeys.all, refetchType: "all" });
+      void queryClient.invalidateQueries({ queryKey: petKeys.all });
+      void queryClient.invalidateQueries({ queryKey: spaSlotKeys.all });
+      void queryClient.invalidateQueries({ queryKey: hotelKeys.availabilityAll });
+    },
+    onError: (error) => {
+      if (isCostConfirmationGoneError(error)) {
+        void queryClient.invalidateQueries({ queryKey: appointmentKeys.all, refetchType: "all" });
+      }
     },
   });
 }

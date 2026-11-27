@@ -3,6 +3,8 @@ import type {
   AppointmentDetail,
   AppointmentPage,
   AppointmentStatus,
+  CostConfirmationRespondRequest,
+  CostConfirmationRespondResult,
   HotelBookingCreated,
   HotelBookingRequest,
   Photo,
@@ -65,6 +67,24 @@ export async function getAppointment(appointmentId: string) {
 // 409 CHANGE_WINDOW_CLOSED (quá hạn tự hủy), 409 INVALID_TRANSITION (lịch không còn Chờ xác nhận hoặc Đã xác nhận).
 export async function cancelAppointment(appointmentId: string) {
   const { data } = await apiClient.post<StatusResult>(`/appointments/${encodeURIComponent(appointmentId)}/cancel`);
+  return data;
+}
+
+export type RespondCostConfirmationVariables = {
+  appointmentId: string;
+  accept: boolean;
+};
+
+// POST /appointments/{id}/cost-confirmation/respond: khách đồng ý (accept = true) hoặc từ chối (accept = false) chi phí mới.
+// 200 { status } là trạng thái lịch hẹn sau thao tác (từ chối thì Cancelled); lịch lưu trú đồng ý kèm cageSuitable.
+// Lỗi: 400 VALIDATION_ERROR, 403 FORBIDDEN (lịch của khách khác), 404 NOT_FOUND (không có yêu cầu đang chờ),
+// 409 COST_CONFIRMATION_EXPIRED (quá hạn phản hồi), 409 INVALID_TRANSITION (lịch không còn chờ phản hồi).
+export async function respondCostConfirmation({ appointmentId, accept }: RespondCostConfirmationVariables) {
+  const request: CostConfirmationRespondRequest = { accept };
+  const { data } = await apiClient.post<CostConfirmationRespondResult>(
+    `/appointments/${encodeURIComponent(appointmentId)}/cost-confirmation/respond`,
+    request,
+  );
   return data;
 }
 
