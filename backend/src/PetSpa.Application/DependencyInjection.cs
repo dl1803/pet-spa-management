@@ -27,6 +27,7 @@ public static class DependencyInjection
         services.AddScoped<PaymentService>();
         services.AddScoped<AssignmentService>();
         services.AddScoped<CheckInService>();
+        services.AddScoped<CheckOutService>();
         services.AddScoped<CostConfirmationService>();
         services.AddScoped<AppointmentPhotoService>();
         services.AddScoped<AppointmentProgressService>();

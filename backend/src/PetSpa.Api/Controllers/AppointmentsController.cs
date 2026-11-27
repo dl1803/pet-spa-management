@@ -26,7 +26,8 @@ public sealed class AppointmentsController(
     HotelAssignmentService hotelAssignmentService = null!,
     AppointmentInterventionService appointmentInterventionService = null!,
     CheckInService checkInService = null!,
-    CostConfirmationService costConfirmationService = null!) : ControllerBase
+    CostConfirmationService costConfirmationService = null!,
+    CheckOutService checkOutService = null!) : ControllerBase
 {
     [HttpPost("spa")]
     [Authorize(Policy = AuthorizationPolicies.CustomerOrReceptionist)]
@@ -220,6 +221,16 @@ public sealed class AppointmentsController(
             User.ToCurrentUser(), id, request.ActualWeightKg.Value, ct);
 
         return Ok(WeightCheckResponse.From(outcome));
+    }
+
+    [HttpPost("{id}/check-out")]
+    [Authorize(Policy = AuthorizationPolicies.ReceptionistOrManager)]
+    [EndpointSummary("Lễ tân hoặc quản lý trả thú cưng lịch lưu trú")]
+    [EndpointDescription("Chỉ lễ tân và quản lý, không có body (BR-05). Chỉ áp dụng cho lịch lưu trú Đang lưu trú: ghi nhận thời điểm trả thực tế, chuyển lịch sang Hoàn tất và giải phóng chuồng (chuồng chỉ hiển thị thú cưng khi lịch còn Đang lưu trú). Trễ không quá Hotel.LateGraceMinutes phút không tính phí; sau đó mỗi Hotel.LateBlockMinutes phút tính một lần Hotel.LateFeePerBlock; trả sớm không đổi chi phí (BR-22). Trả { status } và lateFee (phí phạt, VND) khi lịch có phí phạt đã thanh toán. Trễ quá thời gian miễn phí: lần gọi đầu tạo khoản thanh toán LateFee chưa thanh toán, giữ lịch Đang lưu trú và trả 409 PAYMENT_NOT_DUE; sau khi ghi nhận khoản này tại quầy (POST /payments/{id}/counter), gọi lại để Hoàn tất (BR-07). Lịch lưu trú không ở Đang lưu trú trả 409 INVALID_TRANSITION; không tìm thấy lịch lưu trú trả 404 NOT_FOUND; vai trò khác lễ tân và quản lý trả 403 FORBIDDEN.")]
+    public async Task<IActionResult> CheckOut(Guid id, CancellationToken ct)
+    {
+        var result = await checkOutService.CheckOutHotelAsync(User.ToCurrentUser(), id, ct);
+        return Ok(CheckOutResponse.From(result));
     }
 
     [HttpPost("{id}/cost-confirmation/respond")]
