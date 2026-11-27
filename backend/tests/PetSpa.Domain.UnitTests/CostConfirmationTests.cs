@@ -114,5 +114,70 @@ public class CostConfirmationTests
         Assert.Equal(ErrorCodes.InvalidTransition, ex.Code);
         Assert.Equal(status, confirmation.Status);
     }
+
+    [Fact]
+    public void IsOverdue_PendingAtExactlyExpiresAt_ReturnsFalse()
+    {
+        var confirmation = Confirmation();
+
+        Assert.False(confirmation.IsOverdue(confirmation.ExpiresAt));
+    }
+
+    [Fact]
+    public void IsOverdue_PendingPastExpiresAt_ReturnsTrue()
+    {
+        var confirmation = Confirmation();
+
+        Assert.True(confirmation.IsOverdue(confirmation.ExpiresAt.AddSeconds(1)));
+    }
+
+    [Theory]
+    [InlineData(ConfirmationStatus.Accepted)]
+    [InlineData(ConfirmationStatus.Rejected)]
+    [InlineData(ConfirmationStatus.Expired)]
+    public void IsOverdue_NotPending_ReturnsFalseEvenPastExpiresAt(ConfirmationStatus status)
+    {
+        var confirmation = Confirmation(status);
+
+        Assert.False(confirmation.IsOverdue(confirmation.ExpiresAt.AddHours(5)));
+    }
+
+    [Fact]
+    public void Expire_PendingPastExpiresAt_SetsExpiredAndLeavesResponseEmpty()
+    {
+        var confirmation = Confirmation();
+
+        confirmation.Expire(confirmation.ExpiresAt.AddSeconds(1));
+
+        Assert.Equal(ConfirmationStatus.Expired, confirmation.Status);
+        Assert.Null(confirmation.RespondedAt);
+        Assert.Null(confirmation.RespondedByUserId);
+    }
+
+    [Fact]
+    public void Expire_AtExactlyExpiresAt_ThrowsInvalidTransitionAndKeepsPending()
+    {
+        var confirmation = Confirmation();
+
+        var ex = Assert.Throws<BusinessException>(() => confirmation.Expire(confirmation.ExpiresAt));
+
+        Assert.Equal(ErrorCodes.InvalidTransition, ex.Code);
+        Assert.Equal(ConfirmationStatus.Pending, confirmation.Status);
+    }
+
+    [Theory]
+    [InlineData(ConfirmationStatus.Accepted)]
+    [InlineData(ConfirmationStatus.Rejected)]
+    [InlineData(ConfirmationStatus.Expired)]
+    public void Expire_WhenNotPending_ThrowsInvalidTransitionAndKeepsStatus(ConfirmationStatus status)
+    {
+        var confirmation = Confirmation(status);
+
+        var ex = Assert.Throws<BusinessException>(
+            () => confirmation.Expire(confirmation.ExpiresAt.AddHours(5)));
+
+        Assert.Equal(ErrorCodes.InvalidTransition, ex.Code);
+        Assert.Equal(status, confirmation.Status);
+    }
 }
 

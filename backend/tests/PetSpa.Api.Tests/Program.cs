@@ -8972,7 +8972,7 @@ var tests = new (string Name, Func<Task> Run)[]
         var store = new TestAppointmentStoreRepo([within30, past30]);
         var guard = new TrackingConcurrencyGuard();
         var assignments = new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()) { HoldMinutes = 30 };
-        var service = new AutoCancellationService(candidates, store, assignments, guard);
+        var service = new AutoCancellationService(candidates, store, assignments, guard, new TestCostConfirmationRepo());
 
         var first = await service.CancelNoShowsAsync();
         Check(first == 1 && past30.Status == AppointmentStatus.Cancelled && within30.Status == AppointmentStatus.Confirmed,
@@ -8983,7 +8983,7 @@ var tests = new (string Name, Func<Task> Run)[]
             "Chạy lặp không được hủy hoặc lưu lại lịch đã xử lý.");
 
         var emptyGuard = new TrackingConcurrencyGuard();
-        var emptyService = new AutoCancellationService(new TestAutoCancellationRepo([]), store, assignments, emptyGuard);
+        var emptyService = new AutoCancellationService(new TestAutoCancellationRepo([]), store, assignments, emptyGuard, new TestCostConfirmationRepo());
         Check(await emptyService.CancelNoShowsAsync() == 0 && emptyGuard.RunCalls == 0,
             "Không có ứng viên thì không mở giao dịch nào.");
 
@@ -9000,6 +9000,171 @@ var tests = new (string Name, Func<Task> Run)[]
         }
 
         Check(stopped, "Khi bị hủy, tác vụ phải dừng trước khi xử lý lịch kế tiếp.");
+    }),
+    ("AutoCancellationService.CancelOverdueCostConfirmationsAsync: hủy lịch spa Received và lưu trú Confirmed có yêu cầu quá hạn, bỏ qua yêu cầu đã phản hồi, chưa quá hạn hoặc lịch không còn hủy được sau khi khóa", async () =>
+    {
+        static CostConfirmation NewConfirmation(Guid appointmentId, ConfirmationStatus status, TimeSpan expiresIn) => new()
+        {
+            ConfirmationId = Guid.NewGuid(),
+            AppointmentId = appointmentId,
+            ActualWeightKg = 5.0m,
+            NewSizeGroup = SizeGroup.Medium,
+            OldAmount = 100000m,
+            NewAmount = 150000m,
+            Status = status,
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-40),
+            ExpiresAt = DateTimeOffset.UtcNow.Add(expiresIn),
+        };
+
+        var spaOverdue = OldSpaAppointment(AppointmentStatus.Received, TimeSpan.FromMinutes(-40));
+        var hotelOverdue = OldHotelAppointment(AppointmentStatus.Confirmed, TimeSpan.FromMinutes(-40));
+        hotelOverdue.RecordWeight(5.0m);
+        var cageId = hotelOverdue.CageId;
+        var hotelAnswered = OldHotelAppointment(AppointmentStatus.Confirmed, TimeSpan.FromMinutes(-40));
+        var spaNotYetOverdue = OldSpaAppointment(AppointmentStatus.Received, TimeSpan.FromMinutes(-10));
+        var spaInProgress = OldSpaAppointment(AppointmentStatus.InProgress, TimeSpan.FromMinutes(-40));
+        var missingId = Guid.NewGuid();
+        var ids = new[]
+        {
+            spaOverdue.AppointmentId, hotelOverdue.AppointmentId, hotelAnswered.AppointmentId,
+            spaNotYetOverdue.AppointmentId, spaInProgress.AppointmentId, missingId,
+        };
+
+        var spaConfirmation = NewConfirmation(spaOverdue.AppointmentId, ConfirmationStatus.Pending, TimeSpan.FromMinutes(-1));
+        var hotelConfirmation = NewConfirmation(hotelOverdue.AppointmentId, ConfirmationStatus.Pending, TimeSpan.FromMinutes(-1));
+        var answeredConfirmation = NewConfirmation(hotelAnswered.AppointmentId, ConfirmationStatus.Accepted, TimeSpan.FromMinutes(-1));
+        var notYetConfirmation = NewConfirmation(spaNotYetOverdue.AppointmentId, ConfirmationStatus.Pending, TimeSpan.FromMinutes(20));
+        var inProgressConfirmation = NewConfirmation(spaInProgress.AppointmentId, ConfirmationStatus.Pending, TimeSpan.FromMinutes(-1));
+
+        var candidates = new TestAutoCancellationRepo([], ids);
+        var store = new TestAppointmentStoreRepo([spaOverdue, hotelOverdue, hotelAnswered, spaNotYetOverdue, spaInProgress]);
+        var confirmations = new TestCostConfirmationRepo();
+        confirmations.Items.AddRange(new[]
+        {
+            spaConfirmation, hotelConfirmation, answeredConfirmation, notYetConfirmation, inProgressConfirmation,
+        });
+        var guard = new TrackingConcurrencyGuard();
+        var service = new AutoCancellationService(
+            candidates, store, new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()), guard, confirmations);
+
+        var before = DateTimeOffset.UtcNow;
+        var cancelled = await service.CancelOverdueCostConfirmationsAsync();
+        var after = DateTimeOffset.UtcNow;
+
+        Check(cancelled == 2, "Chỉ hai lịch có yêu cầu quá hạn và còn hủy được bị hủy.");
+        Check(spaOverdue.Status == AppointmentStatus.Cancelled && spaOverdue.CancelReason == CancelReason.CostNotConfirmed && spaOverdue.CancelledAt is not null,
+            "Lịch spa Received có yêu cầu quá hạn phải chuyển Cancelled với lý do CostNotConfirmed.");
+        Check(hotelOverdue.Status == AppointmentStatus.Cancelled && hotelOverdue.CancelReason == CancelReason.CostNotConfirmed
+              && hotelOverdue.CageId == cageId && hotelOverdue.ActualWeightKg == 5.0m,
+            "Lịch lưu trú Confirmed có yêu cầu quá hạn phải chuyển Cancelled với lý do CostNotConfirmed; chuồng được giải phóng nhờ đổi trạng thái, CageId và cân nặng đã ghi giữ nguyên.");
+        Check(spaConfirmation.Status == ConfirmationStatus.Expired && spaConfirmation.RespondedAt is null && spaConfirmation.RespondedByUserId is null
+              && hotelConfirmation.Status == ConfirmationStatus.Expired,
+            "Yêu cầu quá hạn phải chuyển Expired và không có dấu vết phản hồi.");
+        Check(answeredConfirmation.Status == ConfirmationStatus.Accepted
+              && hotelAnswered.Status == AppointmentStatus.Confirmed && hotelAnswered.CancelReason is null,
+            "Yêu cầu đã được phản hồi (đọc lại sau khi khóa) không bị đụng tới và lịch không bị hủy.");
+        Check(notYetConfirmation.Status == ConfirmationStatus.Pending
+              && spaNotYetOverdue.Status == AppointmentStatus.Received && spaNotYetOverdue.CancelReason is null,
+            "Yêu cầu chưa quá hạn (đọc lại sau khi khóa) không bị hủy.");
+        Check(inProgressConfirmation.Status == ConfirmationStatus.Pending
+              && spaInProgress.Status == AppointmentStatus.InProgress && spaInProgress.CancelReason is null,
+            "Lịch không còn hủy được với CostNotConfirmed thì giữ nguyên cả lịch lẫn yêu cầu.");
+        Check(store.SavedCancellations.Count == 2
+              && store.SavedCancellations.Contains(spaOverdue) && store.SavedCancellations.Contains(hotelOverdue),
+            "Chỉ hai lịch bị hủy được lưu.");
+        Check(guard.RunCalls == ids.Length && guard.LockedAppointments.SequenceEqual(ids),
+            "Mỗi ứng viên chạy trong một giao dịch riêng và được khóa dòng theo thứ tự truy vấn.");
+        Check(candidates.LastOverdueNow is { } checkedAt && checkedAt >= before && checkedAt <= after,
+            "Mốc truy vấn quá hạn phải là thời điểm hiện tại.");
+        Check(candidates.LastStartedBefore is null,
+            "Hủy quá hạn xác nhận chi phí không được truy vấn ứng viên vắng mặt.");
+    }),
+    ("AutoCancellationService.CancelOverdueCostConfirmationsAsync: chạy lặp không xử lý trùng, không có yêu cầu quá hạn thì không mở giao dịch, dừng khi bị hủy", async () =>
+    {
+        var appointment = OldSpaAppointment(AppointmentStatus.Received, TimeSpan.FromMinutes(-40));
+        var confirmation = new CostConfirmation
+        {
+            ConfirmationId = Guid.NewGuid(),
+            AppointmentId = appointment.AppointmentId,
+            ActualWeightKg = 5.0m,
+            NewSizeGroup = SizeGroup.Medium,
+            OldAmount = 100000m,
+            NewAmount = 150000m,
+            Status = ConfirmationStatus.Pending,
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-40),
+            ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+        };
+
+        var candidates = new TestAutoCancellationRepo([], [appointment.AppointmentId]);
+        var store = new TestAppointmentStoreRepo([appointment]);
+        var confirmations = new TestCostConfirmationRepo();
+        confirmations.Items.Add(confirmation);
+        var assignments = new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>());
+        var guard = new TrackingConcurrencyGuard();
+        var service = new AutoCancellationService(candidates, store, assignments, guard, confirmations);
+
+        var first = await service.CancelOverdueCostConfirmationsAsync();
+        Check(first == 1 && appointment.Status == AppointmentStatus.Cancelled && confirmation.Status == ConfirmationStatus.Expired,
+            "Lần chạy đầu phải hủy lịch và chuyển yêu cầu sang Expired.");
+
+        var second = await service.CancelOverdueCostConfirmationsAsync();
+        Check(second == 0 && store.SavedCancellations.Count == 1,
+            "Chạy lặp không được hủy hoặc lưu lại lịch đã xử lý.");
+
+        var emptyGuard = new TrackingConcurrencyGuard();
+        var emptyService = new AutoCancellationService(
+            new TestAutoCancellationRepo([], []), store, assignments, emptyGuard, confirmations);
+        Check(await emptyService.CancelOverdueCostConfirmationsAsync() == 0 && emptyGuard.RunCalls == 0,
+            "Không có yêu cầu quá hạn thì không mở giao dịch nào.");
+
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var stopped = false;
+        try
+        {
+            await service.CancelOverdueCostConfirmationsAsync(cancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            stopped = true;
+        }
+
+        Check(stopped, "Khi bị hủy, tác vụ dừng trước khi xử lý yêu cầu kế tiếp.");
+    }),
+    ("NoShowStatisticsService.CountRecentNoShowsAsync: mốc đầu cửa sổ bằng bây giờ trừ NoShow.WindowDays ngày và trả đúng số lần đếm", async () =>
+    {
+        var customerId = Guid.NewGuid();
+        var now = new DateTimeOffset(2026, 11, 27, 3, 0, 0, TimeSpan.Zero);
+
+        var thirtyDays = new TestNoShowStatisticsRepo(30, 4);
+        var count = await new NoShowStatisticsService(thirtyDays).CountRecentNoShowsAsync(customerId, now);
+        Check(count == 4, "Phải trả đúng số lần vắng mặt do kho dữ liệu đếm được.");
+        Check(thirtyDays.LastCustomerId == customerId && thirtyDays.LastSince == now.AddDays(-30),
+            "Cửa sổ 30 ngày: mốc đầu phải là bây giờ trừ 30 ngày và đếm đúng khách hàng.");
+
+        var fortyFiveDays = new TestNoShowStatisticsRepo(45, 0);
+        var zeroCount = await new NoShowStatisticsService(fortyFiveDays).CountRecentNoShowsAsync(customerId, now);
+        Check(zeroCount == 0 && fortyFiveDays.LastSince == now.AddDays(-45),
+            "Phải dùng NoShow.WindowDays cấu hình (45 ngày) và trả 0 khi không có lần vắng mặt.");
+    }),
+    ("NoShowStatisticsRepository.NoShowsSince: dịch sang SQL Npgsql lọc theo khách hàng, lý do NoShow và mốc CancelledAt", () =>
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql("Host=localhost;Database=petspa;Username=test;Password=test")
+            .Options;
+        using var db = new AppDbContext(options);
+
+        var sql = PetSpa.Infrastructure.Persistence.Repositories.NoShowStatisticsRepository
+            .NoShowsSince(db.Set<Appointment>().AsNoTracking(), Guid.NewGuid(), new DateTimeOffset(2026, 10, 28, 0, 0, 0, TimeSpan.Zero))
+            .ToQueryString();
+        var whereIndex = sql.IndexOf("WHERE ", StringComparison.Ordinal);
+        var whereClause = whereIndex < 0 ? string.Empty : sql[whereIndex..];
+
+        Check(whereClause.Contains("CustomerId") && whereClause.Contains("CancelReason") && whereClause.Contains("CancelledAt"),
+            "Truy vấn đếm phải lọc theo CustomerId, CancelReason và CancelledAt.");
+        Check(sql.Contains("NoShow"), "Truy vấn đếm phải lọc đúng lý do NoShow.");
+
+        return Task.CompletedTask;
     }),
     ("AddApplication registers CheckOutService into DI container", () =>
     {
@@ -10799,9 +10964,12 @@ sealed class TestAppointmentProgressRepo : IAppointmentProgressRepository
     }
 }
 
-sealed class TestAutoCancellationRepo(IReadOnlyList<Guid> noShowIds) : IAutoCancellationRepository
+sealed class TestAutoCancellationRepo(
+    IReadOnlyList<Guid> noShowIds,
+    IReadOnlyList<Guid>? overdueCostConfirmationIds = null) : IAutoCancellationRepository
 {
     public DateTimeOffset? LastStartedBefore { get; private set; }
+    public DateTimeOffset? LastOverdueNow { get; private set; }
 
     public Task<IReadOnlyList<Guid>> ListNoShowCandidateIdsAsync(
         DateTimeOffset startedBefore, CancellationToken ct = default)
@@ -10811,8 +10979,26 @@ sealed class TestAutoCancellationRepo(IReadOnlyList<Guid> noShowIds) : IAutoCanc
     }
 
     public Task<IReadOnlyList<Guid>> ListOverdueCostConfirmationAppointmentIdsAsync(
-        DateTimeOffset now, CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<Guid>>([]);
+        DateTimeOffset now, CancellationToken ct = default)
+    {
+        LastOverdueNow = now;
+        return Task.FromResult<IReadOnlyList<Guid>>(overdueCostConfirmationIds ?? []);
+    }
+}
+
+sealed class TestNoShowStatisticsRepo(int windowDays, int count) : INoShowStatisticsRepository
+{
+    public Guid? LastCustomerId { get; private set; }
+    public DateTimeOffset? LastSince { get; private set; }
+
+    public Task<int> GetWindowDaysAsync(CancellationToken ct = default) => Task.FromResult(windowDays);
+
+    public Task<int> CountNoShowsSinceAsync(Guid customerId, DateTimeOffset since, CancellationToken ct = default)
+    {
+        LastCustomerId = customerId;
+        LastSince = since;
+        return Task.FromResult(count);
+    }
 }
 
 sealed class TestAppointmentStoreRepo(IEnumerable<Appointment> appointments) : IAppointmentChangeRepository

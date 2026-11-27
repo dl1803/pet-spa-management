@@ -17,6 +17,17 @@ public class CostConfirmation
     public DateTimeOffset? RespondedAt { get; set; }
     public Guid? RespondedByUserId { get; set; }
 
+    public bool IsOverdue(DateTimeOffset now) =>
+        Status == ConfirmationStatus.Pending && now > ExpiresAt;
+
+    public void Expire(DateTimeOffset now)
+    {
+        if (!IsOverdue(now))
+            throw new BusinessException(ErrorCodes.InvalidTransition);
+
+        Status = ConfirmationStatus.Expired;
+    }
+
     public void Accept(Guid respondedByUserId, DateTimeOffset now) =>
         Respond(ConfirmationStatus.Accepted, respondedByUserId, now);
 
