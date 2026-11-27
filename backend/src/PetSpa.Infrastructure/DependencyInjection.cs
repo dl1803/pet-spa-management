@@ -104,6 +104,7 @@ public static class DependencyInjection
         services.AddScoped<IAppointmentChangeRepository, AppointmentChangeRepository>();
         services.AddScoped<ICostConfirmationRepository, CostConfirmationRepository>();
         services.AddScoped<IAutoCancellationRepository, AutoCancellationRepository>();
+        services.AddScoped<INoShowStatisticsRepository, NoShowStatisticsRepository>();
         services.AddScoped<IConcurrencyGuard, PostgresConcurrencyGuard>();
         services.AddScoped<IAccountRepository, AccountRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();

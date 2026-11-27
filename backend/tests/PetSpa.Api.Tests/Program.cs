@@ -9131,6 +9131,41 @@ var tests = new (string Name, Func<Task> Run)[]
 
         Check(stopped, "Khi bị hủy, tác vụ dừng trước khi xử lý yêu cầu kế tiếp.");
     }),
+    ("NoShowStatisticsService.CountRecentNoShowsAsync: mốc đầu cửa sổ bằng bây giờ trừ NoShow.WindowDays ngày và trả đúng số lần đếm", async () =>
+    {
+        var customerId = Guid.NewGuid();
+        var now = new DateTimeOffset(2026, 11, 27, 3, 0, 0, TimeSpan.Zero);
+
+        var thirtyDays = new TestNoShowStatisticsRepo(30, 4);
+        var count = await new NoShowStatisticsService(thirtyDays).CountRecentNoShowsAsync(customerId, now);
+        Check(count == 4, "Phải trả đúng số lần vắng mặt do kho dữ liệu đếm được.");
+        Check(thirtyDays.LastCustomerId == customerId && thirtyDays.LastSince == now.AddDays(-30),
+            "Cửa sổ 30 ngày: mốc đầu phải là bây giờ trừ 30 ngày và đếm đúng khách hàng.");
+
+        var fortyFiveDays = new TestNoShowStatisticsRepo(45, 0);
+        var zeroCount = await new NoShowStatisticsService(fortyFiveDays).CountRecentNoShowsAsync(customerId, now);
+        Check(zeroCount == 0 && fortyFiveDays.LastSince == now.AddDays(-45),
+            "Phải dùng NoShow.WindowDays cấu hình (45 ngày) và trả 0 khi không có lần vắng mặt.");
+    }),
+    ("NoShowStatisticsRepository.NoShowsSince: dịch sang SQL Npgsql lọc theo khách hàng, lý do NoShow và mốc CancelledAt", () =>
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql("Host=localhost;Database=petspa;Username=test;Password=test")
+            .Options;
+        using var db = new AppDbContext(options);
+
+        var sql = PetSpa.Infrastructure.Persistence.Repositories.NoShowStatisticsRepository
+            .NoShowsSince(db.Set<Appointment>().AsNoTracking(), Guid.NewGuid(), new DateTimeOffset(2026, 10, 28, 0, 0, 0, TimeSpan.Zero))
+            .ToQueryString();
+        var whereIndex = sql.IndexOf("WHERE ", StringComparison.Ordinal);
+        var whereClause = whereIndex < 0 ? string.Empty : sql[whereIndex..];
+
+        Check(whereClause.Contains("CustomerId") && whereClause.Contains("CancelReason") && whereClause.Contains("CancelledAt"),
+            "Truy vấn đếm phải lọc theo CustomerId, CancelReason và CancelledAt.");
+        Check(sql.Contains("NoShow"), "Truy vấn đếm phải lọc đúng lý do NoShow.");
+
+        return Task.CompletedTask;
+    }),
     ("AddApplication registers CheckOutService into DI container", () =>
     {
         var services = new ServiceCollection();
@@ -10948,6 +10983,21 @@ sealed class TestAutoCancellationRepo(
     {
         LastOverdueNow = now;
         return Task.FromResult<IReadOnlyList<Guid>>(overdueCostConfirmationIds ?? []);
+    }
+}
+
+sealed class TestNoShowStatisticsRepo(int windowDays, int count) : INoShowStatisticsRepository
+{
+    public Guid? LastCustomerId { get; private set; }
+    public DateTimeOffset? LastSince { get; private set; }
+
+    public Task<int> GetWindowDaysAsync(CancellationToken ct = default) => Task.FromResult(windowDays);
+
+    public Task<int> CountNoShowsSinceAsync(Guid customerId, DateTimeOffset since, CancellationToken ct = default)
+    {
+        LastCustomerId = customerId;
+        LastSince = since;
+        return Task.FromResult(count);
     }
 }
 
