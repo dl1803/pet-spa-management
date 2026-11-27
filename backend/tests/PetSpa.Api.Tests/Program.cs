@@ -9001,6 +9001,76 @@ var tests = new (string Name, Func<Task> Run)[]
 
         Check(stopped, "Khi bị hủy, tác vụ phải dừng trước khi xử lý lịch kế tiếp.");
     }),
+    ("AddApplication registers CheckOutService into DI container", () =>
+    {
+        var services = new ServiceCollection();
+        services.AddApplication();
+        var descriptor = services.FirstOrDefault(d => d.ServiceType == typeof(CheckOutService));
+        Check(descriptor is not null && descriptor.Lifetime == ServiceLifetime.Scoped,
+            "CheckOutService must be registered as scoped in AddApplication.");
+        return Task.CompletedTask;
+    }),
+    ("AppointmentsController.CheckOut trả CheckOutResponse nhất quán với trạng thái lịch: hoàn tất không phí, 409 khi phí chưa thanh toán, hoàn tất kèm lateFee khi phí đã thanh toán", async () =>
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+
+        (AppointmentsController Controller, HotelAppointment Stay, TestPaymentRepo Payments) Create(int minutesLate)
+        {
+            var stay = WeightTestHotel(Guid.NewGuid(), SizeGroup.Small, AppointmentStatus.InStay);
+            stay.CageId = Guid.NewGuid();
+            stay.PlannedCheckOut = DateTimeOffset.UtcNow.AddMinutes(-minutesLate);
+
+            var payments = new TestPaymentRepo(null);
+            var service = new CheckOutService(
+                new TestHotelAssignmentRepo(null, [], []) { Appointment = stay },
+                new TestStaffRoleReader(null),
+                new TestHotelCatalogRepo { LateFee = 50000m },
+                payments,
+                new TestConcurrencyGuard());
+            var controller = new AppointmentsController(null!, checkOutService: service)
+            {
+                ControllerContext = WeightTestManagerContext(),
+            };
+
+            return (controller, stay, payments);
+        }
+
+        var onTime = Create(-120);
+        var onTimeResult = await onTime.Controller.CheckOut(onTime.Stay.AppointmentId, CancellationToken.None) as OkObjectResult;
+        Check(onTimeResult?.Value is CheckOutResponse { Status: AppointmentStatus.Completed, LateFee: null },
+            "A return without a late fee must answer 200 with Completed and no late fee.");
+        Check(JsonSerializer.Serialize(onTimeResult!.Value, options) == "{\"status\":\"Completed\"}",
+            "The response body must omit lateFee when there is no late fee.");
+        Check(onTime.Stay.Status == AppointmentStatus.Completed && onTime.Stay.ActualCheckOut is not null && onTime.Stay.CageId is not null,
+            "The stay must be Completed with the actual check-out recorded; the cage is released by the status, not by clearing the cage id.");
+
+        var late = Create(100);
+        Check(await FailureCodeAsync(() => late.Controller.CheckOut(late.Stay.AppointmentId, CancellationToken.None)) == ErrorCodes.PaymentNotDue,
+            "A late return with an unpaid late fee must be rejected with PAYMENT_NOT_DUE.");
+        Check(late.Stay.Status == AppointmentStatus.InStay && late.Payments.AddedPayments.Count == 1,
+            "The stay must stay InStay with exactly one late fee recorded.");
+
+        var paid = Create(100);
+        var fee = OnlinePayment(PaymentKind.LateFee, 100000m);
+        fee.AppointmentId = paid.Stay.AppointmentId;
+        fee.MarkPaid(AppointmentStatus.InStay, 100000m, PaymentMethod.Cash, Guid.NewGuid());
+        paid.Payments.Items.Add(fee);
+        var paidResult = await paid.Controller.CheckOut(paid.Stay.AppointmentId, CancellationToken.None) as OkObjectResult;
+        Check(paidResult?.Value is CheckOutResponse { Status: AppointmentStatus.Completed, LateFee: 100000L },
+            "A paid late fee must complete the stay and report the late fee amount.");
+        Check(JsonSerializer.Serialize(paidResult!.Value, options) == "{\"status\":\"Completed\",\"lateFee\":100000}",
+            "The response body must carry lateFee as an integer when there is a late fee.");
+        Check(paid.Stay.Status == AppointmentStatus.Completed && paid.Payments.AddedPayments.Count == 0,
+            "The stay must be Completed without creating another payment.");
+
+        var method = typeof(AppointmentsController).GetMethod(nameof(AppointmentsController.CheckOut));
+        var post = method?.GetCustomAttributes(typeof(HttpPostAttribute), true).OfType<HttpPostAttribute>().FirstOrDefault();
+        var authorize = method?.GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AuthorizeAttribute), true)
+            .OfType<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>().FirstOrDefault();
+        Check(post?.Template == "{id}/check-out", "CheckOut must be bound to POST {id}/check-out.");
+        Check(authorize?.Policy == AuthorizationPolicies.ReceptionistOrManager, "CheckOut must require the ReceptionistOrManager policy.");
+    }),
 };
 
 var failures = 0;
