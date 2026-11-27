@@ -4,25 +4,39 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AppointmentErrorState } from "@/components/domain/appointment-error-state";
+import { Alert } from "@/components/feedback/alert";
 import { useToast } from "@/components/feedback/toast";
 import { Icon } from "@/components/icons";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardBody } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { APPOINTMENT_CANCELLED_MESSAGE } from "@/features/appointments/change-cancel";
+import {
+  COST_CONFIRMATION_EXPIRED_MESSAGE,
+  COST_REJECTED_MESSAGE,
+  getCostAcceptedMessage,
+  getCostDialogSubject,
+} from "@/features/appointments/cost-confirmation";
 import { AppointmentDetailHeader } from "@/features/appointments/components/appointment-detail-header";
 import { AppointmentPaymentCard } from "@/features/appointments/components/appointment-payment-card";
 import { AppointmentPhotosCard } from "@/features/appointments/components/appointment-photos-card";
 import { CancelAppointmentDialog } from "@/features/appointments/components/cancel-appointment-dialog";
 import { ChangeCancelBlock } from "@/features/appointments/components/change-cancel-block";
+import { CostConfirmationBanner } from "@/features/appointments/components/cost-confirmation-banner";
 import { OnlinePaymentDialog } from "@/features/appointments/components/online-payment-dialog";
 import { PaymentResultAlert } from "@/features/appointments/components/payment-result-alert";
+import { RejectCostDialog } from "@/features/appointments/components/reject-cost-dialog";
 import type { Payment } from "@/lib/api/types";
-import { isChangeWindowClosedError } from "@/lib/appointments";
+import { isChangeWindowClosedError, isCostConfirmationGoneError } from "@/lib/appointments";
 import { formatAppointmentCode } from "@/lib/format";
 import { findSpaPayment, getPaymentResultState, ONLINE_PAYMENT_GATEWAY, rememberPaymentAppointment } from "@/lib/payments";
 import { getPhotoSectionMode } from "@/lib/photos";
-import { useAppointment, useAppointmentPhotos, useCancelAppointment } from "@/lib/queries/appointments";
+import {
+  useAppointment,
+  useAppointmentPhotos,
+  useCancelAppointment,
+  useRespondCostConfirmation,
+} from "@/lib/queries/appointments";
 import { useAppointmentPayments, usePayOnline } from "@/lib/queries/payments";
 import { usePet } from "@/lib/queries/pets";
 import { PAYMENT_RETURN_PARAM, PAYMENT_RETURN_VALUE, ROUTES, WINDOW_CLOSED_PARAM, WINDOW_CLOSED_VALUE } from "@/lib/routes";
@@ -61,6 +75,7 @@ export function AppointmentDetailScreen() {
   const { data: appointment, error, isFetching, refetch } = useAppointment(id);
   const { data: pet } = usePet(appointment?.petId ?? null);
   const cancel = useCancelAppointment();
+  const respond = useRespondCostConfirmation();
 
   const isCompletedSpa = appointment?.type === "Spa" && appointment.status === "Completed";
   const isPaymentReturn = searchParams.get(PAYMENT_RETURN_PARAM) === PAYMENT_RETURN_VALUE;
@@ -79,6 +94,8 @@ export function AppointmentDetailScreen() {
 
   const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
   const [isWindowClosedByCancel, setIsWindowClosedByCancel] = useState(false);
+  const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false);
+  const [isCostConfirmationGone, setIsCostConfirmationGone] = useState(false);
   const [dialogPayment, setDialogPayment] = useState<Payment | null>(null);
   const breadcrumbRef = useRef<HTMLAnchorElement>(null);
 
@@ -102,6 +119,7 @@ export function AppointmentDetailScreen() {
     isWindowClosedByCancel || searchParams.get(WINDOW_CLOSED_PARAM) === WINDOW_CLOSED_VALUE;
 
   const petName = pet?.name ?? appointment?.petName ?? "—";
+  const pendingCost = appointment?.pendingCostConfirmation ?? null;
 
   function openCancelDialog() {
     cancel.reset();
@@ -129,6 +147,40 @@ export function AppointmentDetailScreen() {
         }
       },
     });
+  }
+
+  function openRejectDialog() {
+    respond.reset();
+    setIsRejectDialogOpen(true);
+  }
+
+  function closeRejectDialog() {
+    if (respond.isPending) return;
+    respond.reset();
+    setIsRejectDialogOpen(false);
+  }
+
+  function respondToCost(accept: boolean) {
+    if (respond.isPending || appointment === undefined || pendingCost === null) return;
+    const { newAmount } = pendingCost;
+    setIsCostConfirmationGone(false);
+    respond.mutate(
+      { appointmentId: id, accept },
+      {
+        onSuccess: () => {
+          setIsRejectDialogOpen(false);
+          showSuccess(accept ? getCostAcceptedMessage(appointment.type, newAmount, petName) : COST_REJECTED_MESSAGE);
+        },
+        onError: (failure) => {
+          // Yêu cầu hết hạn hoặc không còn: đóng hộp thoại, báo ở đầu trang (banner có thể biến mất sau khi tải lại).
+          // Lỗi khác hiện ngay trong banner (đồng ý) hoặc trong hộp thoại (từ chối).
+          if (isCostConfirmationGoneError(failure)) {
+            setIsRejectDialogOpen(false);
+            setIsCostConfirmationGone(true);
+          }
+        },
+      },
+    );
   }
 
   function openPaymentDialog() {
@@ -168,7 +220,22 @@ export function AppointmentDetailScreen() {
         {resultState !== null && (
           <PaymentResultAlert state={resultState} payment={spaPayment} onRetry={openPaymentDialog} />
         )}
+        {isCostConfirmationGone && <Alert tone="danger">{COST_CONFIRMATION_EXPIRED_MESSAGE}</Alert>}
         <AppointmentDetailHeader appointment={appointment} petName={petName} species={pet?.species ?? null} />
+        {pendingCost !== null && pendingCost.status === "Pending" && (
+          <CostConfirmationBanner
+            confirmation={pendingCost}
+            petName={petName}
+            currentWeightKg={pet?.weightKg ?? null}
+            currentSizeGroup={pet?.sizeGroup ?? null}
+            isResponding={respond.isPending}
+            isAccepting={respond.isPending && respond.variables?.accept === true}
+            error={isRejectDialogOpen || isCostConfirmationGone ? null : respond.error}
+            onAccept={() => respondToCost(true)}
+            onReject={openRejectDialog}
+            onExpire={() => void refetch()}
+          />
+        )}
         {photoMode !== "hidden" && (
           <AppointmentPhotosCard
             isAwaiting={photoMode === "awaiting"}
@@ -218,6 +285,16 @@ export function AppointmentDetailScreen() {
           error={cancel.error}
           onConfirm={confirmCancel}
           onClose={closeCancelDialog}
+          fallbackFocusRef={breadcrumbRef}
+        />
+      )}
+      {isRejectDialogOpen && appointment !== undefined && (
+        <RejectCostDialog
+          subject={getCostDialogSubject(appointment.type, formatAppointmentCode(appointment.appointmentId), petName)}
+          isRejecting={respond.isPending}
+          error={respond.error}
+          onConfirm={() => respondToCost(false)}
+          onClose={closeRejectDialog}
           fallbackFocusRef={breadcrumbRef}
         />
       )}
