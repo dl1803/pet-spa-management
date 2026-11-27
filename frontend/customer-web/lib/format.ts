@@ -27,6 +27,13 @@ export function formatWeight(kg: number) {
   return `${WEIGHT_FORMAT.format(kg)} kg`;
 }
 
+// Đồng hồ đếm ngược dạng mm:ss.
+export function formatCountdown(totalSeconds: number) {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(seconds / 60);
+  return `${String(minutes).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
 export function formatDate(value: string) {
   return DATE_FORMAT.format(new Date(value));
 }

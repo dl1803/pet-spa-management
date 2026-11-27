@@ -49,6 +49,12 @@ export function isInvalidTransitionError(error: unknown): boolean {
   return status === 409 && code === "INVALID_TRANSITION";
 }
 
+// Yêu cầu xác nhận chi phí không còn để phản hồi: 409 COST_CONFIRMATION_EXPIRED (quá hạn) hoặc 404 (không còn yêu cầu đang chờ).
+export function isCostConfirmationGoneError(error: unknown): boolean {
+  const { status, code } = toApiError(error);
+  return status === 404 || (status === 409 && code === "COST_CONFIRMATION_EXPIRED");
+}
+
 export function describeSchedule(appointment: Appointment): string {
   if (appointment.type === "Hotel") {
     const { plannedCheckIn, plannedCheckOut } = appointment;

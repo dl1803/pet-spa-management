@@ -185,9 +185,35 @@ export type AppointmentStaffItem = {
   assignedAt?: string;
 };
 
+export type CostConfirmationStatus = "Pending" | "Accepted" | "Rejected" | "Expired";
+
+export type CostConfirmation = {
+  actualWeightKg: number;
+  newSizeGroup: SizeGroup;
+  oldAmount: number;
+  newAmount: number;
+  status: CostConfirmationStatus;
+  createdAt?: string;
+  // ISO 8601; hạn khách phản hồi do backend tính (BR-23).
+  expiresAt: string;
+  respondedAt?: string | null;
+};
+
 export type AppointmentDetail = Appointment & {
   services?: AppointmentServiceItem[];
   staff?: AppointmentStaffItem[];
+  // Yêu cầu xác nhận chi phí đang chờ khách phản hồi; vắng mặt hoặc null khi không có.
+  pendingCostConfirmation?: CostConfirmation | null;
+};
+
+export type CostConfirmationRespondRequest = {
+  accept: boolean;
+};
+
+// cageSuitable chỉ có với lịch lưu trú khi accept = true; web khách hàng không dùng.
+export type CostConfirmationRespondResult = {
+  status: AppointmentStatus;
+  cageSuitable?: boolean | null;
 };
 
 export type AppointmentPage = {
