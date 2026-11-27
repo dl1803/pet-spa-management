@@ -145,6 +145,26 @@ test("form: lỗi ghi nhận số tiền hiện dưới ô, lỗi thao tác hi�
   assert.match(render(new ApiError({ kind: "http", status: 500, detail: "Internal detail" })), /role="alert"[\s\S]*Có lỗi xảy ra, vui lòng thử lại sau/);
 });
 
+test("form: 409 COST_CONFIRMATION_PENDING và 400 VALIDATION_ERROR hiện bằng cảnh báo, không hiện lỗi dưới ô số tiền", () => {
+  const render = (error) => renderToStaticMarkup(
+    React.createElement(CounterPaymentForm, {
+      row: stay,
+      confirmerName: "Thu Hà",
+      isSubmitting: false,
+      submissionFailure: { error, receivedAmount: stay.payment.amount },
+      onSubmit: () => {},
+    }),
+  );
+  const pending = render(new ApiError({ kind: "http", status: 409, code: "COST_CONFIRMATION_PENDING", detail: "Cần chờ khách hàng xác nhận chi phí mới trước khi tiếp tục." }));
+  assert.match(pending, /role="alert"[\s\S]*Cần chờ khách hàng xác nhận chi phí mới trước khi tiếp tục\./);
+  assert.doesNotMatch(pending, /aria-invalid="true"/);
+  const invalid = render(new ApiError({ kind: "http", status: 400, code: "VALIDATION_ERROR", detail: "Dữ liệu không hợp lệ." }));
+  assert.match(invalid, /role="alert"[\s\S]*Dữ liệu không hợp lệ\./);
+  assert.doesNotMatch(invalid, /aria-invalid="true"/);
+  // Phản hồi lỗi không được hiện như thanh toán thành công.
+  assert.doesNotMatch(pending, /Đã ghi nhận thanh toán/);
+});
+
 test("form: đang gửi thì nút xác nhận khóa và hiện Đang ghi nhận…", () => {
   const html = renderToStaticMarkup(
     React.createElement(CounterPaymentForm, { row: spa, confirmerName: "Thu Hà", isSubmitting: true, onSubmit: () => {} }),

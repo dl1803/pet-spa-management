@@ -1,12 +1,30 @@
-import type { AppointmentDetail, Species } from "@/lib/api/types";
+import type { Appointment, AppointmentDetail, Species } from "@/lib/api/types";
 import { getStoreDateKey } from "@/lib/time";
+
+// Dòng của danh sách lịch (GET /appointments), chưa có dịch vụ và loài.
+export type HistoryItem = {
+  appointment: Appointment;
+};
 
 // Một dòng của SW-12: lịch spa đã hoàn tất kèm loài của thú cưng để vẽ hình.
 // Thứ tự dữ liệu thật: GET /appointments (danh sách), GET /appointments/{id} (dịch vụ), GET /pets/{petId} (loài) – UI-Screens G-05.
+// `species` là null khi chưa tải được hồ sơ thú cưng; bảng hiện ô trống thay cho hình.
 export type WorkHistoryEntry = {
   appointment: AppointmentDetail;
-  species: Species;
+  species: Species | null;
 };
+
+// Ghép dịch vụ (từ chi tiết lịch) và loài (từ hồ sơ thú cưng) vào các dòng đang hiển thị; thiếu thì giữ dữ liệu của danh sách.
+export function buildWorkHistoryEntries(
+  appointments: Appointment[],
+  details: ReadonlyMap<string, AppointmentDetail>,
+  speciesByPet: ReadonlyMap<string, Species>,
+): WorkHistoryEntry[] {
+  return appointments.map((appointment) => ({
+    appointment: details.get(appointment.appointmentId) ?? appointment,
+    species: speciesByPet.get(appointment.petId) ?? null,
+  }));
+}
 
 export const WORK_HISTORY_PAGE_SIZE = 20;
 
@@ -26,12 +44,12 @@ export function formatMonthLabel(monthKey: string): string {
   return `Tháng ${month}/${year}`;
 }
 
-function getEntryStart(entry: WorkHistoryEntry): string | null {
+function getEntryStart(entry: HistoryItem): string | null {
   return entry.appointment.slotStart ?? null;
 }
 
 // Chỉ lịch spa đã hoàn tất có giờ bắt đầu; sắp xếp mới nhất trước (Frontend-Conventions mục 8).
-export function selectWorkHistory(entries: WorkHistoryEntry[]): WorkHistoryEntry[] {
+export function selectWorkHistory<T extends HistoryItem>(entries: T[]): T[] {
   return entries
     .filter(
       (entry) =>
@@ -44,7 +62,7 @@ export function selectWorkHistory(entries: WorkHistoryEntry[]): WorkHistoryEntry
 }
 
 // Các tháng có lịch, tháng mới nhất trước.
-export function listMonthKeys(entries: WorkHistoryEntry[]): string[] {
+export function listMonthKeys(entries: HistoryItem[]): string[] {
   const keys = new Set<string>();
   for (const entry of entries) {
     const start = getEntryStart(entry);
@@ -60,7 +78,7 @@ export function resolveMonthKey(value: string | null, monthKeys: string[]): stri
 }
 
 // Lọc ở web: API chưa có tham số tháng (UI-Screens G-06).
-export function filterByMonth(entries: WorkHistoryEntry[], monthKey: string | null): WorkHistoryEntry[] {
+export function filterByMonth<T extends HistoryItem>(entries: T[], monthKey: string | null): T[] {
   if (monthKey === null) return [];
   return entries.filter((entry) => {
     const start = getEntryStart(entry);

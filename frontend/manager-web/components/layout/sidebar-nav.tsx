@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon, type IconName } from "@/components/icons";
+import { useSession } from "@/lib/auth/session-context";
+import { usePendingCount } from "@/lib/queries/appointments";
 import { ROUTES } from "@/lib/routes";
 
 type NavItem = {
@@ -90,6 +92,10 @@ export function SidebarNav({ pathname, pendingCount }: SidebarNavProps) {
   );
 }
 
-export function ActiveSidebarNav({ pendingCount }: { pendingCount: number | null }) {
-  return <SidebarNav pathname={usePathname()} pendingCount={pendingCount} />;
+export function ActiveSidebarNav({ pendingCount }: { pendingCount?: number | null }) {
+  const pathname = usePathname();
+  const { status } = useSession();
+  const livePending = usePendingCount({ enabled: pendingCount === undefined && status === "authenticated" });
+  const resolvedCount = pendingCount !== undefined ? pendingCount : (livePending.data ?? null);
+  return <SidebarNav pathname={pathname} pendingCount={resolvedCount} />;
 }

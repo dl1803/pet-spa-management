@@ -10,7 +10,6 @@ import { ButtonLink, Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ExecutionWorkspace } from "@/features/service-execution/components/execution-workspace";
-import { createMockCompletedExecutions, findMockExecution } from "@/features/service-execution/mock-data";
 import { isForbiddenError, toApiError } from "@/lib/api/errors";
 import { useAppointment, useAppointmentPhotos } from "@/lib/queries/appointments";
 import { usePet } from "@/lib/queries/pets";
@@ -97,15 +96,6 @@ function LiveExecution({ appointmentId }: { appointmentId: string }) {
 
 export function ServiceExecutionScreen() {
   const { appointmentId } = useParams<{ appointmentId: string }>();
-  const [now] = useState(() => new Date());
-
-  // Màn Lịch sử công việc còn dùng dữ liệu mô phỏng: nút “Xem” của nó mở lịch Hoàn tất mô phỏng ở chế độ chỉ xem (không có thao tác nào).
-  // Kiểm tra tiền tố cố định của mã mô phỏng để tránh gọi hàm duyệt dữ liệu mô phỏng trên lịch thật.
-  const isMockCandidate = typeof appointmentId === "string" && appointmentId.startsWith("a0000000-0000-4000-8000-");
-  const mockCompleted = isMockCandidate ? findMockExecution(createMockCompletedExecutions(), appointmentId) : null;
-  if (mockCompleted !== null) {
-    return <ExecutionWorkspace key={appointmentId} data={mockCompleted} todayKey={getStoreDateKey(now)} onCompleted={() => {}} />;
-  }
 
   return <LiveExecution key={appointmentId} appointmentId={appointmentId} />;
 }

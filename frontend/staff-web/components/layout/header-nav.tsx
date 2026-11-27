@@ -85,15 +85,18 @@ type HeaderNavProps = {
   role: StaffRole | null;
   // Đang khôi phục phiên: thay chữ “Chưa đăng nhập” bằng ô chờ.
   pending?: boolean;
+  // Số thông báo chưa đọc của Nhân viên spa; 0 hoặc null/undefined thì ẩn chấm đỏ.
+  unreadNotifications?: number | null;
   // Có hàm này thì nút Đăng xuất hoạt động; không có thì nút bị vô hiệu hóa.
   onLogout?: () => void;
 };
 
-export function HeaderNav({ pathname, role, pending = false, onLogout }: HeaderNavProps) {
+export function HeaderNav({ pathname, role, pending = false, unreadNotifications = null, onLogout }: HeaderNavProps) {
   const navItems = NAV_ITEMS.filter((item) => canSee(item, role));
   const accountItems = ACCOUNT_ITEMS.filter((item) => canSee(item, role));
   const showNotifications = canSee(NOTIFICATION_ITEM, role);
   const notificationsActive = isUnder(pathname, NOTIFICATION_ITEM.href);
+  const unread = unreadNotifications ?? 0;
 
   return (
     <>
@@ -147,12 +150,20 @@ export function HeaderNav({ pathname, role, pending = false, onLogout }: HeaderN
           (NOTIFICATION_ITEM.available ? (
             <Link
               href={NOTIFICATION_ITEM.href}
-              aria-label={NOTIFICATION_ITEM.label}
+              aria-label={unread > 0 ? `${NOTIFICATION_ITEM.label}, ${unread} chưa đọc` : NOTIFICATION_ITEM.label}
               title={NOTIFICATION_ITEM.label}
               aria-current={notificationsActive ? "page" : undefined}
               className={`${iconButtonClass} ${notificationsActive ? "bg-white text-lagoon-700" : "text-white hover:bg-white/10"}`}
             >
               <Icon name={NOTIFICATION_ITEM.icon} className="size-[22px]" />
+              {unread > 0 && (
+                <span
+                  aria-hidden="true"
+                  className="absolute right-[3px] top-1 h-[18px] min-w-[18px] rounded-full border-2 border-lagoon-700 bg-danger px-[5px] text-center text-[11px] font-bold leading-[14px] text-white"
+                >
+                  {unread > 99 ? "99+" : unread}
+                </span>
+              )}
             </Link>
           ) : (
             <span

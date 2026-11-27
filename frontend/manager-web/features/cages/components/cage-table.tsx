@@ -15,6 +15,8 @@ type CageTableProps = {
   onEdit: (cage: Cage) => void;
   onStop: (cage: Cage) => void;
   onReopen: (cage: Cage) => void;
+  isChangingStatus?: boolean;
+  pendingCageId?: string | null;
 };
 
 const headerClass = "px-4 py-3 text-left text-xs font-semibold text-muted";
@@ -22,7 +24,16 @@ const headerClass = "px-4 py-3 text-left text-xs font-semibold text-muted";
 const STATUS_TONE = { Empty: "ok", Occupied: "busy", Inactive: "default" } as const satisfies Record<CageStatus, "ok" | "busy" | "default">;
 
 // MW-07 vùng 4 – Bảng chuồng (UI-Screens.md). “Ngừng sử dụng” chỉ có ở chuồng đang sử dụng và trống; chuồng đang chứa chỉ có “Sửa”.
-export function CageTable({ cages, now, onAdd, onEdit, onStop, onReopen }: CageTableProps) {
+export function CageTable({
+  cages,
+  now,
+  onAdd,
+  onEdit,
+  onStop,
+  onReopen,
+  isChangingStatus = false,
+  pendingCageId = null,
+}: CageTableProps) {
   if (cages.length === 0) {
     return (
       <Card>
@@ -81,13 +92,27 @@ export function CageTable({ cages, now, onAdd, onEdit, onStop, onReopen }: CageT
                         Sửa
                       </Button>
                       {!cage.isActive && (
-                        <Button variant="ghost" size="sm" aria-label={`Mở lại chuồng ${cage.code}`} onClick={() => onReopen(cage)}>
-                          Mở lại
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={isChangingStatus}
+                          aria-busy={pendingCageId === cage.cageId ? "true" : undefined}
+                          aria-label={`Mở lại chuồng ${cage.code}`}
+                          onClick={() => onReopen(cage)}
+                        >
+                          {pendingCageId === cage.cageId ? "Đang mở lại…" : "Mở lại"}
                         </Button>
                       )}
                       {cage.isActive && !cage.occupant && (
-                        <Button variant="ghost" size="sm" aria-label={`Ngừng sử dụng chuồng ${cage.code}`} onClick={() => onStop(cage)}>
-                          Ngừng sử dụng
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={isChangingStatus}
+                          aria-busy={pendingCageId === cage.cageId ? "true" : undefined}
+                          aria-label={`Ngừng sử dụng chuồng ${cage.code}`}
+                          onClick={() => onStop(cage)}
+                        >
+                          {pendingCageId === cage.cageId ? "Đang ngừng…" : "Ngừng sử dụng"}
                         </Button>
                       )}
                     </div>

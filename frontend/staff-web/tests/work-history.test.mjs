@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { WorkHistoryTable } from "../features/work-history/components/work-history-table.tsx";
 import {
   WORK_HISTORY_PAGE_SIZE,
+  buildWorkHistoryEntries,
   filterByMonth,
   formatMonthLabel,
   listMonthKeys,
@@ -119,4 +120,39 @@ test("bảng: dịch vụ thiếu tên hiện dấu gạch, thiếu tên thú c�
   const html = renderToStaticMarkup(React.createElement(WorkHistoryTable, { entries: [entry] }));
   assert.match(html, /<td class="px-4 py-3">—<\/td>/);
   assert.match(html, /<span class="font-semibold">—<\/span>/);
+});
+
+test("bảng: chưa có loài thì hiện ô trống thay cho hình thú cưng, các cột còn lại vẫn đủ", () => {
+  const entry = { ...makeEntry(1), species: null };
+  const html = renderToStaticMarkup(React.createElement(WorkHistoryTable, { entries: [entry] }));
+  assert.doesNotMatch(html, /bg-sp-/);
+  assert.match(html, /<span aria-hidden="true" class="size-\[34px\] shrink-0 rounded-\[11px\] bg-line-soft"><\/span>/);
+  assert.match(html, /Bé 02/);
+  assert.match(html, /Hoàn tất/);
+});
+
+test("các hàm chọn, lọc tháng, liệt kê tháng chạy trên dòng của danh sách (chưa có dịch vụ và loài)", () => {
+  const summaries = [makeEntry(1), makeEntry(2, { status: "Cancelled" }), makeEntry(3)].map(({ appointment }) => ({ appointment }));
+  const selected = selectWorkHistory(summaries);
+  assert.deepEqual(selected.map((item) => item.appointment.petName), ["Bé 04", "Bé 02"]);
+  assert.deepEqual(listMonthKeys(selected), ["2026-10"]);
+  assert.equal(filterByMonth(selected, "2026-10").length, 2);
+  assert.equal(filterByMonth(selected, "2026-09").length, 0);
+});
+
+test("ghép dòng: có chi tiết và loài thì dùng, thiếu thì giữ dòng của danh sách và loài null", () => {
+  const [first, second] = [makeEntry(1).appointment, makeEntry(2).appointment];
+  const detail = { ...first, services: [{ serviceId: "s1", name: "Tắm", isDone: true }] };
+  const result = buildWorkHistoryEntries(
+    [first, second],
+    new Map([[first.appointmentId, detail]]),
+    new Map([[first.petId, "Cat"]]),
+  );
+  assert.equal(result[0].appointment, detail);
+  assert.equal(result[0].species, "Cat");
+  assert.equal(result[1].appointment, second);
+  assert.equal(result[1].species, "Cat");
+  const noPet = buildWorkHistoryEntries([second], new Map(), new Map());
+  assert.equal(noPet[0].species, null);
+  assert.equal(noPet[0].appointment, second);
 });

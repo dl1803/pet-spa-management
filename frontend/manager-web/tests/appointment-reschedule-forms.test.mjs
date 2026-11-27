@@ -106,7 +106,7 @@ test("createSpaRescheduleValues và buildSpaUpdateRequest", () => {
   assert.equal(reqWithOutOfShift.confirmOutOfShift, true);
 });
 
-test("createHotelRescheduleValues và buildHotelUpdateRequest không có cageId", () => {
+test("createHotelRescheduleValues và buildHotelUpdateRequest: Pending không gửi cageId; Confirmed chỉ gửi khi đổi chuồng", () => {
   const hotel = {
     appointmentId: "h1",
     type: "Hotel",
@@ -126,12 +126,19 @@ test("createHotelRescheduleValues và buildHotelUpdateRequest không có cageId"
   assert.equal(values.checkInTime, "09:00");
   assert.equal(values.checkOutDate, "2026-11-27");
   assert.equal(values.checkOutTime, "12:00");
+  assert.equal(values.cageId, "cage-99");
 
-  const req = buildHotelUpdateRequest(hotel, values);
-  assert.equal(req.petId, "p1");
-  assert.equal(req.plannedCheckIn, "2026-11-25T09:00:00+07:00");
-  assert.equal(req.plannedCheckOut, "2026-11-27T12:00:00+07:00");
-  assert.equal("cageId" in req, false);
+  const pendingReq = buildHotelUpdateRequest(hotel, { ...values, cageId: "cage-100" });
+  assert.equal(pendingReq.petId, "p1");
+  assert.equal(pendingReq.plannedCheckIn, "2026-11-25T09:00:00+07:00");
+  assert.equal(pendingReq.plannedCheckOut, "2026-11-27T12:00:00+07:00");
+  assert.equal("cageId" in pendingReq, false);
+
+  const confirmedSameReq = buildHotelUpdateRequest({ ...hotel, status: "Confirmed" }, values);
+  assert.equal("cageId" in confirmedSameReq, false);
+
+  const confirmedChangedReq = buildHotelUpdateRequest({ ...hotel, status: "Confirmed" }, { ...values, cageId: "cage-100" });
+  assert.equal(confirmedChangedReq.cageId, "cage-100");
 });
 
 test("các hàm toggleStaffId và isStaffSelectionComplete", () => {

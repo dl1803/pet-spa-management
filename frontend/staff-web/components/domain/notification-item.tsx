@@ -1,7 +1,9 @@
+import Link from "next/link";
 import { useRef } from "react";
 import { Icon, type IconName } from "@/components/icons";
 import type { Notification } from "@/lib/api/types";
 import { formatAppointmentCode, formatRelativeDay } from "@/lib/format";
+import { ROUTES } from "@/lib/routes";
 
 // Ô biểu tượng theo `type` (UI-Screens mục 2.4), màu lấy từ token trạng thái lịch hẹn.
 type NotificationView = { icon: IconName; iconClassName: string; title: string };
@@ -39,7 +41,7 @@ type NotificationItemProps = {
 
 export function NotificationItem({ notification, todayKey, onRead }: NotificationItemProps) {
   const rowRef = useRef<HTMLDivElement>(null);
-  const { notificationId, message, isRead, createdAt } = notification;
+  const { notificationId, appointmentId, message, isRead, createdAt } = notification;
   const view = getNotificationView(notification);
 
   // Dùng span thay cho div/p vì nội dung có thể nằm trong <button>.
@@ -68,7 +70,7 @@ export function NotificationItem({ notification, todayKey, onRead }: Notificatio
 
   // Nền #FBFEFE: giá trị `.notif.unread` của UI demo, chưa có token. Vùng chạm cao hơn 44px nhờ đệm py-4.
   return (
-    <div ref={rowRef} tabIndex={-1}>
+    <div ref={rowRef} tabIndex={-1} className={isRead ? "" : "bg-[#FBFEFE]"}>
       {isRead ? (
         <div className={ROW_CLASS}>{content}</div>
       ) : (
@@ -78,10 +80,23 @@ export function NotificationItem({ notification, todayKey, onRead }: Notificatio
             rowRef.current?.focus();
             onRead(notificationId);
           }}
-          className={`${ROW_CLASS} cursor-pointer bg-[#FBFEFE]`}
+          className={`${ROW_CLASS} cursor-pointer`}
         >
           {content}
         </button>
+      )}
+      {appointmentId && (
+        <div className="-mt-3 px-5 pb-2 pl-[74px]">
+          <Link
+            href={ROUTES.appointmentDetail(appointmentId)}
+            onClick={() => {
+              if (!isRead) onRead(notificationId);
+            }}
+            className="inline-flex min-h-[44px] items-center text-[13px] font-semibold text-lagoon-700 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lagoon"
+          >
+            Xem lịch hẹn
+          </Link>
+        </div>
       )}
     </div>
   );

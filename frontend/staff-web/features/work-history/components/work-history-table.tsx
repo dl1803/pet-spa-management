@@ -42,7 +42,11 @@ export function WorkHistoryTable({ entries }: { entries: WorkHistoryEntry[] }) {
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2.5">
-                    <PetAvatar species={species} size="sm" />
+                    {species ? (
+                      <PetAvatar species={species} size="sm" />
+                    ) : (
+                      <span aria-hidden="true" className="size-[34px] shrink-0 rounded-[11px] bg-line-soft" />
+                    )}
                     <span className="font-semibold">{name}</span>
                   </div>
                 </td>

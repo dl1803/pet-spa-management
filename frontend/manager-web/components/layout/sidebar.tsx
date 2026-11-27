@@ -21,7 +21,7 @@ export function Sidebar() {
         </span>
       </Link>
       <Suspense fallback={<SidebarNav pathname={null} pendingCount={null} />}>
-        <ActiveSidebarNav pendingCount={null} />
+        <ActiveSidebarNav />
       </Suspense>
       <SidebarAccount />
     </aside>

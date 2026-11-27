@@ -34,3 +34,13 @@ test("menu: đang ở /chuong-va-gia thì chỉ mục Chuồng & giá được �
   assert.equal(count(html, /aria-current="page"/g), 1);
   assert.match(html, /<a\b[^>]*aria-current="page"[^>]*href="\/chuong-va-gia"|<a\b[^>]*href="\/chuong-va-gia"[^>]*aria-current="page"/);
 });
+
+test("menu: pendingCount > 0 hiện huy hiệu số lượng trên mục Chờ xác nhận; bằng 0 hoặc null thì ẩn", () => {
+  const withCount = renderToStaticMarkup(React.createElement(SidebarNav, { pathname: "/", pendingCount: 5 }));
+  assert.ok(withCount.includes(">5<"));
+  assert.ok(withCount.includes(", 5 lịch đang chờ"));
+
+  const withZero = renderToStaticMarkup(React.createElement(SidebarNav, { pathname: "/", pendingCount: 0 }));
+  assert.ok(!withZero.includes("lịch đang chờ"));
+  assert.ok(!renderToStaticMarkup(React.createElement(SidebarNav, { pathname: "/", pendingCount: null })).includes("lịch đang chờ"));
+});

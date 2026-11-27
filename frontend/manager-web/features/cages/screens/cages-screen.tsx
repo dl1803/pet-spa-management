@@ -3,12 +3,16 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
+import { Alert } from "@/components/feedback/alert";
+import { ErrorAlert } from "@/components/feedback/error-alert";
+import { ForbiddenState } from "@/components/feedback/forbidden-state";
 import { useToast } from "@/components/feedback/toast";
 import { Icon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Tabs } from "@/components/ui/tabs";
+import { isForbiddenError } from "@/lib/api/errors";
 import type { Cage, CageCreateRequest } from "@/lib/api/types";
-import { MOCK_NOW } from "@/lib/mock-shop-day";
+import { useCages, useCreateCage, useSetCageStatus, useUpdateCage } from "@/lib/queries/cages";
 import { useHotelPricing, useUpdateHotelPricing } from "@/lib/queries/hotel-pricing";
 import { ROUTES, withQuery } from "@/lib/routes";
 import { CageForm } from "../components/cage-form";
@@ -23,23 +27,27 @@ import {
   toHotelPricingRequest,
   type HotelPricingFormValues,
 } from "../forms";
-import { CAGES_TABS, parseCagesTab, summarizeCages, type CagesTab } from "../list";
-import { MOCK_CAGES, createMockCage, setMockCageActive, updateMockCage } from "../mock-data";
+import { CAGES_TABS, parseCagesTab, type CagesTab } from "../list";
 
 type ModalState = { mode: "create" } | { mode: "edit"; cage: Cage } | null;
 
 // Nút “Lưu bảng giá” ở đầu trang gắn với form giá qua thuộc tính `form`.
 const PRICING_FORM_ID = "hotel-pricing-form";
 
-// MW-07 – Chuồng và giá lưu trú. Tab Giá lấy dữ liệu từ GET /hotel/pricing và lưu bằng PUT /hotel/pricing.
-// Tab Chuồng vẫn dùng dữ liệu mô phỏng giữ trong state của màn hình (backend chưa có GET /cages); thay bằng TanStack Query khi có.
+// MW-07 – Chuồng và giá lưu trú. Tab Chuồng lấy dữ liệu từ GET /cages và ghi qua POST/PUT/PATCH /cages;
+// tab Giá lấy dữ liệu từ GET /hotel/pricing và lưu bằng PUT /hotel/pricing.
 export function CagesScreen() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { showSuccess } = useToast();
-  const [cages, setCages] = useState<Cage[]>(MOCK_CAGES);
+  const { showError, showSuccess } = useToast();
+  const [loadedAt] = useState(() => new Date().toISOString());
   const [modal, setModal] = useState<ModalState>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
+
+  const cagesQuery = useCages();
+  const createCage = useCreateCage();
+  const updateCage = useUpdateCage();
+  const setCageStatus = useSetCageStatus();
 
   // Form giá nằm ở màn hình, không ở tab, để giá đang sửa dở không mất khi chuyển qua lại giữa hai tab.
   // `values` đưa giá từ server vào form khi tải xong hoặc khi tải lại; ô người dùng đang sửa dở được giữ nguyên.
@@ -55,35 +63,44 @@ export function CagesScreen() {
   const pricingProblems = findPricingProblems(pricingRows);
 
   const tab = parseCagesTab(searchParams.get("tab"));
-  const { total } = summarizeCages(cages);
+  const cagesPage = cagesQuery.data;
+  const cages = cagesPage?.items;
+  const now = cagesQuery.dataUpdatedAt > 0 ? new Date(cagesQuery.dataUpdatedAt).toISOString() : loadedAt;
+  const isSavingCage = createCage.isPending || updateCage.isPending;
 
   // Tab mặc định (Chuồng) không ghi lên URL.
   function handleTabChange(next: CagesTab) {
     router.replace(withQuery(ROUTES.cages, { tab: next === "cages" ? null : next }), { scroll: false });
   }
 
-  // Có thể ném ApiError 409 DUPLICATE_CAGE_CODE như API thật; CageForm bắt lỗi, hộp thoại vẫn mở, các dòng bên dưới không chạy.
-  // Dùng danh sách hiện tại trong closure (không dùng hàm cập nhật của setState) để lỗi ném ra trong sự kiện, không ném lúc render.
-  function handleSubmitCage(request: CageCreateRequest) {
+  // Trả Promise để CageForm chờ: 409 DUPLICATE_CAGE_CODE hiện dưới ô mã chuồng, lỗi khác hiện đầu form,
+  // hộp thoại vẫn mở và các dòng bên dưới không chạy khi mutateAsync từ chối.
+  async function handleSubmitCage(request: CageCreateRequest) {
     if (modal?.mode === "edit") {
-      setCages(updateMockCage(cages, modal.cage.cageId, request));
+      await updateCage.mutateAsync({ cageId: modal.cage.cageId, request });
+      setModal(null);
       showSuccess(`Đã lưu chuồng ${request.code}`);
-    } else {
-      // Chạy trong sự kiện, không chạy lúc render (Cache Components không cho giá trị ngẫu nhiên khi render).
-      setCages(createMockCage(cages, request, crypto.randomUUID()));
-      showSuccess(`Đã thêm chuồng ${request.code}`);
+      return;
     }
+    await createCage.mutateAsync(request);
     setModal(null);
+    showSuccess(`Đã thêm chuồng ${request.code}`);
+  }
+
+  function changeStatus(cage: Cage, isActive: boolean, message: string) {
+    if (setCageStatus.isPending) return;
+    setCageStatus.mutate(
+      { cageId: cage.cageId, isActive },
+      { onSuccess: () => showSuccess(message), onError: (failure) => showError(failure) },
+    );
   }
 
   function handleStop(cage: Cage) {
-    setCages((current) => setMockCageActive(current, cage.cageId, false));
-    showSuccess(`Đã ngừng sử dụng chuồng ${cage.code}`);
+    changeStatus(cage, false, `Đã ngừng sử dụng chuồng ${cage.code}`);
   }
 
   function handleReopen(cage: Cage) {
-    setCages((current) => setMockCageActive(current, cage.cageId, true));
-    showSuccess(`Đã mở lại chuồng ${cage.code}`);
+    changeStatus(cage, true, `Đã mở lại chuồng ${cage.code}`);
   }
 
   const handleSavePricing = pricingForm.handleSubmit((values) => {
@@ -98,6 +115,48 @@ export function CagesScreen() {
     });
   });
 
+  function renderCagesContent() {
+    if (cagesPage === undefined || cages === undefined) {
+      if (cagesQuery.isPending) {
+        return (
+          <p role="status" aria-busy="true" className="text-muted">
+            Đang tải danh sách chuồng…
+          </p>
+        );
+      }
+      if (isForbiddenError(cagesQuery.error)) return <ForbiddenState />;
+      return (
+        <div className="flex flex-col items-start gap-3">
+          <ErrorAlert error={cagesQuery.error} className="w-full" />
+          <Button variant="secondary" onClick={() => void cagesQuery.refetch()}>
+            Thử lại
+          </Button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-col gap-5">
+        {cagesPage.total > cages.length && (
+          <Alert tone="warn">
+            Có {cagesPage.total} chuồng, đang hiển thị {cages.length} chuồng đầu tiên.
+          </Alert>
+        )}
+        <CageStats cages={cages} />
+        <CageTable
+          cages={cages}
+          now={now}
+          onAdd={() => setModal({ mode: "create" })}
+          onEdit={(cage) => setModal({ mode: "edit", cage })}
+          onStop={handleStop}
+          onReopen={handleReopen}
+          isChangingStatus={setCageStatus.isPending}
+          pendingCageId={setCageStatus.isPending ? (setCageStatus.variables?.cageId ?? null) : null}
+        />
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
@@ -106,10 +165,12 @@ export function CagesScreen() {
           <p className="text-muted">Sức chứa lưu trú là số chuồng đang sử dụng.</p>
         </div>
         {tab === "cages" ? (
-          <Button onClick={() => setModal({ mode: "create" })}>
-            <Icon name="plus" className="size-[18px]" />
-            Thêm chuồng
-          </Button>
+          cages !== undefined && (
+            <Button onClick={() => setModal({ mode: "create" })}>
+              <Icon name="plus" className="size-[18px]" />
+              Thêm chuồng
+            </Button>
+          )
         ) : (
           <Button
             type="submit"
@@ -125,23 +186,11 @@ export function CagesScreen() {
         label="Chuồng và giá lưu trú"
         value={tab}
         onChange={handleTabChange}
-        items={CAGES_TABS.map((item) => ({ ...item, count: item.value === "cages" ? total : undefined }))}
+        items={CAGES_TABS.map((item) => ({ ...item, count: item.value === "cages" ? cagesPage?.total : undefined }))}
       />
 
       {/* Cả hai tab luôn nằm trong cây; tab không chọn bị ẩn để các ô giá đang nhập không bị gỡ khi đổi tab. */}
-      <div hidden={tab !== "cages"}>
-        <div className="flex flex-col gap-5">
-          <CageStats cages={cages} />
-          <CageTable
-            cages={cages}
-            now={MOCK_NOW}
-            onAdd={() => setModal({ mode: "create" })}
-            onEdit={(cage) => setModal({ mode: "edit", cage })}
-            onStop={handleStop}
-            onReopen={handleReopen}
-          />
-        </div>
-      </div>
+      <div hidden={tab !== "cages"}>{renderCagesContent()}</div>
 
       <div hidden={tab !== "pricing"}>
         <HotelPricingGate
@@ -165,7 +214,9 @@ export function CagesScreen() {
         <CageForm
           cage={modal.mode === "edit" ? modal.cage : undefined}
           onSubmit={handleSubmitCage}
-          onClose={() => setModal(null)}
+          onClose={() => {
+            if (!isSavingCage) setModal(null);
+          }}
           fallbackFocusRef={headingRef}
         />
       )}

@@ -4,8 +4,8 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { HeaderNav } from "../components/layout/header-nav.tsx";
 
-const render = (role, pathname = null) =>
-  renderToStaticMarkup(React.createElement(HeaderNav, { role, pathname }));
+const render = (role, pathname = null, extra = {}) =>
+  renderToStaticMarkup(React.createElement(HeaderNav, { role, pathname, ...extra }));
 
 function menuLabels(html) {
   const nav = html.match(/<nav\b[^>]*aria-label="Menu nhân viên"[\s\S]*?<\/nav>/)?.[0] ?? "";
@@ -99,4 +99,21 @@ test("đang khôi phục phiên: hiện “Đang tải…” thay cho “Chưa �
   const html = renderToStaticMarkup(React.createElement(HeaderNav, { role: null, pathname: null, pending: true }));
   assert.match(html, /Đang tải…/);
   assert.doesNotMatch(html, /Chưa đăng nhập/);
+});
+
+test("Nhân viên spa: chuông thông báo hiện số chưa đọc, quá 99 thì hiện 99+, 0 hoặc null thì ẩn", () => {
+  const five = render("SpaStaff", "/lich-hen", { unreadNotifications: 5 });
+  assert.match(five, /aria-label="Thông báo, 5 chưa đọc"/);
+  assert.ok(five.includes(">5<"));
+
+  const over99 = render("SpaStaff", "/lich-hen", { unreadNotifications: 120 });
+  assert.match(over99, /aria-label="Thông báo, 120 chưa đọc"/);
+  assert.ok(over99.includes(">99+<"));
+
+  const zero = render("SpaStaff", "/lich-hen", { unreadNotifications: 0 });
+  assert.match(zero, /aria-label="Thông báo"/);
+  assert.doesNotMatch(zero, /chưa đọc/);
+
+  const reception = render("Receptionist", "/lich-hen", { unreadNotifications: 5 });
+  assert.doesNotMatch(reception, /Thông báo/);
 });

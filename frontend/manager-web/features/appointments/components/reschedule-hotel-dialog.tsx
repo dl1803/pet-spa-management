@@ -7,11 +7,13 @@ import { ErrorAlert } from "@/components/feedback/error-alert";
 import { useToast } from "@/components/feedback/toast";
 import { Button } from "@/components/ui/button";
 import { Field, describedBy } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import type { AppointmentDetail } from "@/lib/api/types";
 import { formatAppointmentCode } from "@/lib/format";
 import { useUpdateAppointment } from "@/lib/queries/appointments";
+import { useCages } from "@/lib/queries/cages";
+import { usePet } from "@/lib/queries/pets";
 import { getStoreDateKey } from "@/lib/time";
 import {
   buildHotelUpdateRequest,
@@ -38,10 +40,30 @@ export function RescheduleHotelDialog({ appointment, onClose, fallbackFocusRef }
   const checkInTimeId = `${id}-check-in-time`;
   const checkOutDateId = `${id}-check-out-date`;
   const checkOutTimeId = `${id}-check-out-time`;
+  const cageIdField = `${id}-cage`;
 
   const submitting = useRef(false);
   const { showSuccess, showError } = useToast();
   const updateMutation = useUpdateAppointment();
+
+  const isConfirmed = appointment.status === "Confirmed";
+  const cagesQuery = useCages({ enabled: isConfirmed });
+  const petQuery = usePet(appointment.petId);
+  const species = petQuery.data?.species;
+  const allCages = cagesQuery.data?.items ?? [];
+  const matchingCages = allCages.filter(
+    (cage) =>
+      cage.isActive &&
+      cage.sizeGroup === appointment.sizeGroup &&
+      (species === undefined || cage.species === species),
+  );
+  const currentCage = appointment.cageId
+    ? allCages.find((cage) => cage.cageId === appointment.cageId) ?? null
+    : null;
+  const cageOptions =
+    currentCage && !matchingCages.some((cage) => cage.cageId === currentCage.cageId)
+      ? [currentCage, ...matchingCages]
+      : matchingCages;
 
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<unknown>(null);
@@ -169,7 +191,7 @@ export function RescheduleHotelDialog({ appointment, onClose, fallbackFocusRef }
               />
             </Field>
 
-            <Field id={checkOutTimeId} label="Giờ trả" required error={errors.checkOutTime?.message}>
+              <Field id={checkOutTimeId} label="Giờ trả" required error={errors.checkOutTime?.message}>
               <Input
                 id={checkOutTimeId}
                 type="time"
@@ -182,13 +204,62 @@ export function RescheduleHotelDialog({ appointment, onClose, fallbackFocusRef }
               />
             </Field>
           </div>
+
+          {isConfirmed && (
+            <div className="flex flex-col gap-2">
+              {cagesQuery.isPending && (
+                <p role="status" aria-busy="true" className="text-muted">
+                  Đang tải danh sách chuồng…
+                </p>
+              )}
+              {cagesQuery.error && (
+                <div className="flex flex-col items-start gap-2">
+                  <ErrorAlert error={cagesQuery.error} />
+                  <Button variant="secondary" onClick={() => void cagesQuery.refetch()}>
+                    Thử lại
+                  </Button>
+                </div>
+              )}
+              {!cagesQuery.isPending && !cagesQuery.error && (
+                <Field
+                  id={cageIdField}
+                  label="Chuồng"
+                  hint="Chỉ hiện chuồng cùng loài và nhóm kích cỡ. Để nguyên nếu giữ chuồng hiện tại."
+                  error={errors.cageId?.message}
+                >
+                  <Select
+                    id={cageIdField}
+                    aria-invalid={errors.cageId ? true : undefined}
+                    aria-describedby={describedBy(cageIdField, { hasHint: true, hasError: Boolean(errors.cageId) })}
+                    {...register("cageId")}
+                  >
+                    {!appointment.cageId && (
+                      <option value="">Giữ nguyên chuồng hiện tại</option>
+                    )}
+                    {appointment.cageId && !currentCage && (
+                      <option value={appointment.cageId}>Chuồng hiện tại (giữ nguyên)</option>
+                    )}
+                    {cageOptions.map((cage) => (
+                      <option key={cage.cageId} value={cage.cageId}>
+                        {cage.cageId === appointment.cageId ? `${cage.code} (giữ nguyên)` : cage.code}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-2.5 px-6 pb-6">
           <Button variant="ghost" data-initial-focus disabled={isSubmitting} onClick={close}>
             Hủy bỏ
           </Button>
-          <Button type="submit" disabled={isSubmitting} aria-busy={isSubmitting ? "true" : undefined}>
+          <Button
+            type="submit"
+            disabled={isSubmitting || (isConfirmed && cagesQuery.isPending)}
+            aria-busy={isSubmitting ? "true" : undefined}
+          >
             {isSubmitting ? "Đang lưu…" : "Lưu thay đổi"}
           </Button>
         </div>

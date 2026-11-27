@@ -102,6 +102,17 @@ export type CageCreateRequest = {
 // Mọi trường đều tùy chọn theo openapi; web luôn gửi đủ cả ba.
 export type CageUpdateRequest = Partial<CageCreateRequest>;
 
+export type CageCreated = {
+  cageId: string;
+};
+
+export type CagePage = {
+  page: number;
+  pageSize: number;
+  total: number;
+  items: Cage[];
+};
+
 export type HotelPricingRow = {
   species: Species;
   sizeGroup: SizeGroup;
@@ -308,7 +319,7 @@ export type CancelRequest = {
 };
 
 // petId luôn gửi vì backend bắt buộc (validator). Spa: slotStart, serviceIds. Lưu trú: plannedCheckIn, plannedCheckOut.
-// staffIds chỉ cho lịch spa Đã xác nhận; confirmOutOfShift chỉ khi xác nhận lại nhân viên ngoài ca. cageId chưa khai báo vì web chưa đổi chuồng.
+// staffIds chỉ cho lịch spa Đã xác nhận; confirmOutOfShift chỉ khi xác nhận lại nhân viên ngoài ca; cageId chỉ cho lịch lưu trú Đã xác nhận.
 export type UpdateAppointmentRequest = {
   petId: string;
   slotStart?: string;
@@ -316,6 +327,7 @@ export type UpdateAppointmentRequest = {
   plannedCheckIn?: string;
   plannedCheckOut?: string;
   staffIds?: string[];
+  cageId?: string;
   confirmOutOfShift?: boolean;
 };
 
