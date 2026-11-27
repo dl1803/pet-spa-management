@@ -76,7 +76,7 @@ export function CostConfirmationBanner({
 }: CostConfirmationBannerProps) {
   const titleId = useId();
   const profileWeight = currentWeightKg === null ? "" : ` (hồ sơ: ${formatWeight(currentWeightKg)})`;
-  const fromGroup = currentSizeGroup === null ? "lên nhóm" : `từ nhóm ${SIZE_GROUP_LABELS[currentSizeGroup]} lên nhóm`;
+  const fromGroup = currentSizeGroup === null ? "sang nhóm" : `từ nhóm ${SIZE_GROUP_LABELS[currentSizeGroup]} sang nhóm`;
 
   return (
     <section aria-labelledby={titleId} className="rounded-2xl border border-[#F1D9A2] bg-apricot-50 p-5">

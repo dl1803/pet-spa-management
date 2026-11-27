@@ -161,7 +161,12 @@ export function AppointmentDetailScreen() {
   }
 
   function respondToCost(accept: boolean) {
-    if (respond.isPending || appointment === undefined || pendingCost === null) return;
+    if (respond.isPending || appointment === undefined) return;
+    if (pendingCost === null || pendingCost.status !== "Pending") {
+      setIsRejectDialogOpen(false);
+      setIsCostConfirmationGone(true);
+      return;
+    }
     const { newAmount } = pendingCost;
     setIsCostConfirmationGone(false);
     respond.mutate(
@@ -227,7 +232,7 @@ export function AppointmentDetailScreen() {
             confirmation={pendingCost}
             petName={petName}
             currentWeightKg={pet?.weightKg ?? null}
-            currentSizeGroup={pet?.sizeGroup ?? null}
+            currentSizeGroup={pet?.sizeGroup ?? appointment.sizeGroup}
             isResponding={respond.isPending}
             isAccepting={respond.isPending && respond.variables?.accept === true}
             error={isRejectDialogOpen || isCostConfirmationGone ? null : respond.error}

@@ -5,9 +5,11 @@ export const COST_CONFIRMATION_EXPIRED_MESSAGE = "Yêu cầu xác nhận đã h�
 
 export const COST_REJECTED_MESSAGE = "Đã từ chối chi phí mới, lịch hẹn đã được hủy";
 
-// Giây còn lại tới expiresAt (làm tròn lên, không âm).
+// Giây còn lại tới expiresAt (làm tròn lên, không âm; trả về 0 nếu chuỗi thời gian không hợp lệ).
 export function getRemainingSeconds(expiresAt: string, nowMs: number) {
-  return Math.max(0, Math.ceil((Date.parse(expiresAt) - nowMs) / 1000));
+  const expiresMs = Date.parse(expiresAt);
+  if (Number.isNaN(expiresMs)) return 0;
+  return Math.max(0, Math.ceil((expiresMs - nowMs) / 1000));
 }
 
 export function getCostAcceptedMessage(type: AppointmentType, newAmount: number, petName: string) {

@@ -27,7 +27,7 @@ export function formatWeight(kg: number) {
   return `${WEIGHT_FORMAT.format(kg)} kg`;
 }
 
-// Đồng hồ đếm ngược dạng mm:ss.
+// Đồng hồ đếm ngược dạng mm:ss (dùng cho hạn ngắn dưới 60 phút).
 export function formatCountdown(totalSeconds: number) {
   const seconds = Math.max(0, Math.floor(totalSeconds));
   const minutes = Math.floor(seconds / 60);
