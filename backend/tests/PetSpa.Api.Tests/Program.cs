@@ -9560,6 +9560,93 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(code == ErrorCodes.PaymentNotDue && late.Notices.Created.Count == 0,
             "A return blocked by an unpaid late fee must not create any notice.");
     }),
+    ("PaymentService.RecordCounterAsync notifies the customer after the transaction with the payment kind and amount", async () =>
+    {
+        var customerUserId = Guid.NewGuid();
+        var user = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+
+        var cases = new (PaymentKind Kind, AppointmentStatus AppointmentStatus, decimal Amount, string Expected)[]
+        {
+            (PaymentKind.Spa, AppointmentStatus.Completed, 150000m, "đã ghi nhận thanh toán dịch vụ spa 150.000 đ."),
+            (PaymentKind.Stay, AppointmentStatus.Confirmed, 300000m, "đã ghi nhận thanh toán tiền lưu trú 300.000 đ."),
+            (PaymentKind.LateFee, AppointmentStatus.InStay, 100000m, "đã ghi nhận thanh toán phí trả muộn 100.000 đ."),
+        };
+
+        foreach (var (kind, appointmentStatus, amount, expected) in cases)
+        {
+            var payment = OnlinePayment(kind, amount);
+            var appointment = kind == PaymentKind.Spa
+                ? (Appointment)OldSpaAppointment(appointmentStatus, TimeSpan.FromDays(-1))
+                : OldHotelAppointment(appointmentStatus, TimeSpan.FromDays(1));
+            appointment.AppointmentId = payment.AppointmentId;
+
+            var guard = new TestConcurrencyGuard();
+            var (notifier, notices) = TestNotifiers.Recording(appointment, customerUserId, () => guard.InsideRun);
+            var repo = new TestPaymentRepo(null) { ForUpdate = new PaymentForUpdate(payment, appointmentStatus) };
+            var service = new PaymentService(
+                repo, new TestPaymentGateway(), guard, new TestStaffRoleReader(null), new TestCostConfirmationRepo(),
+                notifier: notifier);
+
+            var status = await service.RecordCounterAsync(user, payment.PaymentId, PaymentMethod.Cash, amount);
+
+            Check(status == PaymentStatus.Paid && notices.Created.Count == 1, $"{kind}: one notice must be created.");
+            var notice = notices.Created[0];
+            Check(notice.RecipientUserId == customerUserId && notice.Type == NotificationType.PaymentRecorded
+                    && notice.AppointmentId == payment.AppointmentId && notice.Message.EndsWith(expected)
+                    && !notice.InsideTransaction,
+                $"{kind}: the notice must match and be created after the transaction.");
+        }
+
+        var rejectedPayment = OnlinePayment(PaymentKind.Spa, 150000m);
+        var rejectedAppointment = OldSpaAppointment(AppointmentStatus.Completed, TimeSpan.FromDays(-1));
+        rejectedAppointment.AppointmentId = rejectedPayment.AppointmentId;
+        var rejectedGuard = new TestConcurrencyGuard();
+        var (rejectedNotifier, rejectedNotices) =
+            TestNotifiers.Recording(rejectedAppointment, customerUserId, () => rejectedGuard.InsideRun);
+        var rejectedService = new PaymentService(
+            new TestPaymentRepo(null) { ForUpdate = new PaymentForUpdate(rejectedPayment, AppointmentStatus.Completed) },
+            new TestPaymentGateway(), rejectedGuard, new TestStaffRoleReader(null), new TestCostConfirmationRepo(),
+            notifier: rejectedNotifier);
+
+        var code = await FailureCodeAsync(() =>
+            rejectedService.RecordCounterAsync(user, rejectedPayment.PaymentId, PaymentMethod.Cash, 149000m));
+        Check(code == ErrorCodes.AmountMismatch && rejectedNotices.Created.Count == 0,
+            "A rejected counter payment must not create any notice.");
+    }),
+    ("PaymentService.ProcessCallbackAsync notifies the customer once when the payment is paid online and not for other outcomes", async () =>
+    {
+        var customerUserId = Guid.NewGuid();
+        var target = CallbackTarget();
+        var appointment = OldSpaAppointment(AppointmentStatus.Completed, TimeSpan.FromDays(-1));
+        appointment.AppointmentId = target.Payment.AppointmentId;
+        var guard = new TestConcurrencyGuard();
+        var (notifier, notices) = TestNotifiers.Recording(appointment, customerUserId, () => guard.InsideRun);
+        var repo = new TestPaymentRepo(null, target);
+
+        PaymentService Create(GatewayCallback callback) =>
+            new(repo, new TestPaymentGateway { Callback = callback }, guard, null!, null!, notifier: notifier);
+
+        var failed = await Create(SuccessCallback(target, succeeded: false)).ProcessCallbackAsync(new Dictionary<string, string>());
+        Check(failed.Status == PaymentCallbackStatus.Failed && notices.Created.Count == 0,
+            "A failed callback must not create a notice.");
+
+        var mismatch = await Create(SuccessCallback(target, confirmedAmount: 149000m)).ProcessCallbackAsync(new Dictionary<string, string>());
+        Check(mismatch.Status == PaymentCallbackStatus.AmountMismatch && notices.Created.Count == 0,
+            "An amount mismatch must not create a notice.");
+
+        var paid = await Create(SuccessCallback(target)).ProcessCallbackAsync(new Dictionary<string, string>());
+        Check(paid.Status == PaymentCallbackStatus.Paid && notices.Created.Count == 1, "A paid callback must create one notice.");
+        var notice = notices.Created[0];
+        Check(notice.RecipientUserId == customerUserId && notice.Type == NotificationType.PaymentRecorded
+                && notice.AppointmentId == target.Payment.AppointmentId
+                && notice.Message.EndsWith("đã ghi nhận thanh toán dịch vụ spa 150.000 đ.")
+                && !notice.InsideTransaction,
+            "The notice must match and be created after the transaction.");
+
+        var repeated = await Create(SuccessCallback(target)).ProcessCallbackAsync(new Dictionary<string, string>());
+        Check(repeated.Status == PaymentCallbackStatus.AlreadyProcessed && notices.Created.Count == 1,
+            "A repeated callback must not create another notice.");
+    }),
 };
 
 var failures = 0;
