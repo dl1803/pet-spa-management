@@ -1,6 +1,7 @@
 using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
+using PetSpa.Application.Services.Notifications;
 using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
 using PetSpa.Domain.Exceptions;
@@ -26,7 +27,8 @@ public sealed class CheckInService(
     IHotelCatalogRepository hotelCatalog,
     ShopTimeZone shopTimeZone,
     ICostConfirmationRepository costConfirmations,
-    IPaymentRepository payments = null!)
+    IPaymentRepository payments = null!,
+    AppointmentNotifier notifier = null!)
 {
     private const int EarlyCheckInWindowMinutes = 60;
 
@@ -35,7 +37,7 @@ public sealed class CheckInService(
     {
         await EnsureReceptionistOrManagerAsync(user, ct);
 
-        return await concurrency.RunAsync(async () =>
+        var result = await concurrency.RunAsync(async () =>
         {
             await concurrency.LockAppointmentAsync(appointmentId, ct);
 
@@ -60,6 +62,11 @@ public sealed class CheckInService(
 
             return new SpaCheckInResult(appointment.Status, weightCheck);
         }, ct);
+
+        await NotifyStatusAsync(appointmentId, result.Status, ct);
+        await NotifyCostConfirmationAsync(appointmentId, actualWeightKg, result.WeightCheck, ct);
+
+        return result;
     }
 
     public async Task<WeightCheckOutcome> CheckHotelWeightAsync(
@@ -67,7 +74,7 @@ public sealed class CheckInService(
     {
         await EnsureReceptionistOrManagerAsync(user, ct);
 
-        return await concurrency.RunAsync(async () =>
+        var outcome = await concurrency.RunAsync(async () =>
         {
             await concurrency.LockAppointmentAsync(appointmentId, ct);
 
@@ -90,6 +97,10 @@ public sealed class CheckInService(
 
             return weightCheck;
         }, ct);
+
+        await NotifyCostConfirmationAsync(appointmentId, actualWeightKg, outcome, ct);
+
+        return outcome;
     }
 
     public async Task<AppointmentStatus> CheckInHotelAsync(
@@ -97,7 +108,7 @@ public sealed class CheckInService(
     {
         await EnsureReceptionistOrManagerAsync(user, ct);
 
-        return await concurrency.RunAsync(async () =>
+        var status = await concurrency.RunAsync(async () =>
         {
             await concurrency.LockAppointmentAsync(appointmentId, ct);
 
@@ -116,6 +127,10 @@ public sealed class CheckInService(
 
             return stay.Status;
         }, ct);
+
+        await NotifyStatusAsync(appointmentId, status, ct);
+
+        return status;
     }
 
     public async Task EnsureHotelCheckInCostAndPaymentAsync(HotelAppointment stay, CancellationToken ct = default)
@@ -260,6 +275,22 @@ public sealed class CheckInService(
         {
             throw new BusinessException(ErrorCodes.ValidationError, ex.Message);
         }
+    }
+
+    private async Task NotifyStatusAsync(Guid appointmentId, AppointmentStatus status, CancellationToken ct)
+    {
+        if (notifier is null) return;
+
+        await notifier.StatusChangedAsync(appointmentId, status, ct);
+    }
+
+    private async Task NotifyCostConfirmationAsync(
+        Guid appointmentId, decimal actualWeightKg, WeightCheckOutcome weightCheck, CancellationToken ct)
+    {
+        if (notifier is null) return;
+
+        if (weightCheck is { Result: WeightCheckResult.NEEDS_CONFIRMATION, NewAmount: { } newAmount, ExpiresAt: { } expiresAt })
+            await notifier.CostConfirmationRequestedAsync(appointmentId, actualWeightKg, newAmount, expiresAt, ct);
     }
 
     private async Task EnsureReceptionistOrManagerAsync(CurrentUser user, CancellationToken ct)

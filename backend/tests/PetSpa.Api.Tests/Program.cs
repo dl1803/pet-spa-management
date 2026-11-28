@@ -5917,6 +5917,8 @@ var tests = new (string Name, Func<Task> Run)[]
             (CancelReason.StoreUnable, "Lý do: cửa hàng không thể đáp ứng."),
             (CancelReason.CustomerCancelled, "Lý do: khách hàng chủ động hủy."),
             (CancelReason.CustomerBeyondDeadline, "Lý do: theo yêu cầu của khách hàng ngoài thời hạn tự phục vụ."),
+            (CancelReason.NoShow, "Lý do: khách hàng vắng mặt."),
+            (CancelReason.CostNotConfirmed, "Lý do: chi phí mới không được khách hàng xác nhận."),
         };
 
         foreach (var (reason, expectedFragment) in reasonCases)
@@ -5977,7 +5979,7 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(repo.Created.Count == 0, "No notification created on missing cancel reason.");
 
         var spaNoShow = OldSpaAppointment(AppointmentStatus.Cancelled, TimeSpan.FromDays(5));
-        spaNoShow.CancelReason = CancelReason.NoShow;
+        spaNoShow.CancelReason = (CancelReason)99;
         var readerNoShow = new TestAppointmentNotificationReader(_ => new AppointmentNotificationContext(spaNoShow, customerUserId, []));
         var notifierNoShow = new AppointmentNotifier(readerNoShow, new NotificationService(repo), shopZone);
 
@@ -8712,7 +8714,7 @@ var tests = new (string Name, Func<Task> Run)[]
         }
 
         CheckOutService Create(HotelAppointment? stay, StaffRole? staffRole) =>
-            new(new TestHotelAssignmentRepo(null, [], []) { Appointment = stay }, new TestStaffRoleReader(staffRole), new TestHotelCatalogRepo(), new TestPaymentRepo(null), new TestConcurrencyGuard());
+            new(new TestHotelAssignmentRepo(null, [], []) { Appointment = stay }, new TestStaffRoleReader(staffRole), new TestHotelCatalogRepo(), new TestPaymentRepo(null), new TestConcurrencyGuard(), NoNotifier());
 
         var receptionist = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
         var manager = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
@@ -8751,7 +8753,7 @@ var tests = new (string Name, Func<Task> Run)[]
         var planned = new DateTimeOffset(2026, 12, 10, 12, 0, 0, TimeSpan.Zero);
 
         CheckOutService Create(TestHotelCatalogRepo catalog) =>
-            new(new TestHotelAssignmentRepo(null, [], []), new TestStaffRoleReader(StaffRole.Receptionist), catalog, new TestPaymentRepo(null), new TestConcurrencyGuard());
+            new(new TestHotelAssignmentRepo(null, [], []), new TestStaffRoleReader(StaffRole.Receptionist), catalog, new TestPaymentRepo(null), new TestConcurrencyGuard(), NoNotifier());
 
         async Task<decimal> FeeAsync(CheckOutService service, int minutesAfterPlanned)
         {
@@ -8804,7 +8806,7 @@ var tests = new (string Name, Func<Task> Run)[]
             var payments = new TestPaymentRepo(null);
             var guard = new TestConcurrencyGuard();
             var service = new CheckOutService(
-                assignments, new TestStaffRoleReader(staffRole), new TestHotelCatalogRepo { LateFee = feePerBlock }, payments, guard);
+                assignments, new TestStaffRoleReader(staffRole), new TestHotelCatalogRepo { LateFee = feePerBlock }, payments, guard, NoNotifier());
 
             return (service, stay, assignments, payments, guard);
         }
@@ -8935,7 +8937,7 @@ var tests = new (string Name, Func<Task> Run)[]
         });
         var guard = new TrackingConcurrencyGuard();
         var service = new AutoCancellationService(
-            candidates, store, new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()), guard, confirmations);
+            candidates, store, new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()), guard, confirmations, NoNotifier(), new NoShowStatisticsService(new TestNoShowStatisticsRepo(30, 0)));
 
         var before = DateTimeOffset.UtcNow;
         var cancelled = await service.CancelNoShowsAsync();
@@ -8972,7 +8974,7 @@ var tests = new (string Name, Func<Task> Run)[]
         var store = new TestAppointmentStoreRepo([within30, past30]);
         var guard = new TrackingConcurrencyGuard();
         var assignments = new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()) { HoldMinutes = 30 };
-        var service = new AutoCancellationService(candidates, store, assignments, guard, new TestCostConfirmationRepo());
+        var service = new AutoCancellationService(candidates, store, assignments, guard, new TestCostConfirmationRepo(), NoNotifier(), new NoShowStatisticsService(new TestNoShowStatisticsRepo(30, 0)));
 
         var first = await service.CancelNoShowsAsync();
         Check(first == 1 && past30.Status == AppointmentStatus.Cancelled && within30.Status == AppointmentStatus.Confirmed,
@@ -8983,7 +8985,7 @@ var tests = new (string Name, Func<Task> Run)[]
             "Chạy lặp không được hủy hoặc lưu lại lịch đã xử lý.");
 
         var emptyGuard = new TrackingConcurrencyGuard();
-        var emptyService = new AutoCancellationService(new TestAutoCancellationRepo([]), store, assignments, emptyGuard, new TestCostConfirmationRepo());
+        var emptyService = new AutoCancellationService(new TestAutoCancellationRepo([]), store, assignments, emptyGuard, new TestCostConfirmationRepo(), NoNotifier(), new NoShowStatisticsService(new TestNoShowStatisticsRepo(30, 0)));
         Check(await emptyService.CancelNoShowsAsync() == 0 && emptyGuard.RunCalls == 0,
             "Không có ứng viên thì không mở giao dịch nào.");
 
@@ -9045,7 +9047,7 @@ var tests = new (string Name, Func<Task> Run)[]
         });
         var guard = new TrackingConcurrencyGuard();
         var service = new AutoCancellationService(
-            candidates, store, new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()), guard, confirmations);
+            candidates, store, new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()), guard, confirmations, NoNotifier(), new NoShowStatisticsService(new TestNoShowStatisticsRepo(30, 0)));
 
         var before = DateTimeOffset.UtcNow;
         var cancelled = await service.CancelOverdueCostConfirmationsAsync();
@@ -9101,7 +9103,7 @@ var tests = new (string Name, Func<Task> Run)[]
         confirmations.Items.Add(confirmation);
         var assignments = new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>());
         var guard = new TrackingConcurrencyGuard();
-        var service = new AutoCancellationService(candidates, store, assignments, guard, confirmations);
+        var service = new AutoCancellationService(candidates, store, assignments, guard, confirmations, NoNotifier(), new NoShowStatisticsService(new TestNoShowStatisticsRepo(30, 0)));
 
         var first = await service.CancelOverdueCostConfirmationsAsync();
         Check(first == 1 && appointment.Status == AppointmentStatus.Cancelled && confirmation.Status == ConfirmationStatus.Expired,
@@ -9113,7 +9115,7 @@ var tests = new (string Name, Func<Task> Run)[]
 
         var emptyGuard = new TrackingConcurrencyGuard();
         var emptyService = new AutoCancellationService(
-            new TestAutoCancellationRepo([], []), store, assignments, emptyGuard, confirmations);
+            new TestAutoCancellationRepo([], []), store, assignments, emptyGuard, confirmations, NoNotifier(), new NoShowStatisticsService(new TestNoShowStatisticsRepo(30, 0)));
         Check(await emptyService.CancelOverdueCostConfirmationsAsync() == 0 && emptyGuard.RunCalls == 0,
             "Không có yêu cầu quá hạn thì không mở giao dịch nào.");
 
@@ -9192,7 +9194,8 @@ var tests = new (string Name, Func<Task> Run)[]
                 new TestStaffRoleReader(null),
                 new TestHotelCatalogRepo { LateFee = 50000m },
                 payments,
-                new TestConcurrencyGuard());
+                new TestConcurrencyGuard(),
+                NoNotifier());
             var controller = new AppointmentsController(null!, checkOutService: service)
             {
                 ControllerContext = WeightTestManagerContext(),
@@ -9235,6 +9238,597 @@ var tests = new (string Name, Func<Task> Run)[]
             .OfType<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>().FirstOrDefault();
         Check(post?.Template == "{id}/check-out", "CheckOut must be bound to POST {id}/check-out.");
         Check(authorize?.Policy == AuthorizationPolicies.ReceptionistOrManager, "CheckOut must require the ReceptionistOrManager policy.");
+    }),
+    ("AppointmentNotifier.StatusChangedAsync notifies only the customer with a message per execution status", async () =>
+    {
+        var zone = TimeZoneInfo.CreateCustomTimeZone("UTC+7", TimeSpan.FromHours(7), "UTC+7", "UTC+7");
+        var shopZone = new ShopTimeZone(zone);
+        var customerUserId = Guid.NewGuid();
+        var staffUserId = Guid.NewGuid();
+
+        var spa = OldSpaAppointment(AppointmentStatus.Received, TimeSpan.FromDays(5));
+        spa.SlotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var hotel = OldHotelAppointment(AppointmentStatus.InStay, TimeSpan.FromDays(5));
+        hotel.PlannedCheckIn = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        hotel.PlannedCheckOut = new DateTimeOffset(2026, 11, 22, 3, 0, 0, TimeSpan.Zero);
+
+        var cases = new (Appointment Appointment, AppointmentStatus Status, string Expected)[]
+        {
+            (spa, AppointmentStatus.Received, "Lịch spa lúc 10:00 ngày 20/11/2026 đã được tiếp nhận."),
+            (spa, AppointmentStatus.InProgress, "Lịch spa lúc 10:00 ngày 20/11/2026 đang được thực hiện."),
+            (spa, AppointmentStatus.Completed, "Lịch spa lúc 10:00 ngày 20/11/2026 đã hoàn tất."),
+            (hotel, AppointmentStatus.InStay, "Lịch lưu trú từ ngày 20/11/2026 đến ngày 22/11/2026: thú cưng đã được tiếp nhận và đang lưu trú."),
+            (hotel, AppointmentStatus.Completed, "Lịch lưu trú từ ngày 20/11/2026 đến ngày 22/11/2026 đã hoàn tất."),
+        };
+
+        foreach (var (appointment, status, expected) in cases)
+        {
+            var repo = new TestNotificationRepo(() => false);
+            var reader = new TestAppointmentNotificationReader(
+                _ => new AppointmentNotificationContext(appointment, customerUserId, [staffUserId]));
+            var notifier = new AppointmentNotifier(reader, new NotificationService(repo), shopZone);
+
+            await notifier.StatusChangedAsync(appointment.AppointmentId, status);
+
+            Check(repo.Created.Count == 1, $"{status}: only the customer must be notified.");
+            Check(repo.Created[0].RecipientUserId == customerUserId
+                    && repo.Created[0].Type == NotificationType.StatusChanged
+                    && repo.Created[0].AppointmentId == appointment.AppointmentId,
+                $"{status}: recipient, type and appointment must match.");
+            Check(repo.Created[0].Message == expected, $"{status}: message must match the template.");
+        }
+
+        var skippedRepo = new TestNotificationRepo(() => false);
+        var walkIn = new AppointmentNotifier(
+            new TestAppointmentNotificationReader(_ => new AppointmentNotificationContext(spa, null, [])),
+            new NotificationService(skippedRepo), shopZone);
+        await walkIn.StatusChangedAsync(spa.AppointmentId, AppointmentStatus.Completed);
+        var unknown = new AppointmentNotifier(
+            new TestAppointmentNotificationReader(_ => null), new NotificationService(skippedRepo), shopZone);
+        await unknown.StatusChangedAsync(Guid.NewGuid(), AppointmentStatus.Completed);
+        Check(skippedRepo.Created.Count == 0, "A walk-in customer and an unknown appointment must not be notified.");
+
+        var unsupported = new AppointmentNotifier(
+            new TestAppointmentNotificationReader(_ => new AppointmentNotificationContext(spa, customerUserId, [])),
+            new NotificationService(skippedRepo), shopZone);
+        var threw = false;
+        try
+        {
+            await unsupported.StatusChangedAsync(spa.AppointmentId, AppointmentStatus.Confirmed);
+        }
+        catch (InvalidOperationException)
+        {
+            threw = true;
+        }
+
+        Check(threw && skippedRepo.Created.Count == 0, "An unsupported status must throw and create nothing.");
+    }),
+    ("AppointmentNotifier.PaymentRecordedAsync notifies only the customer with the payment kind and amount", async () =>
+    {
+        var zone = TimeZoneInfo.CreateCustomTimeZone("UTC+7", TimeSpan.FromHours(7), "UTC+7", "UTC+7");
+        var shopZone = new ShopTimeZone(zone);
+        var customerUserId = Guid.NewGuid();
+
+        var spa = OldSpaAppointment(AppointmentStatus.Completed, TimeSpan.FromDays(-1));
+        spa.SlotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var hotel = OldHotelAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        hotel.PlannedCheckIn = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        hotel.PlannedCheckOut = new DateTimeOffset(2026, 11, 22, 3, 0, 0, TimeSpan.Zero);
+
+        var cases = new (Appointment Appointment, PaymentKind Kind, decimal Amount, string Expected)[]
+        {
+            (spa, PaymentKind.Spa, 150000m, "Lịch spa lúc 10:00 ngày 20/11/2026: đã ghi nhận thanh toán dịch vụ spa 150.000 đ."),
+            (hotel, PaymentKind.Stay, 300000m, "Lịch lưu trú từ ngày 20/11/2026 đến ngày 22/11/2026: đã ghi nhận thanh toán tiền lưu trú 300.000 đ."),
+            (hotel, PaymentKind.LateFee, 1250000m, "Lịch lưu trú từ ngày 20/11/2026 đến ngày 22/11/2026: đã ghi nhận thanh toán phí trả muộn 1.250.000 đ."),
+        };
+
+        foreach (var (appointment, kind, amount, expected) in cases)
+        {
+            var repo = new TestNotificationRepo(() => false);
+            var reader = new TestAppointmentNotificationReader(
+                _ => new AppointmentNotificationContext(appointment, customerUserId, [Guid.NewGuid()]));
+            var notifier = new AppointmentNotifier(reader, new NotificationService(repo), shopZone);
+
+            await notifier.PaymentRecordedAsync(appointment.AppointmentId, kind, amount);
+
+            Check(repo.Created.Count == 1, $"{kind}: only the customer must be notified.");
+            Check(repo.Created[0].RecipientUserId == customerUserId
+                    && repo.Created[0].Type == NotificationType.PaymentRecorded
+                    && repo.Created[0].AppointmentId == appointment.AppointmentId,
+                $"{kind}: recipient, type and appointment must match.");
+            Check(repo.Created[0].Message == expected, $"{kind}: message must match the template.");
+        }
+
+        var skippedRepo = new TestNotificationRepo(() => false);
+        await new AppointmentNotifier(
+                new TestAppointmentNotificationReader(_ => new AppointmentNotificationContext(spa, null, [])),
+                new NotificationService(skippedRepo), shopZone)
+            .PaymentRecordedAsync(spa.AppointmentId, PaymentKind.Spa, 150000m);
+        await new AppointmentNotifier(
+                new TestAppointmentNotificationReader(_ => null), new NotificationService(skippedRepo), shopZone)
+            .PaymentRecordedAsync(Guid.NewGuid(), PaymentKind.Spa, 150000m);
+        Check(skippedRepo.Created.Count == 0, "A walk-in customer and an unknown appointment must not be notified.");
+    }),
+    ("AppointmentNotifier.CostConfirmationRequestedAsync notifies only the customer with the weight, the new cost and the deadline", async () =>
+    {
+        var zone = TimeZoneInfo.CreateCustomTimeZone("UTC+7", TimeSpan.FromHours(7), "UTC+7", "UTC+7");
+        var shopZone = new ShopTimeZone(zone);
+        var customerUserId = Guid.NewGuid();
+        var expiresAt = new DateTimeOffset(2026, 11, 20, 4, 30, 0, TimeSpan.Zero);
+
+        var spa = OldSpaAppointment(AppointmentStatus.Received, TimeSpan.FromDays(5));
+        spa.SlotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var repo = new TestNotificationRepo(() => false);
+        var notifier = new AppointmentNotifier(
+            new TestAppointmentNotificationReader(
+                _ => new AppointmentNotificationContext(spa, customerUserId, [Guid.NewGuid()])),
+            new NotificationService(repo), shopZone);
+
+        await notifier.CostConfirmationRequestedAsync(spa.AppointmentId, 3.4m, 150000m, expiresAt);
+        await notifier.CostConfirmationRequestedAsync(spa.AppointmentId, 5m, 1250000m, expiresAt);
+
+        Check(repo.Created.Count == 2 && repo.Created.All(n =>
+                n.RecipientUserId == customerUserId && n.Type == NotificationType.CostConfirmation
+                && n.AppointmentId == spa.AppointmentId),
+            "Only the customer must be notified, with the CostConfirmation type.");
+        Check(repo.Created[0].Message == "Lịch spa lúc 10:00 ngày 20/11/2026: cân nặng thực tế của thú cưng là 3,4 kg nên chi phí mới là 150.000 đ. Vui lòng xác nhận hoặc từ chối trước 11:30 ngày 20/11/2026.",
+            "The message must carry the weight, the new cost and the local deadline.");
+        Check(repo.Created[1].Message.Contains("là 5 kg nên chi phí mới là 1.250.000 đ."),
+            "A whole weight must have no decimals and the cost must use dot separators.");
+
+        var skippedRepo = new TestNotificationRepo(() => false);
+        await new AppointmentNotifier(
+                new TestAppointmentNotificationReader(_ => new AppointmentNotificationContext(spa, null, [])),
+                new NotificationService(skippedRepo), shopZone)
+            .CostConfirmationRequestedAsync(spa.AppointmentId, 3.4m, 150000m, expiresAt);
+        await new AppointmentNotifier(
+                new TestAppointmentNotificationReader(_ => null), new NotificationService(skippedRepo), shopZone)
+            .CostConfirmationRequestedAsync(Guid.NewGuid(), 3.4m, 150000m, expiresAt);
+        Check(skippedRepo.Created.Count == 0, "A walk-in customer and an unknown appointment must not be notified.");
+    }),
+    ("CheckInService.CheckInSpaAsync notifies the customer after the transaction and requests a cost confirmation only when needed", async () =>
+    {
+        var now = DateTimeOffset.UtcNow;
+        var staffUser = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+        var customerUserId = Guid.NewGuid();
+
+        async Task<TestNotificationRepo> RunAsync(decimal declaredKg, SizeGroup currentGroup, decimal actualKg, Guid? recipient)
+        {
+            var pet = WeightTestCat(declaredKg, currentGroup);
+            var appointment = WeightTestSpa(pet.PetId, currentGroup, AppointmentStatus.Confirmed, now.AddMinutes(-5));
+            var guard = new TestConcurrencyGuard();
+            var (notifier, notices) = TestNotifiers.Recording(appointment, recipient, () => guard.InsideRun);
+            var service = new CheckInService(
+                new TestAssignmentRepo(appointment, [], [], new Dictionary<Guid, int>())
+                {
+                    AmountInput = WeightTestSpaAmountInput(Guid.NewGuid()),
+                },
+                guard, new TestStaffRoleReader(StaffRole.Receptionist), WeightTestPetRepo(pet), null!, null!, null!,
+                new TestCostConfirmationRepo(), notifier: notifier);
+
+            await service.CheckInSpaAsync(staffUser, appointment.AppointmentId, actualKg);
+            return notices;
+        }
+
+        var ok = await RunAsync(2.8m, SizeGroup.Small, 3.3m, customerUserId);
+        Check(ok.Created.Count == 1 && ok.Created[0].Type == NotificationType.StatusChanged
+                && ok.Created[0].RecipientUserId == customerUserId && ok.Created[0].Message.EndsWith("đã được tiếp nhận.")
+                && !ok.Created[0].InsideTransaction,
+            "An OK weight must create only the received notice, after the transaction.");
+
+        var heavier = await RunAsync(2.8m, SizeGroup.Small, 3.4m, customerUserId);
+        Check(heavier.Created.Count == 2 && heavier.Created[0].Type == NotificationType.StatusChanged,
+            "A weight needing confirmation must create the received notice first.");
+        Check(heavier.Created[1].Type == NotificationType.CostConfirmation && heavier.Created[1].RecipientUserId == customerUserId
+                && heavier.Created[1].Message.Contains("3,4 kg") && heavier.Created[1].Message.Contains("150.000 đ")
+                && !heavier.Created[1].InsideTransaction,
+            "The cost confirmation notice must carry the weight and the new cost and be created after the transaction.");
+
+        var lighter = await RunAsync(4.0m, SizeGroup.Medium, 2.9m, customerUserId);
+        Check(lighter.Created.Count == 1 && lighter.Created[0].Type == NotificationType.StatusChanged,
+            "PRICE_DECREASED needs no confirmation, so only the received notice is created.");
+
+        var walkIn = await RunAsync(2.8m, SizeGroup.Small, 3.4m, null);
+        Check(walkIn.Created.Count == 0, "A walk-in customer must not be notified.");
+    }),
+    ("CheckInService.CheckHotelWeightAsync notifies the customer only when a cost confirmation is requested", async () =>
+    {
+        var staffUser = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+        var customerUserId = Guid.NewGuid();
+
+        async Task<TestNotificationRepo> RunAsync(decimal declaredKg, SizeGroup currentGroup, decimal actualKg)
+        {
+            var pet = WeightTestCat(declaredKg, currentGroup);
+            var stay = WeightTestHotel(pet.PetId, currentGroup, AppointmentStatus.Confirmed);
+            var hotelRepo = new TestHotelAssignmentRepo(null, [], []) { Appointment = stay, AppointmentSpecies = Species.Cat };
+            var guard = new TestConcurrencyGuard();
+            var (notifier, notices) = TestNotifiers.Recording(stay, customerUserId, () => guard.InsideRun);
+            var service = new CheckInService(
+                new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()),
+                guard, new TestStaffRoleReader(StaffRole.Receptionist), WeightTestPetRepo(pet), hotelRepo,
+                WeightTestHotelCatalog(), new ShopTimeZone(TimeZoneInfo.Utc), new TestCostConfirmationRepo(),
+                notifier: notifier);
+
+            await service.CheckHotelWeightAsync(staffUser, stay.AppointmentId, actualKg);
+            return notices;
+        }
+
+        var within = await RunAsync(2.8m, SizeGroup.Small, 3.2m);
+        Check(within.Created.Count == 0, "A weight within the tolerance must not notify anyone.");
+
+        var heavier = await RunAsync(2.8m, SizeGroup.Small, 3.4m);
+        Check(heavier.Created.Count == 1 && heavier.Created[0].Type == NotificationType.CostConfirmation
+                && heavier.Created[0].RecipientUserId == customerUserId
+                && heavier.Created[0].Message.Contains("3,4 kg") && heavier.Created[0].Message.Contains(" đ. Vui lòng")
+                && !heavier.Created[0].InsideTransaction,
+            "A weight needing confirmation must create one cost confirmation notice after the transaction and no status notice.");
+    }),
+    ("CheckInService.CheckInHotelAsync notifies the customer after the transaction and stays silent when the check-in is rejected", async () =>
+    {
+        var customerUserId = Guid.NewGuid();
+        var user = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+        TestNotificationRepo? notices = null;
+
+        AppointmentNotifier Create(HotelAppointment stay, TestConcurrencyGuard guard)
+        {
+            var recording = TestNotifiers.Recording(stay, customerUserId, () => guard.InsideRun);
+            notices = recording.Notices;
+            return recording.Notifier;
+        }
+
+        var ok = CreateHotelCheckInScenario(createNotifier: Create);
+        var status = await ok.Service.CheckInHotelAsync(user, ok.Stay.AppointmentId);
+        Check(status == AppointmentStatus.InStay && notices!.Created.Count == 1
+                && notices.Created[0].Type == NotificationType.StatusChanged
+                && notices.Created[0].RecipientUserId == customerUserId
+                && notices.Created[0].Message.Contains("đang lưu trú") && !notices.Created[0].InsideTransaction,
+            "A successful check-in must create one status notice after the transaction.");
+
+        notices = null;
+        var unpaid = CreateHotelCheckInScenario(stayPaid: false, createNotifier: Create);
+        var code = await FailureCodeAsync(() => unpaid.Service.CheckInHotelAsync(user, unpaid.Stay.AppointmentId));
+        Check(code == ErrorCodes.PaymentNotDue && notices!.Created.Count == 0,
+            "A rejected check-in must not create any notice.");
+    }),
+    ("AppointmentProgressService notifies the customer after start and completion and not when a step is rejected", async () =>
+    {
+        var started = new ProgressFixture(AppointmentStatus.Received);
+        started.Base.AddPhoto(PhotoKind.Before, DateTimeOffset.UtcNow.AddHours(-1));
+        await started.CreateService().StartAsync(started.Base.SpaStaffUser, started.Spa.AppointmentId);
+        Check(started.Notices.Created.Count == 1 && started.Notices.Created[0].Type == NotificationType.StatusChanged
+                && started.Notices.Created[0].RecipientUserId == started.CustomerUserId
+                && started.Notices.Created[0].AppointmentId == started.Spa.AppointmentId
+                && started.Notices.Created[0].Message.EndsWith("đang được thực hiện.")
+                && !started.Notices.Created[0].InsideTransaction,
+            "Starting must create one in-progress notice after the transaction.");
+
+        var completed = new ProgressFixture(AppointmentStatus.InProgress);
+        completed.MakeReadyToComplete();
+        await completed.CreateService().CompleteAsync(completed.Base.SpaStaffUser, completed.Spa.AppointmentId);
+        Check(completed.Notices.Created.Count == 1 && completed.Notices.Created[0].Type == NotificationType.StatusChanged
+                && completed.Notices.Created[0].Message.EndsWith("đã hoàn tất.")
+                && !completed.Notices.Created[0].InsideTransaction,
+            "Completing must create one completed notice after the transaction.");
+
+        var wrongStatus = new ProgressFixture(AppointmentStatus.Confirmed);
+        wrongStatus.Base.AddPhoto(PhotoKind.Before, DateTimeOffset.UtcNow.AddHours(-1));
+        var startCode = await FailureCodeAsync(() =>
+            wrongStatus.CreateService().StartAsync(wrongStatus.Base.SpaStaffUser, wrongStatus.Spa.AppointmentId));
+        Check(startCode == ErrorCodes.InvalidTransition && wrongStatus.Notices.Created.Count == 0,
+            "A rejected start must not create any notice.");
+
+        var notReady = new ProgressFixture(AppointmentStatus.InProgress);
+        var completeCode = await FailureCodeAsync(() =>
+            notReady.CreateService().CompleteAsync(notReady.Base.SpaStaffUser, notReady.Spa.AppointmentId));
+        Check(completeCode is not null && notReady.Notices.Created.Count == 0,
+            "A rejected completion must not create any notice.");
+    }),
+    ("CheckOutService.CheckOutHotelAsync notifies the customer when the stay is completed and not while the late fee is unpaid", async () =>
+    {
+        var receptionist = new CurrentUser(Guid.NewGuid(), UserRole.Staff);
+        var customerUserId = Guid.NewGuid();
+
+        (CheckOutService Service, HotelAppointment Stay, TestNotificationRepo Notices) Create(int minutesLate)
+        {
+            var stay = WeightTestHotel(Guid.NewGuid(), SizeGroup.Small, AppointmentStatus.InStay);
+            stay.CageId = Guid.NewGuid();
+            stay.PlannedCheckOut = DateTimeOffset.UtcNow.AddMinutes(-minutesLate);
+            var guard = new TestConcurrencyGuard();
+            var (notifier, notices) = TestNotifiers.Recording(stay, customerUserId, () => guard.InsideRun);
+            var service = new CheckOutService(
+                new TestHotelAssignmentRepo(null, [], []) { Appointment = stay },
+                new TestStaffRoleReader(StaffRole.Receptionist),
+                new TestHotelCatalogRepo { LateFee = 50000m },
+                new TestPaymentRepo(null),
+                guard,
+                notifier);
+
+            return (service, stay, notices);
+        }
+
+        var onTime = Create(-120);
+        var result = await onTime.Service.CheckOutHotelAsync(receptionist, onTime.Stay.AppointmentId);
+        Check(result.Status == AppointmentStatus.Completed && onTime.Notices.Created.Count == 1
+                && onTime.Notices.Created[0].Type == NotificationType.StatusChanged
+                && onTime.Notices.Created[0].RecipientUserId == customerUserId
+                && onTime.Notices.Created[0].Message.EndsWith("đã hoàn tất.")
+                && !onTime.Notices.Created[0].InsideTransaction,
+            "A completed return must create one completed notice after the transaction.");
+
+        var late = Create(100);
+        var code = await FailureCodeAsync(() => late.Service.CheckOutHotelAsync(receptionist, late.Stay.AppointmentId));
+        Check(code == ErrorCodes.PaymentNotDue && late.Notices.Created.Count == 0,
+            "A return blocked by an unpaid late fee must not create any notice.");
+    }),
+    ("PaymentService.RecordCounterAsync notifies the customer after the transaction with the payment kind and amount", async () =>
+    {
+        var customerUserId = Guid.NewGuid();
+        var user = new CurrentUser(Guid.NewGuid(), UserRole.Manager);
+
+        var cases = new (PaymentKind Kind, AppointmentStatus AppointmentStatus, decimal Amount, string Expected)[]
+        {
+            (PaymentKind.Spa, AppointmentStatus.Completed, 150000m, "đã ghi nhận thanh toán dịch vụ spa 150.000 đ."),
+            (PaymentKind.Stay, AppointmentStatus.Confirmed, 300000m, "đã ghi nhận thanh toán tiền lưu trú 300.000 đ."),
+            (PaymentKind.LateFee, AppointmentStatus.InStay, 100000m, "đã ghi nhận thanh toán phí trả muộn 100.000 đ."),
+        };
+
+        foreach (var (kind, appointmentStatus, amount, expected) in cases)
+        {
+            var payment = OnlinePayment(kind, amount);
+            var appointment = kind == PaymentKind.Spa
+                ? (Appointment)OldSpaAppointment(appointmentStatus, TimeSpan.FromDays(-1))
+                : OldHotelAppointment(appointmentStatus, TimeSpan.FromDays(1));
+            appointment.AppointmentId = payment.AppointmentId;
+
+            var guard = new TestConcurrencyGuard();
+            var (notifier, notices) = TestNotifiers.Recording(appointment, customerUserId, () => guard.InsideRun);
+            var repo = new TestPaymentRepo(null) { ForUpdate = new PaymentForUpdate(payment, appointmentStatus) };
+            var service = new PaymentService(
+                repo, new TestPaymentGateway(), guard, new TestStaffRoleReader(null), new TestCostConfirmationRepo(),
+                notifier: notifier);
+
+            var status = await service.RecordCounterAsync(user, payment.PaymentId, PaymentMethod.Cash, amount);
+
+            Check(status == PaymentStatus.Paid && notices.Created.Count == 1, $"{kind}: one notice must be created.");
+            var notice = notices.Created[0];
+            Check(notice.RecipientUserId == customerUserId && notice.Type == NotificationType.PaymentRecorded
+                    && notice.AppointmentId == payment.AppointmentId && notice.Message.EndsWith(expected)
+                    && !notice.InsideTransaction,
+                $"{kind}: the notice must match and be created after the transaction.");
+        }
+
+        var rejectedPayment = OnlinePayment(PaymentKind.Spa, 150000m);
+        var rejectedAppointment = OldSpaAppointment(AppointmentStatus.Completed, TimeSpan.FromDays(-1));
+        rejectedAppointment.AppointmentId = rejectedPayment.AppointmentId;
+        var rejectedGuard = new TestConcurrencyGuard();
+        var (rejectedNotifier, rejectedNotices) =
+            TestNotifiers.Recording(rejectedAppointment, customerUserId, () => rejectedGuard.InsideRun);
+        var rejectedService = new PaymentService(
+            new TestPaymentRepo(null) { ForUpdate = new PaymentForUpdate(rejectedPayment, AppointmentStatus.Completed) },
+            new TestPaymentGateway(), rejectedGuard, new TestStaffRoleReader(null), new TestCostConfirmationRepo(),
+            notifier: rejectedNotifier);
+
+        var code = await FailureCodeAsync(() =>
+            rejectedService.RecordCounterAsync(user, rejectedPayment.PaymentId, PaymentMethod.Cash, 149000m));
+        Check(code == ErrorCodes.AmountMismatch && rejectedNotices.Created.Count == 0,
+            "A rejected counter payment must not create any notice.");
+    }),
+    ("PaymentService.ProcessCallbackAsync notifies the customer once when the payment is paid online and not for other outcomes", async () =>
+    {
+        var customerUserId = Guid.NewGuid();
+        var target = CallbackTarget();
+        var appointment = OldSpaAppointment(AppointmentStatus.Completed, TimeSpan.FromDays(-1));
+        appointment.AppointmentId = target.Payment.AppointmentId;
+        var guard = new TestConcurrencyGuard();
+        var (notifier, notices) = TestNotifiers.Recording(appointment, customerUserId, () => guard.InsideRun);
+        var repo = new TestPaymentRepo(null, target);
+
+        PaymentService Create(GatewayCallback callback) =>
+            new(repo, new TestPaymentGateway { Callback = callback }, guard, null!, null!, notifier: notifier);
+
+        var failed = await Create(SuccessCallback(target, succeeded: false)).ProcessCallbackAsync(new Dictionary<string, string>());
+        Check(failed.Status == PaymentCallbackStatus.Failed && notices.Created.Count == 0,
+            "A failed callback must not create a notice.");
+
+        var mismatch = await Create(SuccessCallback(target, confirmedAmount: 149000m)).ProcessCallbackAsync(new Dictionary<string, string>());
+        Check(mismatch.Status == PaymentCallbackStatus.AmountMismatch && notices.Created.Count == 0,
+            "An amount mismatch must not create a notice.");
+
+        var paid = await Create(SuccessCallback(target)).ProcessCallbackAsync(new Dictionary<string, string>());
+        Check(paid.Status == PaymentCallbackStatus.Paid && notices.Created.Count == 1, "A paid callback must create one notice.");
+        var notice = notices.Created[0];
+        Check(notice.RecipientUserId == customerUserId && notice.Type == NotificationType.PaymentRecorded
+                && notice.AppointmentId == target.Payment.AppointmentId
+                && notice.Message.EndsWith("đã ghi nhận thanh toán dịch vụ spa 150.000 đ.")
+                && !notice.InsideTransaction,
+            "The notice must match and be created after the transaction.");
+
+        var repeated = await Create(SuccessCallback(target)).ProcessCallbackAsync(new Dictionary<string, string>());
+        Check(repeated.Status == PaymentCallbackStatus.AlreadyProcessed && notices.Created.Count == 1,
+            "A repeated callback must not create another notice.");
+    }),
+    ("CostConfirmationService.RespondAsync notifies the customer only when the customer rejects the new cost", async () =>
+    {
+        foreach (var accept in new[] { true, false })
+        {
+            var ownerId = Guid.NewGuid();
+            var pet = WeightTestCat(2.8m, SizeGroup.Small);
+            var spa = WeightTestSpa(pet.PetId, SizeGroup.Small, AppointmentStatus.Received, DateTimeOffset.UtcNow.AddMinutes(-5));
+            var fixture = new CostConfirmationFixture(spa, pet, ownerId);
+
+            await fixture.Service.RespondAsync(new CurrentUser(ownerId, UserRole.Customer), spa.AppointmentId, accept);
+
+            if (accept)
+            {
+                Check(fixture.Notices.Created.Count == 0, "Accepting must not create a notice.");
+                continue;
+            }
+
+            Check(fixture.Notices.Created.Count == 1, "Rejecting must create one notice.");
+            var notice = fixture.Notices.Created[0];
+            Check(notice.RecipientUserId == ownerId && notice.Type == NotificationType.Cancelled
+                    && notice.AppointmentId == spa.AppointmentId
+                    && notice.Message.EndsWith("Lý do: chi phí mới không được khách hàng xác nhận.")
+                    && !notice.InsideTransaction,
+                "The cancellation notice must carry the reason and be created after the transaction.");
+        }
+
+        var foreignOwnerId = Guid.NewGuid();
+        var foreignPet = WeightTestCat(2.8m, SizeGroup.Small);
+        var foreignSpa = WeightTestSpa(foreignPet.PetId, SizeGroup.Small, AppointmentStatus.Received, DateTimeOffset.UtcNow.AddMinutes(-5));
+        var rejectedFixture = new CostConfirmationFixture(foreignSpa, foreignPet, foreignOwnerId);
+        var code = await FailureCodeAsync(() => rejectedFixture.Service.RespondAsync(
+            new CurrentUser(Guid.NewGuid(), UserRole.Customer), foreignSpa.AppointmentId, false));
+        Check(code is not null && rejectedFixture.Notices.Created.Count == 0,
+            "A rejected response must not create any notice.");
+    }),
+    ("AutoCancellationService notifies the customer after each automatic cancellation and not when nothing is cancelled", async () =>
+    {
+        var customerUserId = Guid.NewGuid();
+
+        var due = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromMinutes(-40));
+        var received = OldSpaAppointment(AppointmentStatus.Received, TimeSpan.FromMinutes(-40));
+        var noShowGuard = new TrackingConcurrencyGuard();
+        var (noShowNotifier, noShowNotices) = TestNotifiers.Recording(due, customerUserId, () => noShowGuard.InsideRun);
+        var noShowService = new AutoCancellationService(
+            new TestAutoCancellationRepo([due.AppointmentId, received.AppointmentId]),
+            new TestAppointmentStoreRepo([due, received]),
+            new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()),
+            noShowGuard,
+            new TestCostConfirmationRepo(),
+            noShowNotifier,
+            new NoShowStatisticsService(new TestNoShowStatisticsRepo(30, 0)));
+
+        Check(await noShowService.CancelNoShowsAsync() == 1, "Only the appointment past its hold time must be cancelled.");
+        Check(noShowNotices.Created.Count == 1 && noShowNotices.Created[0].Type == NotificationType.Cancelled
+                && noShowNotices.Created[0].RecipientUserId == customerUserId
+                && noShowNotices.Created[0].AppointmentId == due.AppointmentId
+                && noShowNotices.Created[0].Message.EndsWith("Lý do: khách hàng vắng mặt.")
+                && !noShowNotices.Created[0].InsideTransaction,
+            "A no-show cancellation must create one notice with the reason after the transaction, and the untouched appointment none.");
+
+        CostConfirmation Pending(Guid appointmentId, int expiresInMinutes) => new()
+        {
+            ConfirmationId = Guid.NewGuid(),
+            AppointmentId = appointmentId,
+            ActualWeightKg = 5.0m,
+            NewSizeGroup = SizeGroup.Medium,
+            OldAmount = 100000m,
+            NewAmount = 150000m,
+            Status = ConfirmationStatus.Pending,
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-40),
+            ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(expiresInMinutes),
+        };
+
+        var overdue = OldSpaAppointment(AppointmentStatus.Received, TimeSpan.FromMinutes(-40));
+        var notYet = OldSpaAppointment(AppointmentStatus.Received, TimeSpan.FromMinutes(-10));
+        var confirmations = new TestCostConfirmationRepo();
+        confirmations.Items.Add(Pending(overdue.AppointmentId, -1));
+        confirmations.Items.Add(Pending(notYet.AppointmentId, 20));
+        var overdueGuard = new TrackingConcurrencyGuard();
+        var (overdueNotifier, overdueNotices) = TestNotifiers.Recording(overdue, customerUserId, () => overdueGuard.InsideRun);
+        var overdueService = new AutoCancellationService(
+            new TestAutoCancellationRepo([], [overdue.AppointmentId, notYet.AppointmentId]),
+            new TestAppointmentStoreRepo([overdue, notYet]),
+            new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()),
+            overdueGuard,
+            confirmations,
+            overdueNotifier,
+            new NoShowStatisticsService(new TestNoShowStatisticsRepo(30, 0)));
+
+        Check(await overdueService.CancelOverdueCostConfirmationsAsync() == 1, "Only the overdue request must cancel its appointment.");
+        Check(overdueNotices.Created.Count == 1 && overdueNotices.Created[0].Type == NotificationType.Cancelled
+                && overdueNotices.Created[0].AppointmentId == overdue.AppointmentId
+                && overdueNotices.Created[0].Message.EndsWith("Lý do: chi phí mới không được khách hàng xác nhận.")
+                && !overdueNotices.Created[0].InsideTransaction,
+            "An overdue cost confirmation cancellation must create one notice with the reason after the transaction, and the request not yet overdue none.");
+    }),
+    ("NoShowStatisticsService.LockBookingIfExceededAsync locks only when the recent no-shows exceed the configured threshold", async () =>
+    {
+        var customerId = Guid.NewGuid();
+        var now = new DateTimeOffset(2026, 11, 28, 3, 0, 0, TimeSpan.Zero);
+
+        foreach (var (count, threshold, expectedLocked) in new[]
+        {
+            (0, 3, false), (3, 3, false), (4, 3, true), (6, 3, true),
+            (0, 0, false), (1, 0, true), (2, 2, false), (3, 2, true),
+        })
+        {
+            var repo = new TestNoShowStatisticsRepo(30, count, threshold);
+
+            var locked = await new NoShowStatisticsService(repo).LockBookingIfExceededAsync(customerId, now);
+
+            Check(locked == expectedLocked, $"count {count}, threshold {threshold}: expected locked = {expectedLocked}.");
+            Check(repo.LockedCustomerIds.Count == (expectedLocked ? 1 : 0)
+                    && (!expectedLocked || repo.LockedCustomerIds[0] == customerId),
+                $"count {count}, threshold {threshold}: the customer must be locked exactly when expected.");
+            Check(repo.LastCustomerId == customerId && repo.LastSince == now.AddDays(-30),
+                $"count {count}, threshold {threshold}: the count must use the customer and the {30}-day window.");
+        }
+    }),
+    ("AutoCancellationService locks self-booking of a customer whose no-shows exceed the threshold, inside the cancellation transaction", async () =>
+    {
+        async Task<(TestNoShowStatisticsRepo Stats, SpaAppointment Due, SpaAppointment NotDue, int Cancelled)> RunAsync(int count)
+        {
+            var due = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromMinutes(-40));
+            var notDue = OldSpaAppointment(AppointmentStatus.Received, TimeSpan.FromMinutes(-40));
+            var guard = new TrackingConcurrencyGuard();
+            var stats = new TestNoShowStatisticsRepo(30, count) { InsideTransaction = () => guard.InsideRun };
+            var service = new AutoCancellationService(
+                new TestAutoCancellationRepo([due.AppointmentId, notDue.AppointmentId]),
+                new TestAppointmentStoreRepo([due, notDue]),
+                new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()),
+                guard,
+                new TestCostConfirmationRepo(),
+                NoNotifier(),
+                new NoShowStatisticsService(stats));
+
+            var cancelled = await service.CancelNoShowsAsync();
+            return (stats, due, notDue, cancelled);
+        }
+
+        var over = await RunAsync(4);
+        Check(over.Cancelled == 1 && over.Stats.LockedCustomerIds.SequenceEqual(new[] { over.Due.CustomerId }),
+            "A fourth no-show within the window must lock the customer of the cancelled appointment only.");
+        Check(over.Stats.LockedInsideTransaction.SequenceEqual(new[] { true }),
+            "The lock must be written inside the cancellation transaction.");
+        Check(over.Stats.LastCustomerId == over.Due.CustomerId && !over.Stats.LockedCustomerIds.Contains(over.NotDue.CustomerId),
+            "An appointment that was not cancelled must neither be counted nor lock its customer.");
+
+        var atThreshold = await RunAsync(3);
+        Check(atThreshold.Cancelled == 1 && atThreshold.Stats.LockedCustomerIds.Count == 0,
+            "Exactly three no-shows must not lock.");
+    }),
+    ("AutoCancellationService does not count or lock when it cancels an overdue cost confirmation", async () =>
+    {
+        var overdue = OldSpaAppointment(AppointmentStatus.Received, TimeSpan.FromMinutes(-40));
+        var confirmations = new TestCostConfirmationRepo();
+        confirmations.Items.Add(new CostConfirmation
+        {
+            ConfirmationId = Guid.NewGuid(),
+            AppointmentId = overdue.AppointmentId,
+            ActualWeightKg = 5.0m,
+            NewSizeGroup = SizeGroup.Medium,
+            OldAmount = 100000m,
+            NewAmount = 150000m,
+            Status = ConfirmationStatus.Pending,
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-40),
+            ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+        });
+        var stats = new TestNoShowStatisticsRepo(30, 10);
+        var service = new AutoCancellationService(
+            new TestAutoCancellationRepo([], [overdue.AppointmentId]),
+            new TestAppointmentStoreRepo([overdue]),
+            new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()),
+            new TrackingConcurrencyGuard(),
+            confirmations,
+            NoNotifier(),
+            new NoShowStatisticsService(stats));
+
+        Check(await service.CancelOverdueCostConfirmationsAsync() == 1 && overdue.CancelReason == CancelReason.CostNotConfirmed,
+            "The overdue request must cancel the appointment with CostNotConfirmed.");
+        Check(stats.LastCustomerId is null && stats.LockedCustomerIds.Count == 0,
+            "A cost confirmation cancellation must neither count no-shows nor lock the customer.");
     }),
 };
 
@@ -9291,7 +9885,8 @@ static (CheckInService Service, HotelAppointment Stay, TestHotelAssignmentRepo H
         int minutesAfterPlannedCheckIn = 5,
         bool pendingConfirmation = false,
         bool? stayPaid = true,
-        StaffRole? staffRole = StaffRole.Receptionist)
+        StaffRole? staffRole = StaffRole.Receptionist,
+        Func<HotelAppointment, TestConcurrencyGuard, AppointmentNotifier>? createNotifier = null)
 {
     var stay = WeightTestHotel(Guid.NewGuid(), SizeGroup.Small, status);
     stay.PlannedCheckIn = DateTimeOffset.UtcNow.AddMinutes(-minutesAfterPlannedCheckIn);
@@ -9335,7 +9930,8 @@ static (CheckInService Service, HotelAppointment Stay, TestHotelAssignmentRepo H
         null!,
         new ShopTimeZone(TimeZoneInfo.Utc),
         confirmations,
-        payments);
+        payments,
+        createNotifier is null ? null! : createNotifier(stay, guard));
 
     return (service, stay, hotels, guard);
 }
@@ -9885,6 +10481,8 @@ sealed class CostConfirmationFixture
         Changes = new TestAppointmentChangeRepo(appointment, ownerUserId, 60);
         Confirmations = new TestCostConfirmationRepo();
         Guard = new TestConcurrencyGuard();
+        var recording = TestNotifiers.Recording(appointment, ownerUserId, () => Guard.InsideRun);
+        Notices = recording.Notices;
 
         if (withPending)
         {
@@ -9909,12 +10507,13 @@ sealed class CostConfirmationFixture
 
         Service = new CostConfirmationService(
             Changes, Confirmations, petRepo, new TestHotelAssignmentRepo(null, cages ?? [], []), Guard,
-            new TestStaffRoleReader(staffRole));
+            new TestStaffRoleReader(staffRole), recording.Notifier);
     }
 
     public Appointment Appointment { get; }
     public Pet Pet { get; }
     public TestAppointmentChangeRepo Changes { get; }
+    public TestNotificationRepo Notices { get; }
     public TestCostConfirmationRepo Confirmations { get; }
     public TestConcurrencyGuard Guard { get; }
     public CostConfirmationService Service { get; }
@@ -10764,6 +11363,19 @@ static class TestNotifiers
         new TestAppointmentNotificationReader(_ => null),
         new NotificationService(new TestNotificationRepo(() => false)),
         new ShopTimeZone(TimeZoneInfo.Utc));
+
+    public static (AppointmentNotifier Notifier, TestNotificationRepo Notices) Recording(
+        Appointment appointment, Guid? customerUserId, Func<bool> insideTransaction, params Guid[] staffUserIds)
+    {
+        var notices = new TestNotificationRepo(insideTransaction);
+        var notifier = new AppointmentNotifier(
+            new TestAppointmentNotificationReader(
+                _ => new AppointmentNotificationContext(appointment, customerUserId, staffUserIds)),
+            new NotificationService(notices),
+            new ShopTimeZone(TimeZoneInfo.Utc));
+
+        return (notifier, notices);
+    }
 }
 
 sealed record RecordedRequest(
@@ -10986,10 +11598,13 @@ sealed class TestAutoCancellationRepo(
     }
 }
 
-sealed class TestNoShowStatisticsRepo(int windowDays, int count) : INoShowStatisticsRepository
+sealed class TestNoShowStatisticsRepo(int windowDays, int count, int lockThreshold = 3) : INoShowStatisticsRepository
 {
     public Guid? LastCustomerId { get; private set; }
     public DateTimeOffset? LastSince { get; private set; }
+    public Func<bool> InsideTransaction { get; init; } = () => false;
+    public List<Guid> LockedCustomerIds { get; } = [];
+    public List<bool> LockedInsideTransaction { get; } = [];
 
     public Task<int> GetWindowDaysAsync(CancellationToken ct = default) => Task.FromResult(windowDays);
 
@@ -10998,6 +11613,15 @@ sealed class TestNoShowStatisticsRepo(int windowDays, int count) : INoShowStatis
         LastCustomerId = customerId;
         LastSince = since;
         return Task.FromResult(count);
+    }
+
+    public Task<int> GetLockThresholdAsync(CancellationToken ct = default) => Task.FromResult(lockThreshold);
+
+    public Task LockBookingAsync(Guid customerId, CancellationToken ct = default)
+    {
+        LockedCustomerIds.Add(customerId);
+        LockedInsideTransaction.Add(InsideTransaction());
+        return Task.CompletedTask;
     }
 }
 
@@ -11045,19 +11669,23 @@ sealed class ProgressFixture
     public TestPaymentRepo Payments { get; } = new(null);
     public Guid ServiceId { get; } = Guid.NewGuid();
     public CurrentUser ManagerUser { get; } = new(Guid.NewGuid(), UserRole.Manager);
+    public Guid CustomerUserId { get; } = Guid.NewGuid();
+    public AppointmentNotifier Notifier { get; }
+    public TestNotificationRepo Notices { get; }
     public SpaAppointment Spa => Base.Spa;
     public PetSpa.Domain.Entities.AppointmentService Line { get; }
 
     public ProgressFixture(AppointmentStatus status)
     {
         Base = new PhotoFixture(status);
+        (Notifier, Notices) = TestNotifiers.Recording(Base.Spa, CustomerUserId, () => Base.Guard.InsideRun);
         Assignments = new TestAssignmentRepo(Base.Spa, [], [], new Dictionary<Guid, int>());
         Line = new PetSpa.Domain.Entities.AppointmentService { AppointmentId = Base.Spa.AppointmentId, ServiceId = ServiceId };
         Progress.Lines.Add(Line);
     }
 
     public AppointmentProgressService CreateService(StaffRole? staffRole = StaffRole.SpaStaff) =>
-        new(Base.Appointments, Assignments, Base.Photos, Progress, CostConfirmations, Payments, Base.Guard, new TestStaffRoleReader(staffRole));
+        new(Base.Appointments, Assignments, Base.Photos, Progress, CostConfirmations, Payments, Base.Guard, new TestStaffRoleReader(staffRole), Notifier);
 
     public void MakeReadyToComplete(SizeGroup sizeGroup = SizeGroup.Medium)
     {

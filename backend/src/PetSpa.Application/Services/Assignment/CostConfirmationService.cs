@@ -1,5 +1,6 @@
 using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
+using PetSpa.Application.Services.Notifications;
 using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
 using PetSpa.Domain.Exceptions;
@@ -14,7 +15,8 @@ public sealed class CostConfirmationService(
     IPetRepository pets,
     IHotelAssignmentRepository hotelAssignments,
     IConcurrencyGuard concurrency,
-    IStaffRoleReader staffRoles)
+    IStaffRoleReader staffRoles,
+    AppointmentNotifier notifier)
 {
     public async Task<CostConfirmationResult> RespondAsync(
         CurrentUser user, Guid appointmentId, bool accept, CancellationToken ct = default)
@@ -27,7 +29,7 @@ public sealed class CostConfirmationService(
         if (user.Role == UserRole.Customer)
             OwnershipGuard.EnsureOwner(user, target.OwnerUserId);
 
-        return await concurrency.RunAsync(async () =>
+        var result = await concurrency.RunAsync(async () =>
         {
             await concurrency.LockAppointmentAsync(appointmentId, ct);
 
@@ -46,6 +48,11 @@ public sealed class CostConfirmationService(
                 ? await AcceptAsync(user, appointment, confirmation, now, ct)
                 : await RejectAsync(user, appointment, confirmation, now, ct);
         }, ct);
+
+        if (!accept)
+            await notifier.CancelledAsync(appointmentId, ct);
+
+        return result;
     }
 
     private async Task<CostConfirmationResult> AcceptAsync(

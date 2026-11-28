@@ -22,6 +22,25 @@ public sealed class NoShowStatisticsRepository(AppDbContext db) : INoShowStatist
             : defaultWindowDays;
     }
 
+    public async Task<int> GetLockThresholdAsync(CancellationToken ct = default)
+    {
+        const int defaultLockThreshold = 3;
+
+        var value = await db.Set<SystemConfig>().AsNoTracking()
+            .Where(c => c.ConfigKey == "NoShow.LockThreshold")
+            .Select(c => c.ConfigValue)
+            .FirstOrDefaultAsync(ct);
+
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var threshold) && threshold >= 0
+            ? threshold
+            : defaultLockThreshold;
+    }
+
+    public Task LockBookingAsync(Guid customerId, CancellationToken ct = default) =>
+        db.Set<Customer>()
+            .Where(c => c.CustomerId == customerId && !c.IsBookingLocked)
+            .ExecuteUpdateAsync(s => s.SetProperty(c => c.IsBookingLocked, true), ct);
+
     public Task<int> CountNoShowsSinceAsync(Guid customerId, DateTimeOffset since, CancellationToken ct = default) =>
         NoShowsSince(db.Set<Appointment>().AsNoTracking(), customerId, since).CountAsync(ct);
 

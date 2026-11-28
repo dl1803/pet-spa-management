@@ -1,4 +1,6 @@
 using PetSpa.Application.Ports;
+using PetSpa.Application.Services.Booking;
+using PetSpa.Application.Services.Notifications;
 using PetSpa.Domain.Enums;
 
 namespace PetSpa.Application.Services.Assignment;
@@ -8,7 +10,9 @@ public sealed class AutoCancellationService(
     IAppointmentChangeRepository appointments,
     IAssignmentRepository assignments,
     IConcurrencyGuard concurrency,
-    ICostConfirmationRepository costConfirmations)
+    ICostConfirmationRepository costConfirmations,
+    AppointmentNotifier notifier,
+    NoShowStatisticsService noShows)
 {
     public async Task<int> CancelNoShowsAsync(CancellationToken ct = default)
     {
@@ -21,7 +25,10 @@ public sealed class AutoCancellationService(
         {
             ct.ThrowIfCancellationRequested();
 
-            if (await TryCancelNoShowAsync(appointmentId, holdMinutes, ct)) cancelled++;
+            if (!await TryCancelNoShowAsync(appointmentId, holdMinutes, ct)) continue;
+
+            await notifier.CancelledAsync(appointmentId, ct);
+            cancelled++;
         }
 
         return cancelled;
@@ -37,7 +44,10 @@ public sealed class AutoCancellationService(
         {
             ct.ThrowIfCancellationRequested();
 
-            if (await TryCancelOverdueCostConfirmationAsync(appointmentId, ct)) cancelled++;
+            if (!await TryCancelOverdueCostConfirmationAsync(appointmentId, ct)) continue;
+
+            await notifier.CancelledAsync(appointmentId, ct);
+            cancelled++;
         }
 
         return cancelled;
@@ -56,6 +66,7 @@ public sealed class AutoCancellationService(
 
             appointment.CancelAsNoShow(now, holdMinutes);
             await appointments.SaveCancellationAsync(appointment, ct);
+            await noShows.LockBookingIfExceededAsync(appointment.CustomerId, now, ct);
             return true;
         }, ct);
 

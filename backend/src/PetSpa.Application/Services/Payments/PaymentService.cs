@@ -2,6 +2,7 @@ using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
 using PetSpa.Application.Services.Booking;
+using PetSpa.Application.Services.Notifications;
 using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
 using PetSpa.Domain.Exceptions;
@@ -33,7 +34,8 @@ public sealed class PaymentService(
     IConcurrencyGuard concurrency,
     IStaffRoleReader staffRoles,
     ICostConfirmationRepository costConfirmations,
-    AppointmentQueryService appointmentQueries = null!)
+    AppointmentQueryService appointmentQueries = null!,
+    AppointmentNotifier notifier = null!)
 {
     /// <summary>
     /// Constructor overload phục vụ kiểm thử cho các luồng thanh toán trực tuyến không dùng tới quầy.
@@ -61,7 +63,7 @@ public sealed class PaymentService(
         if (method is not (PaymentMethod.Cash or PaymentMethod.BankQR))
             throw new BusinessException(ErrorCodes.ValidationError, "Thanh toán tại quầy chỉ nhận Cash hoặc BankQR.");
 
-        return await concurrency.RunAsync(async () =>
+        var paid = await concurrency.RunAsync(async () =>
         {
             await concurrency.LockPaymentAsync(paymentId, ct);
 
@@ -80,8 +82,13 @@ public sealed class PaymentService(
             payment.MarkPaid(target.AppointmentStatus, receivedAmount, method, user.UserId);
             await payments.SaveChangesAsync(ct);
 
-            return payment.Status;
+            return payment;
         }, ct);
+
+        if (notifier is not null)
+            await notifier.PaymentRecordedAsync(paid.AppointmentId, paid.Kind, paid.Amount, ct);
+
+        return paid.Status;
     }
 
     public async Task<IReadOnlyList<Payment>> ListByAppointmentAsync(
@@ -151,7 +158,9 @@ public sealed class PaymentService(
         if (paymentId is null)
             return new PaymentCallbackResult(PaymentCallbackStatus.TxnNotFound, callback.TxnRef);
 
-        return await concurrency.RunAsync(async () =>
+        Payment? recorded = null;
+
+        var result = await concurrency.RunAsync(async () =>
         {
             await concurrency.LockPaymentAsync(paymentId.Value, ct);
 
@@ -190,8 +199,14 @@ public sealed class PaymentService(
 
             RecordCallback(transaction, callback, TransactionResult.Success);
             await payments.SaveChangesAsync(ct);
+            recorded = payment;
             return Outcome(PaymentCallbackStatus.Paid, transaction, payment, callback);
         }, ct);
+
+        if (recorded is not null && notifier is not null)
+            await notifier.PaymentRecordedAsync(recorded.AppointmentId, recorded.Kind, recorded.Amount, ct);
+
+        return result;
     }
 
     private async Task EnsureReceptionistOrManagerAsync(CurrentUser user, CancellationToken ct)

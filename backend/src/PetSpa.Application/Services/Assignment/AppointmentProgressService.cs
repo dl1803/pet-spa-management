@@ -1,5 +1,6 @@
 using PetSpa.Application.Ports;
 using PetSpa.Application.Security;
+using PetSpa.Application.Services.Notifications;
 using PetSpa.Domain.Entities;
 using PetSpa.Domain.Enums;
 using PetSpa.Domain.Exceptions;
@@ -15,14 +16,15 @@ public sealed class AppointmentProgressService(
     ICostConfirmationRepository costConfirmations,
     IPaymentRepository payments,
     IConcurrencyGuard concurrency,
-    IStaffRoleReader staffRoles)
+    IStaffRoleReader staffRoles,
+    AppointmentNotifier notifier)
 {
     public async Task<AppointmentStatus> StartAsync(
         CurrentUser user, Guid appointmentId, CancellationToken ct = default)
     {
         await EnsureCanUpdateAsync(user, appointmentId, ct);
 
-        return await concurrency.RunAsync(async () =>
+        var status = await concurrency.RunAsync(async () =>
         {
             await concurrency.LockAppointmentAsync(appointmentId, ct);
 
@@ -40,6 +42,10 @@ public sealed class AppointmentProgressService(
 
             return appointment.Status;
         }, ct);
+
+        await notifier.StatusChangedAsync(appointmentId, status, ct);
+
+        return status;
     }
 
     public async Task UpdateServiceAsync(
@@ -69,7 +75,7 @@ public sealed class AppointmentProgressService(
     {
         await EnsureCanUpdateAsync(user, appointmentId, ct);
 
-        return await concurrency.RunAsync(async () =>
+        var status = await concurrency.RunAsync(async () =>
         {
             await concurrency.LockAppointmentAsync(appointmentId, ct);
 
@@ -98,6 +104,10 @@ public sealed class AppointmentProgressService(
 
             return appointment.Status;
         }, ct);
+
+        await notifier.StatusChangedAsync(appointmentId, status, ct);
+
+        return status;
     }
 
     private async Task<decimal> CalculateSpaAmountAsync(SpaAppointment appointment, CancellationToken ct)
