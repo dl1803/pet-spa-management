@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
@@ -23,7 +23,6 @@ import { HotelWeightStep } from "@/features/reception-check-in/components/hotel-
 import { WeightField } from "@/features/reception-check-in/components/weight-field";
 import { WeightOutcomeNotice } from "@/features/reception-check-in/components/weight-outcome-notice";
 import {
-  CHECK_IN_QUERY_KEY,
   describeWeightOutcome,
   getCheckInPanel,
   getHotelCheckInGate,
@@ -32,16 +31,11 @@ import {
   isNotFoundError,
   isPaymentNotDueError,
   NOT_CHECK_IN_STEP_MESSAGE,
+  resolvePendingCostConfirmation,
   type CheckInData,
   type WeightOutcome,
 } from "@/features/reception-check-in/check-in";
-import {
-  mockCheckInHotel,
-  mockCheckInSpa,
-  mockCheckWeight,
-  mockGetCheckInData,
-  mockRespondCostConfirmation,
-} from "@/features/reception-check-in/mock-api";
+import { mockCheckInHotel } from "@/features/reception-check-in/mock-api";
 import {
   EMPTY_WEIGHT_VALUES,
   formatWeightInput,
@@ -50,8 +44,17 @@ import {
   type WeightFormValues,
 } from "@/features/reception-check-in/weight";
 import { isForbiddenError } from "@/lib/api/errors";
-import type { ActualWeightRequest } from "@/lib/api/types";
+import type { ActualWeightRequest, WeightCheck } from "@/lib/api/types";
 import { formatAppointmentCode, formatLongDate } from "@/lib/format";
+import {
+  appointmentKeys,
+  useAppointment,
+  useCheckInAppointment,
+  useRespondCostConfirmation,
+  useWeightCheckAppointment,
+} from "@/lib/queries/appointments";
+import { getRememberedPendingCostConfirmation } from "@/lib/queries/pending-cost-confirmation";
+import { usePet } from "@/lib/queries/pets";
 import { ROUTES } from "@/lib/routes";
 import { buildStoreDateTime, getStoreDateKey } from "@/lib/time";
 
@@ -114,15 +117,17 @@ function CheckInSkeleton() {
 }
 
 function CheckInLoader({ appointmentId }: { appointmentId: string }) {
-  const query = useQuery({
-    queryKey: [...CHECK_IN_QUERY_KEY, appointmentId],
-    queryFn: () => mockGetCheckInData(appointmentId),
-  });
+  const appointmentQuery = useAppointment(appointmentId);
+  const appointment = appointmentQuery.data;
+  const petQuery = usePet(appointment?.petId ?? null);
+  const pet = petQuery.data;
 
-  if (query.data === undefined) {
-    if (!query.isError) return <CheckInSkeleton />;
-    if (isForbiddenError(query.error)) return <ForbiddenState />;
-    if (isNotFoundError(query.error)) {
+  if (appointment === undefined || pet === undefined) {
+    // Chưa có lịch thì xét lỗi của lịch; có lịch rồi mới xét lỗi hồ sơ thú cưng.
+    const failed = appointment === undefined ? appointmentQuery : petQuery;
+    if (!failed.isError) return <CheckInSkeleton />;
+    if (isForbiddenError(failed.error)) return <ForbiddenState />;
+    if (appointment === undefined && isNotFoundError(failed.error)) {
       return (
         <Card>
           <EmptyState
@@ -140,15 +145,16 @@ function CheckInLoader({ appointmentId }: { appointmentId: string }) {
     }
     return (
       <div className="flex flex-col items-start gap-3">
-        <ErrorAlert error={query.error} className="w-full" />
-        <Button variant="secondary" onClick={() => void query.refetch()}>
+        <ErrorAlert error={failed.error} className="w-full" />
+        <Button variant="secondary" onClick={() => void failed.refetch()}>
           Thử lại
         </Button>
       </div>
     );
   }
 
-  return <CheckInCard data={query.data} reload={() => void query.refetch()} />;
+  // Tiền lưu trú và mã chuồng của lịch lưu trú chưa nối API nên để null: nút "Xác nhận tiếp nhận" của lịch lưu trú giữ khóa.
+  return <CheckInCard data={{ appointment, pet, cageCode: null, stay: null }} reload={() => void appointmentQuery.refetch()} />;
 }
 
 type CheckInCardProps = {
@@ -156,8 +162,11 @@ type CheckInCardProps = {
   reload: () => void;
 };
 
-function CheckInCard({ data, reload }: CheckInCardProps) {
-  const { appointment, pet } = data;
+function CheckInCard({ data: loaded, reload }: CheckInCardProps) {
+  // Backend chưa trả pendingCostConfirmation ở chi tiết lịch: ghép yêu cầu đã nhận sau lần đối chiếu cân nặng để màn vẫn hiện đồng hồ và nút ghi nhận phản hồi.
+  const appointment = resolvePendingCostConfirmation(loaded.appointment, getRememberedPendingCostConfirmation(loaded.appointment.appointmentId));
+  const data: CheckInData = { ...loaded, appointment };
+  const { pet } = data;
   const appointmentId = appointment.appointmentId;
   const isSpa = appointment.type === "Spa";
   const panel = getCheckInPanel(appointment);
@@ -177,50 +186,50 @@ function CheckInCard({ data, reload }: CheckInCardProps) {
     defaultValues: EMPTY_WEIGHT_VALUES,
   });
 
+  // Chỉ còn bước tiếp nhận lưu trú dùng hàm này để làm mới chi tiết lịch sau khi gọi dữ liệu mô phỏng.
   function reloadAppointment() {
-    void queryClient.invalidateQueries({ queryKey: [...CHECK_IN_QUERY_KEY, appointmentId] });
+    void queryClient.invalidateQueries({ queryKey: appointmentKeys.detail(appointmentId) });
   }
 
-  const weightMutation = useMutation({
-    mutationFn: async (request: ActualWeightRequest) =>
-      isSpa ? (await mockCheckInSpa(appointmentId, request)).weightCheck : (await mockCheckWeight(appointmentId, request)).weightCheck,
-    onSuccess: (weightCheck, request) => {
-      setOutcome(
-        weightCheck
-          ? {
-              weightCheck,
-              actualWeightKg: request.actualWeightKg,
-              declaredWeightKg: pet.weightKg,
-              previousSizeGroup: appointment.sizeGroup,
-            }
-          : null,
-      );
-      if (isSpa) showSuccess(`Đã tiếp nhận ${pet.name}`);
-      reloadAppointment();
-    },
-    onError: (error) => {
-      if (isConflictError(error)) reloadAppointment();
-    },
-  });
+  const spaCheckInMutation = useCheckInAppointment();
+  const hotelWeightMutation = useWeightCheckAppointment();
+  const respondMutation = useRespondCostConfirmation();
+  const weightMutation = isSpa ? spaCheckInMutation : hotelWeightMutation;
 
-  const respondMutation = useMutation({
-    mutationFn: (accept: boolean) => mockRespondCostConfirmation(appointmentId, { accept }),
-    onSuccess: (_result, accept) => {
-      setIsDialogOpen(false);
-      showSuccess(
-        accept
-          ? `Đã ghi nhận khách đồng ý chi phí mới cho ${pet.name}`
-          : `Đã ghi nhận khách từ chối chi phí mới. Lịch của ${pet.name} đã bị hủy`,
-      );
-      reloadAppointment();
-    },
-    onError: (error) => {
-      if (isConflictError(error)) {
-        setIsDialogOpen(false);
-        reloadAppointment();
-      }
-    },
-  });
+  function handleWeightChecked(request: ActualWeightRequest, weightCheck: WeightCheck | undefined) {
+    setOutcome(
+      weightCheck
+        ? {
+            weightCheck,
+            actualWeightKg: request.actualWeightKg,
+            declaredWeightKg: pet.weightKg,
+            previousSizeGroup: appointment.sizeGroup,
+          }
+        : null,
+    );
+    if (isSpa && weightCheck?.result !== "NEEDS_CONFIRMATION") showSuccess(`Đã tiếp nhận ${pet.name}`);
+  }
+
+  function handleRespond(accept: boolean) {
+    respondMutation.mutate(
+      { appointmentId, request: { accept } },
+      {
+        onSuccess: () => {
+          setIsDialogOpen(false);
+          setOutcome(null);
+          showSuccess(
+            accept
+              ? `Đã ghi nhận khách đồng ý chi phí mới cho ${pet.name}`
+              : `Đã ghi nhận khách từ chối chi phí mới. Lịch của ${pet.name} đã bị hủy`,
+          );
+        },
+        onError: (error) => {
+          // Lịch đã đổi trạng thái hoặc không còn yêu cầu đang chờ: đóng hộp thoại để lỗi hiện ngoài hộp thoại; dữ liệu đã được tải lại.
+          if (isConflictError(error) || isNotFoundError(error)) setIsDialogOpen(false);
+        },
+      },
+    );
+  }
 
   const checkInMutation = useMutation({
     mutationFn: () => mockCheckInHotel(appointmentId),
@@ -238,7 +247,11 @@ function CheckInCard({ data, reload }: CheckInCardProps) {
   function onSubmit(values: WeightFormValues) {
     const request = toActualWeightRequest(values);
     if (request === null || weightMutation.isPending) return;
-    weightMutation.mutate(request);
+    if (isSpa) {
+      spaCheckInMutation.mutate({ appointmentId, request }, { onSuccess: (result) => handleWeightChecked(request, result.weightCheck) });
+    } else {
+      hotelWeightMutation.mutate({ appointmentId, request }, { onSuccess: (result) => handleWeightChecked(request, result.weightCheck) });
+    }
   }
 
   function openDialog() {
@@ -246,7 +259,11 @@ function CheckInCard({ data, reload }: CheckInCardProps) {
     setIsDialogOpen(true);
   }
 
-  const weightError = weightMutation.error !== null && !isCostConfirmationPendingError(weightMutation.error) ? weightMutation.error : null;
+  // 409 COST_CONFIRMATION_PENDING đã có vùng cảnh báo riêng khi biết yêu cầu đang chờ; chưa biết thì hiện lỗi của backend.
+  const weightError =
+    weightMutation.error !== null && !(isCostConfirmationPendingError(weightMutation.error) && panel.kind === "pending")
+      ? weightMutation.error
+      : null;
   const respondError = !isDialogOpen ? respondMutation.error : null;
   const backLabel = isSpa ? "Quay lại lịch hẹn" : "Quay lại";
   const outcomeNotice = outcome !== null ? describeWeightOutcome(outcome, isSpa) : null;
@@ -394,7 +411,7 @@ function CheckInCard({ data, reload }: CheckInCardProps) {
           confirmation={panel.confirmation}
           isSubmitting={respondMutation.isPending}
           error={respondMutation.error}
-          onSubmit={(accept) => respondMutation.mutate(accept)}
+          onSubmit={handleRespond}
           onClose={() => setIsDialogOpen(false)}
         />
       )}

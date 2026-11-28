@@ -44,6 +44,26 @@ export function getCheckInPanel(appointment: AppointmentDetail): CheckInPanel {
   return actualWeightKg === null ? { kind: "form" } : { kind: "recorded", actualWeightKg };
 }
 
+// Lịch đang chờ khách trả lời chi phí mới: spa Đã tiếp nhận, lưu trú Đã xác nhận.
+function isAwaitingCostAnswer(appointment: AppointmentDetail) {
+  return (
+    (appointment.type === "Spa" && appointment.status === "Received") ||
+    (appointment.type === "Hotel" && appointment.status === "Confirmed")
+  );
+}
+
+// Backend chưa trả pendingCostConfirmation ở GET /appointments/{id}.
+// Giá trị của backend luôn được ưu tiên; nếu thiếu thì dùng yêu cầu đã nhận ngay sau lần đối chiếu cân nặng trong phiên này,
+// trừ khi lịch không còn chờ khách hoặc khách đã đồng ý (nhóm kích cỡ của lịch đã thành nhóm mới).
+export function resolvePendingCostConfirmation(
+  appointment: AppointmentDetail,
+  remembered: CostConfirmation | null,
+): AppointmentDetail {
+  if (appointment.pendingCostConfirmation != null || remembered === null) return appointment;
+  if (!isAwaitingCostAnswer(appointment) || appointment.sizeGroup === remembered.newSizeGroup) return appointment;
+  return { ...appointment, pendingCostConfirmation: remembered };
+}
+
 // Giây còn lại tới expiresAt (làm tròn lên và không âm).
 export function getRemainingSeconds(expiresAt: string, nowMs: number) {
   return Math.max(0, Math.ceil((Date.parse(expiresAt) - nowMs) / 1000));
