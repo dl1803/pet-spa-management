@@ -176,9 +176,8 @@ export function useRespondCostConfirmation() {
   return useMutation({
     mutationFn: respondCostConfirmation,
     onSettled: async (_result, error, variables) => {
-      await refreshCheckInData(queryClient);
       const apiError = error === null ? null : toApiError(error);
-      // Thành công, 404 hoặc quá hạn: không còn yêu cầu đang chờ hợp lệ.
+      // Xóa bộ nhớ tạm trước khi làm mới cache để component không render lại với yêu cầu cũ trong lúc đang refetch.
       if (
         apiError === null ||
         apiError.status === 404 ||
@@ -186,6 +185,7 @@ export function useRespondCostConfirmation() {
       ) {
         forgetPendingCostConfirmation(variables.appointmentId);
       }
+      await refreshCheckInData(queryClient);
     },
   });
 }

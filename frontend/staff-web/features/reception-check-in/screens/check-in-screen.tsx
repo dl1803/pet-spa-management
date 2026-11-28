@@ -207,7 +207,7 @@ function CheckInCard({ data: loaded, reload }: CheckInCardProps) {
           }
         : null,
     );
-    if (isSpa) showSuccess(`Đã tiếp nhận ${pet.name}`);
+    if (isSpa && weightCheck?.result !== "NEEDS_CONFIRMATION") showSuccess(`Đã tiếp nhận ${pet.name}`);
   }
 
   function handleRespond(accept: boolean) {
@@ -216,6 +216,7 @@ function CheckInCard({ data: loaded, reload }: CheckInCardProps) {
       {
         onSuccess: () => {
           setIsDialogOpen(false);
+          setOutcome(null);
           showSuccess(
             accept
               ? `Đã ghi nhận khách đồng ý chi phí mới cho ${pet.name}`

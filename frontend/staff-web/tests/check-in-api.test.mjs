@@ -84,6 +84,7 @@ test("weightCheckAppointment gửi POST /weight-check với { actualWeightKg } v
   reply(200, body);
   const result = await weightCheckAppointment({ appointmentId: APPOINTMENT_ID, request: { actualWeightKg: 8 } });
   assert.deepEqual(result, body);
+  assert.equal(requests.length, 1);
   assert.equal(requests[0].method, "POST");
   assert.equal(requests[0].pathname, `/api/v1/appointments/${APPOINTMENT_ID}/weight-check`);
   assert.deepEqual(jsonBody(requests[0]), { actualWeightKg: 8 });
@@ -94,6 +95,7 @@ test("respondCostConfirmation gửi POST /cost-confirmation/respond chỉ với 
     reply(200, { status: accept ? "Received" : "Cancelled" });
     const result = await respondCostConfirmation({ appointmentId: APPOINTMENT_ID, request: { accept } });
     assert.deepEqual(result, { status: accept ? "Received" : "Cancelled" });
+    assert.equal(requests.length, 1);
     assert.equal(requests[0].method, "POST");
     assert.equal(requests[0].pathname, `/api/v1/appointments/${APPOINTMENT_ID}/cost-confirmation/respond`);
     assert.deepEqual(jsonBody(requests[0]), { accept });

@@ -124,8 +124,7 @@ export type CheckInAppointmentVariables = {
   request: ActualWeightRequest;
 };
 
-// POST /appointments/{id}/check-in (checkInAppointment): lịch spa gửi { actualWeightKg }, Confirmed → Received và đối chiếu cân nặng.
-// Lịch lưu trú dùng cùng đường dẫn nhưng không gửi body.
+// POST /appointments/{id}/check-in (checkInAppointment): tiếp nhận lịch spa kèm { actualWeightKg }, Confirmed → Received và đối chiếu cân nặng.
 // 400 VALIDATION_ERROR, 404, 409 INVALID_TRANSITION (ngoài khoảng cho phép tiếp nhận), COST_CONFIRMATION_PENDING.
 export async function checkInAppointment({ appointmentId, request }: CheckInAppointmentVariables) {
   const { data } = await apiClient.post<CheckInResult>(`/appointments/${encodeURIComponent(appointmentId)}/check-in`, request);
