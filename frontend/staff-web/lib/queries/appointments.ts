@@ -1,5 +1,6 @@
 import { skipToken, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
+  checkInAppointment,
   completeAppointment,
   createHotelAppointment,
   createSpaAppointment,
@@ -7,12 +8,19 @@ import {
   listAppointments,
   listPhotos,
   markServiceDone,
+  respondCostConfirmation,
   startAppointment,
   uploadPhoto,
+  weightCheckAppointment,
   type ListAppointmentsParams,
 } from "@/lib/api/endpoints/appointments";
 import { toApiError } from "@/lib/api/errors";
 import { hotelKeys } from "@/lib/queries/hotel";
+import {
+  forgetPendingCostConfirmation,
+  rememberPendingCostConfirmation,
+} from "@/lib/queries/pending-cost-confirmation";
+import { invalidatePets } from "@/lib/queries/pets";
 import { spaSlotKeys } from "@/lib/queries/spa-slots";
 
 function isConflictWith(error: unknown, code: string) {
@@ -128,6 +136,55 @@ export function useUploadPhoto() {
       const status = toApiError(error).status;
       if (status === 409 || status === 403 || status === 404) {
         return queryClient.invalidateQueries({ queryKey: appointmentKeys.detail(variables.appointmentId) });
+      }
+    },
+  });
+}
+
+// Sau tiếp nhận, đối chiếu cân nặng hay phản hồi chi phí: lịch và hồ sơ thú cưng (cân nặng, nhóm kích cỡ) có thể đã đổi nên làm mới cả hai.
+function refreshCheckInData(queryClient: QueryClient) {
+  return Promise.all([refreshAppointments(queryClient), invalidatePets(queryClient)]);
+}
+
+// Ghi nhớ yêu cầu xác nhận trong onSuccess (chạy trước onSettled) để lần tải lại ngay sau đó đã thấy yêu cầu.
+export function useCheckInAppointment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: checkInAppointment,
+    onSuccess: (result, variables) => {
+      if (result.weightCheck) {
+        rememberPendingCostConfirmation(variables.appointmentId, variables.request.actualWeightKg, result.weightCheck);
+      }
+    },
+    onSettled: () => refreshCheckInData(queryClient),
+  });
+}
+
+export function useWeightCheckAppointment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: weightCheckAppointment,
+    onSuccess: (result, variables) => {
+      rememberPendingCostConfirmation(variables.appointmentId, variables.request.actualWeightKg, result.weightCheck);
+    },
+    onSettled: () => refreshCheckInData(queryClient),
+  });
+}
+
+export function useRespondCostConfirmation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: respondCostConfirmation,
+    onSettled: async (_result, error, variables) => {
+      await refreshCheckInData(queryClient);
+      const apiError = error === null ? null : toApiError(error);
+      // Thành công, 404 hoặc quá hạn: không còn yêu cầu đang chờ hợp lệ.
+      if (
+        apiError === null ||
+        apiError.status === 404 ||
+        (apiError.status === 409 && apiError.code === "COST_CONFIRMATION_EXPIRED")
+      ) {
+        forgetPendingCostConfirmation(variables.appointmentId);
       }
     },
   });

@@ -1,9 +1,12 @@
 import { apiClient } from "@/lib/api/client";
 import type {
+  ActualWeightRequest,
   AppointmentDetail,
   AppointmentPage,
   AppointmentStatus,
   AppointmentType,
+  CheckInResult,
+  CostConfirmationRespondRequest,
   HotelBookingCreated,
   HotelBookingRequest,
   Photo,
@@ -14,6 +17,7 @@ import type {
   SpaBookingRequest,
   SpaSlots,
   StatusResult,
+  WeightCheckResponse,
 } from "@/lib/api/types";
 
 export type GetSpaSlotsParams = {
@@ -112,6 +116,46 @@ export async function uploadPhoto({ appointmentId, kind, file, onProgress }: Upl
       if (onProgress && event.total) onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)));
     },
   });
+  return data;
+}
+
+export type CheckInAppointmentVariables = {
+  appointmentId: string;
+  request: ActualWeightRequest;
+};
+
+// POST /appointments/{id}/check-in (checkInAppointment): lịch spa gửi { actualWeightKg }, Confirmed → Received và đối chiếu cân nặng.
+// Lịch lưu trú dùng cùng đường dẫn nhưng không gửi body.
+// 400 VALIDATION_ERROR, 404, 409 INVALID_TRANSITION (ngoài khoảng cho phép tiếp nhận), COST_CONFIRMATION_PENDING.
+export async function checkInAppointment({ appointmentId, request }: CheckInAppointmentVariables) {
+  const { data } = await apiClient.post<CheckInResult>(`/appointments/${encodeURIComponent(appointmentId)}/check-in`, request);
+  return data;
+}
+
+export type WeightCheckAppointmentVariables = {
+  appointmentId: string;
+  request: ActualWeightRequest;
+};
+
+// POST /appointments/{id}/weight-check (weightCheckAppointment): lịch lưu trú Confirmed, ghi nhận và đối chiếu cân nặng, lịch giữ nguyên trạng thái.
+// 400 VALIDATION_ERROR, 404, 409 INVALID_TRANSITION, COST_CONFIRMATION_PENDING.
+export async function weightCheckAppointment({ appointmentId, request }: WeightCheckAppointmentVariables) {
+  const { data } = await apiClient.post<WeightCheckResponse>(`/appointments/${encodeURIComponent(appointmentId)}/weight-check`, request);
+  return data;
+}
+
+export type RespondCostConfirmationVariables = {
+  appointmentId: string;
+  request: CostConfirmationRespondRequest;
+};
+
+// POST /appointments/{id}/cost-confirmation/respond (respondCostConfirmation): lễ tân ghi nhận phản hồi thay khách.
+// accept = false → lịch Cancelled (CostNotConfirmed). 404 không có yêu cầu đang chờ; 409 COST_CONFIRMATION_EXPIRED, INVALID_TRANSITION.
+export async function respondCostConfirmation({ appointmentId, request }: RespondCostConfirmationVariables) {
+  const { data } = await apiClient.post<StatusResult>(
+    `/appointments/${encodeURIComponent(appointmentId)}/cost-confirmation/respond`,
+    request,
+  );
   return data;
 }
 
