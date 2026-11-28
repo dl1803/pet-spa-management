@@ -1,3 +1,4 @@
+using System.Globalization;
 using PetSpa.Application.Common;
 using PetSpa.Application.Ports;
 using PetSpa.Domain.Entities;
@@ -75,6 +76,58 @@ public sealed class AppointmentNotifier(
         }
     }
 
+    public async Task StatusChangedAsync(
+        Guid appointmentId, AppointmentStatus status, CancellationToken ct = default)
+    {
+        var context = await reader.FindAsync(appointmentId, ct);
+        if (context is null) return;
+
+        var subject = Describe(context.Appointment);
+        var message = status switch
+        {
+            AppointmentStatus.Received => $"{subject} đã được tiếp nhận.",
+            AppointmentStatus.InProgress => $"{subject} đang được thực hiện.",
+            AppointmentStatus.InStay => $"{subject}: thú cưng đã được tiếp nhận và đang lưu trú.",
+            AppointmentStatus.Completed => $"{subject} đã hoàn tất.",
+            _ => throw new InvalidOperationException($"Chưa hỗ trợ thông báo cho trạng thái {status}."),
+        };
+
+        await NotifyCustomerAsync(context, NotificationType.StatusChanged, message, ct);
+    }
+
+    public async Task PaymentRecordedAsync(
+        Guid appointmentId, PaymentKind kind, decimal amount, CancellationToken ct = default)
+    {
+        var context = await reader.FindAsync(appointmentId, ct);
+        if (context is null) return;
+
+        var subject = Describe(context.Appointment);
+
+        await NotifyCustomerAsync(
+            context,
+            NotificationType.PaymentRecorded,
+            $"{subject}: đã ghi nhận thanh toán {PaymentKindText(kind)} {FormatMoney(amount)}.",
+            ct);
+    }
+
+    public async Task CostConfirmationRequestedAsync(
+        Guid appointmentId, decimal actualWeightKg, decimal newAmount, DateTimeOffset expiresAt,
+        CancellationToken ct = default)
+    {
+        var context = await reader.FindAsync(appointmentId, ct);
+        if (context is null) return;
+
+        var subject = Describe(context.Appointment);
+        var (date, time) = shopTimeZone.ToLocal(expiresAt);
+        var deadline = FormattableString.Invariant($"{time:HH:mm} ngày {date:dd/MM/yyyy}");
+
+        await NotifyCustomerAsync(
+            context,
+            NotificationType.CostConfirmation,
+            $"{subject}: cân nặng thực tế của thú cưng là {FormatWeight(actualWeightKg)} kg nên chi phí mới là {FormatMoney(newAmount)}. Vui lòng xác nhận hoặc từ chối trước {deadline}.",
+            ct);
+    }
+
     private async Task NotifyCustomerAsync(
         AppointmentNotificationContext context, NotificationType type, string message, CancellationToken ct)
     {
@@ -101,11 +154,27 @@ public sealed class AppointmentNotifier(
         throw new InvalidOperationException("Loại lịch hẹn không được hỗ trợ.");
     }
 
+    private static string PaymentKindText(PaymentKind kind) => kind switch
+    {
+        PaymentKind.Spa => "dịch vụ spa",
+        PaymentKind.Stay => "tiền lưu trú",
+        PaymentKind.LateFee => "phí trả muộn",
+        _ => throw new InvalidOperationException($"Chưa hỗ trợ thông báo cho khoản thanh toán {kind}."),
+    };
+
+    private static string FormatMoney(decimal amount) =>
+        amount.ToString("N0", CultureInfo.InvariantCulture).Replace(',', '.') + " đ";
+
+    private static string FormatWeight(decimal actualWeightKg) =>
+        actualWeightKg.ToString("0.##", CultureInfo.InvariantCulture).Replace('.', ',');
+
     private static string ReasonText(CancelReason reason) => reason switch
     {
         CancelReason.CustomerCancelled => "khách hàng chủ động hủy",
         CancelReason.StoreUnable => "cửa hàng không thể đáp ứng",
         CancelReason.CustomerBeyondDeadline => "theo yêu cầu của khách hàng ngoài thời hạn tự phục vụ",
+        CancelReason.NoShow => "khách hàng vắng mặt",
+        CancelReason.CostNotConfirmed => "chi phí mới không được khách hàng xác nhận",
         _ => throw new InvalidOperationException($"Chưa hỗ trợ thông báo cho lý do hủy {reason}."),
     };
 }

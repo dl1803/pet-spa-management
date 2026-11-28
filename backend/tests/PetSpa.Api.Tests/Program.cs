@@ -5917,6 +5917,8 @@ var tests = new (string Name, Func<Task> Run)[]
             (CancelReason.StoreUnable, "Lý do: cửa hàng không thể đáp ứng."),
             (CancelReason.CustomerCancelled, "Lý do: khách hàng chủ động hủy."),
             (CancelReason.CustomerBeyondDeadline, "Lý do: theo yêu cầu của khách hàng ngoài thời hạn tự phục vụ."),
+            (CancelReason.NoShow, "Lý do: khách hàng vắng mặt."),
+            (CancelReason.CostNotConfirmed, "Lý do: chi phí mới không được khách hàng xác nhận."),
         };
 
         foreach (var (reason, expectedFragment) in reasonCases)
@@ -5977,7 +5979,7 @@ var tests = new (string Name, Func<Task> Run)[]
         Check(repo.Created.Count == 0, "No notification created on missing cancel reason.");
 
         var spaNoShow = OldSpaAppointment(AppointmentStatus.Cancelled, TimeSpan.FromDays(5));
-        spaNoShow.CancelReason = CancelReason.NoShow;
+        spaNoShow.CancelReason = (CancelReason)99;
         var readerNoShow = new TestAppointmentNotificationReader(_ => new AppointmentNotificationContext(spaNoShow, customerUserId, []));
         var notifierNoShow = new AppointmentNotifier(readerNoShow, new NotificationService(repo), shopZone);
 
@@ -9235,6 +9237,153 @@ var tests = new (string Name, Func<Task> Run)[]
             .OfType<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>().FirstOrDefault();
         Check(post?.Template == "{id}/check-out", "CheckOut must be bound to POST {id}/check-out.");
         Check(authorize?.Policy == AuthorizationPolicies.ReceptionistOrManager, "CheckOut must require the ReceptionistOrManager policy.");
+    }),
+    ("AppointmentNotifier.StatusChangedAsync notifies only the customer with a message per execution status", async () =>
+    {
+        var zone = TimeZoneInfo.CreateCustomTimeZone("UTC+7", TimeSpan.FromHours(7), "UTC+7", "UTC+7");
+        var shopZone = new ShopTimeZone(zone);
+        var customerUserId = Guid.NewGuid();
+        var staffUserId = Guid.NewGuid();
+
+        var spa = OldSpaAppointment(AppointmentStatus.Received, TimeSpan.FromDays(5));
+        spa.SlotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var hotel = OldHotelAppointment(AppointmentStatus.InStay, TimeSpan.FromDays(5));
+        hotel.PlannedCheckIn = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        hotel.PlannedCheckOut = new DateTimeOffset(2026, 11, 22, 3, 0, 0, TimeSpan.Zero);
+
+        var cases = new (Appointment Appointment, AppointmentStatus Status, string Expected)[]
+        {
+            (spa, AppointmentStatus.Received, "Lịch spa lúc 10:00 ngày 20/11/2026 đã được tiếp nhận."),
+            (spa, AppointmentStatus.InProgress, "Lịch spa lúc 10:00 ngày 20/11/2026 đang được thực hiện."),
+            (spa, AppointmentStatus.Completed, "Lịch spa lúc 10:00 ngày 20/11/2026 đã hoàn tất."),
+            (hotel, AppointmentStatus.InStay, "Lịch lưu trú từ ngày 20/11/2026 đến ngày 22/11/2026: thú cưng đã được tiếp nhận và đang lưu trú."),
+            (hotel, AppointmentStatus.Completed, "Lịch lưu trú từ ngày 20/11/2026 đến ngày 22/11/2026 đã hoàn tất."),
+        };
+
+        foreach (var (appointment, status, expected) in cases)
+        {
+            var repo = new TestNotificationRepo(() => false);
+            var reader = new TestAppointmentNotificationReader(
+                _ => new AppointmentNotificationContext(appointment, customerUserId, [staffUserId]));
+            var notifier = new AppointmentNotifier(reader, new NotificationService(repo), shopZone);
+
+            await notifier.StatusChangedAsync(appointment.AppointmentId, status);
+
+            Check(repo.Created.Count == 1, $"{status}: only the customer must be notified.");
+            Check(repo.Created[0].RecipientUserId == customerUserId
+                    && repo.Created[0].Type == NotificationType.StatusChanged
+                    && repo.Created[0].AppointmentId == appointment.AppointmentId,
+                $"{status}: recipient, type and appointment must match.");
+            Check(repo.Created[0].Message == expected, $"{status}: message must match the template.");
+        }
+
+        var skippedRepo = new TestNotificationRepo(() => false);
+        var walkIn = new AppointmentNotifier(
+            new TestAppointmentNotificationReader(_ => new AppointmentNotificationContext(spa, null, [])),
+            new NotificationService(skippedRepo), shopZone);
+        await walkIn.StatusChangedAsync(spa.AppointmentId, AppointmentStatus.Completed);
+        var unknown = new AppointmentNotifier(
+            new TestAppointmentNotificationReader(_ => null), new NotificationService(skippedRepo), shopZone);
+        await unknown.StatusChangedAsync(Guid.NewGuid(), AppointmentStatus.Completed);
+        Check(skippedRepo.Created.Count == 0, "A walk-in customer and an unknown appointment must not be notified.");
+
+        var unsupported = new AppointmentNotifier(
+            new TestAppointmentNotificationReader(_ => new AppointmentNotificationContext(spa, customerUserId, [])),
+            new NotificationService(skippedRepo), shopZone);
+        var threw = false;
+        try
+        {
+            await unsupported.StatusChangedAsync(spa.AppointmentId, AppointmentStatus.Confirmed);
+        }
+        catch (InvalidOperationException)
+        {
+            threw = true;
+        }
+
+        Check(threw && skippedRepo.Created.Count == 0, "An unsupported status must throw and create nothing.");
+    }),
+    ("AppointmentNotifier.PaymentRecordedAsync notifies only the customer with the payment kind and amount", async () =>
+    {
+        var zone = TimeZoneInfo.CreateCustomTimeZone("UTC+7", TimeSpan.FromHours(7), "UTC+7", "UTC+7");
+        var shopZone = new ShopTimeZone(zone);
+        var customerUserId = Guid.NewGuid();
+
+        var spa = OldSpaAppointment(AppointmentStatus.Completed, TimeSpan.FromDays(-1));
+        spa.SlotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var hotel = OldHotelAppointment(AppointmentStatus.Confirmed, TimeSpan.FromDays(5));
+        hotel.PlannedCheckIn = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        hotel.PlannedCheckOut = new DateTimeOffset(2026, 11, 22, 3, 0, 0, TimeSpan.Zero);
+
+        var cases = new (Appointment Appointment, PaymentKind Kind, decimal Amount, string Expected)[]
+        {
+            (spa, PaymentKind.Spa, 150000m, "Lịch spa lúc 10:00 ngày 20/11/2026: đã ghi nhận thanh toán dịch vụ spa 150.000 đ."),
+            (hotel, PaymentKind.Stay, 300000m, "Lịch lưu trú từ ngày 20/11/2026 đến ngày 22/11/2026: đã ghi nhận thanh toán tiền lưu trú 300.000 đ."),
+            (hotel, PaymentKind.LateFee, 1250000m, "Lịch lưu trú từ ngày 20/11/2026 đến ngày 22/11/2026: đã ghi nhận thanh toán phí trả muộn 1.250.000 đ."),
+        };
+
+        foreach (var (appointment, kind, amount, expected) in cases)
+        {
+            var repo = new TestNotificationRepo(() => false);
+            var reader = new TestAppointmentNotificationReader(
+                _ => new AppointmentNotificationContext(appointment, customerUserId, [Guid.NewGuid()]));
+            var notifier = new AppointmentNotifier(reader, new NotificationService(repo), shopZone);
+
+            await notifier.PaymentRecordedAsync(appointment.AppointmentId, kind, amount);
+
+            Check(repo.Created.Count == 1, $"{kind}: only the customer must be notified.");
+            Check(repo.Created[0].RecipientUserId == customerUserId
+                    && repo.Created[0].Type == NotificationType.PaymentRecorded
+                    && repo.Created[0].AppointmentId == appointment.AppointmentId,
+                $"{kind}: recipient, type and appointment must match.");
+            Check(repo.Created[0].Message == expected, $"{kind}: message must match the template.");
+        }
+
+        var skippedRepo = new TestNotificationRepo(() => false);
+        await new AppointmentNotifier(
+                new TestAppointmentNotificationReader(_ => new AppointmentNotificationContext(spa, null, [])),
+                new NotificationService(skippedRepo), shopZone)
+            .PaymentRecordedAsync(spa.AppointmentId, PaymentKind.Spa, 150000m);
+        await new AppointmentNotifier(
+                new TestAppointmentNotificationReader(_ => null), new NotificationService(skippedRepo), shopZone)
+            .PaymentRecordedAsync(Guid.NewGuid(), PaymentKind.Spa, 150000m);
+        Check(skippedRepo.Created.Count == 0, "A walk-in customer and an unknown appointment must not be notified.");
+    }),
+    ("AppointmentNotifier.CostConfirmationRequestedAsync notifies only the customer with the weight, the new cost and the deadline", async () =>
+    {
+        var zone = TimeZoneInfo.CreateCustomTimeZone("UTC+7", TimeSpan.FromHours(7), "UTC+7", "UTC+7");
+        var shopZone = new ShopTimeZone(zone);
+        var customerUserId = Guid.NewGuid();
+        var expiresAt = new DateTimeOffset(2026, 11, 20, 4, 30, 0, TimeSpan.Zero);
+
+        var spa = OldSpaAppointment(AppointmentStatus.Received, TimeSpan.FromDays(5));
+        spa.SlotStart = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        var repo = new TestNotificationRepo(() => false);
+        var notifier = new AppointmentNotifier(
+            new TestAppointmentNotificationReader(
+                _ => new AppointmentNotificationContext(spa, customerUserId, [Guid.NewGuid()])),
+            new NotificationService(repo), shopZone);
+
+        await notifier.CostConfirmationRequestedAsync(spa.AppointmentId, 3.4m, 150000m, expiresAt);
+        await notifier.CostConfirmationRequestedAsync(spa.AppointmentId, 5m, 1250000m, expiresAt);
+
+        Check(repo.Created.Count == 2 && repo.Created.All(n =>
+                n.RecipientUserId == customerUserId && n.Type == NotificationType.CostConfirmation
+                && n.AppointmentId == spa.AppointmentId),
+            "Only the customer must be notified, with the CostConfirmation type.");
+        Check(repo.Created[0].Message == "Lịch spa lúc 10:00 ngày 20/11/2026: cân nặng thực tế của thú cưng là 3,4 kg nên chi phí mới là 150.000 đ. Vui lòng xác nhận hoặc từ chối trước 11:30 ngày 20/11/2026.",
+            "The message must carry the weight, the new cost and the local deadline.");
+        Check(repo.Created[1].Message.Contains("là 5 kg nên chi phí mới là 1.250.000 đ."),
+            "A whole weight must have no decimals and the cost must use dot separators.");
+
+        var skippedRepo = new TestNotificationRepo(() => false);
+        await new AppointmentNotifier(
+                new TestAppointmentNotificationReader(_ => new AppointmentNotificationContext(spa, null, [])),
+                new NotificationService(skippedRepo), shopZone)
+            .CostConfirmationRequestedAsync(spa.AppointmentId, 3.4m, 150000m, expiresAt);
+        await new AppointmentNotifier(
+                new TestAppointmentNotificationReader(_ => null), new NotificationService(skippedRepo), shopZone)
+            .CostConfirmationRequestedAsync(Guid.NewGuid(), 3.4m, 150000m, expiresAt);
+        Check(skippedRepo.Created.Count == 0, "A walk-in customer and an unknown appointment must not be notified.");
     }),
 };
 
