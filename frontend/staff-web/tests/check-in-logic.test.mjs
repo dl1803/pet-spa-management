@@ -13,6 +13,7 @@ import {
   isNotFoundError,
   isPaymentNotDueError,
   NOT_CHECK_IN_STEP_MESSAGE,
+  resolvePendingCostConfirmation,
   STAY_UNPAID_LOCK_REASON,
   WEIGHT_STEP_LOCK_REASON,
 } from "../features/reception-check-in/check-in.ts";
@@ -295,5 +296,39 @@ test("mock tiền lưu trú: cân nặng giảm xuống nhóm nhỏ hơn thì ti
   assert.equal(data.appointment.sizeGroup, "Small");
   assert.equal(data.stay.payment.amount, 250000);
   assert.deepEqual(data.stay.rate, { pricePerNight: 100000, foodPerNight: 25000 });
+});
+
+test("resolvePendingCostConfirmation: ưu tiên backend, ghép yêu cầu đã nhớ khi lịch còn chờ khách, bỏ khi khách đã đồng ý, lịch đã hủy hoặc sai trạng thái", () => {
+  const remembered = {
+    actualWeightKg: 11.2,
+    newSizeGroup: "Medium",
+    oldAmount: 150000,
+    newAmount: 200000,
+    status: "Pending",
+    expiresAt: "2026-11-08T02:30:00Z",
+  };
+  const spa = { appointmentId: ids.spaBong, type: "Spa", status: "Received", sizeGroup: "Small" };
+
+  assert.equal(resolvePendingCostConfirmation(spa, remembered).pendingCostConfirmation, remembered);
+  assert.equal(resolvePendingCostConfirmation(spa, null), spa);
+
+  const fromServer = { ...spa, pendingCostConfirmation: { ...remembered, newAmount: 1 } };
+  assert.equal(resolvePendingCostConfirmation(fromServer, remembered), fromServer);
+
+  for (const settled of [
+    { ...spa, sizeGroup: "Medium" },
+    { ...spa, status: "Cancelled" },
+    { ...spa, status: "Confirmed" },
+    { ...spa, status: "InProgress" },
+  ]) {
+    assert.equal(resolvePendingCostConfirmation(settled, remembered), settled);
+  }
+
+  const hotel = { appointmentId: ids.hotelCom, type: "Hotel", status: "Confirmed", sizeGroup: "Small" };
+  assert.equal(resolvePendingCostConfirmation(hotel, remembered).pendingCostConfirmation, remembered);
+  const inStay = { ...hotel, status: "InStay" };
+  assert.equal(resolvePendingCostConfirmation(inStay, remembered), inStay);
+
+  assert.equal(getCheckInPanel(resolvePendingCostConfirmation(spa, remembered)).kind, "pending");
 });
 
