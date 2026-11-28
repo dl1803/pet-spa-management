@@ -11,4 +11,15 @@ public sealed class NoShowStatisticsService(INoShowStatisticsRepository noShows)
 
         return await noShows.CountNoShowsSinceAsync(customerId, now.AddDays(-windowDays), ct);
     }
+
+    public async Task<bool> LockBookingIfExceededAsync(
+        Guid customerId, DateTimeOffset now, CancellationToken ct = default)
+    {
+        var threshold = await noShows.GetLockThresholdAsync(ct);
+        var count = await CountRecentNoShowsAsync(customerId, now, ct);
+        if (count <= threshold) return false;
+
+        await noShows.LockBookingAsync(customerId, ct);
+        return true;
+    }
 }

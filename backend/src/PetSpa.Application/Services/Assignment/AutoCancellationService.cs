@@ -1,4 +1,5 @@
 using PetSpa.Application.Ports;
+using PetSpa.Application.Services.Booking;
 using PetSpa.Application.Services.Notifications;
 using PetSpa.Domain.Enums;
 
@@ -10,7 +11,8 @@ public sealed class AutoCancellationService(
     IAssignmentRepository assignments,
     IConcurrencyGuard concurrency,
     ICostConfirmationRepository costConfirmations,
-    AppointmentNotifier notifier)
+    AppointmentNotifier notifier,
+    NoShowStatisticsService noShows)
 {
     public async Task<int> CancelNoShowsAsync(CancellationToken ct = default)
     {
@@ -64,6 +66,7 @@ public sealed class AutoCancellationService(
 
             appointment.CancelAsNoShow(now, holdMinutes);
             await appointments.SaveCancellationAsync(appointment, ct);
+            await noShows.LockBookingIfExceededAsync(appointment.CustomerId, now, ct);
             return true;
         }, ct);
 

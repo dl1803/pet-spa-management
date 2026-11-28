@@ -8937,7 +8937,7 @@ var tests = new (string Name, Func<Task> Run)[]
         });
         var guard = new TrackingConcurrencyGuard();
         var service = new AutoCancellationService(
-            candidates, store, new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()), guard, confirmations, NoNotifier());
+            candidates, store, new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()), guard, confirmations, NoNotifier(), new NoShowStatisticsService(new TestNoShowStatisticsRepo(30, 0)));
 
         var before = DateTimeOffset.UtcNow;
         var cancelled = await service.CancelNoShowsAsync();
@@ -8974,7 +8974,7 @@ var tests = new (string Name, Func<Task> Run)[]
         var store = new TestAppointmentStoreRepo([within30, past30]);
         var guard = new TrackingConcurrencyGuard();
         var assignments = new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()) { HoldMinutes = 30 };
-        var service = new AutoCancellationService(candidates, store, assignments, guard, new TestCostConfirmationRepo(), NoNotifier());
+        var service = new AutoCancellationService(candidates, store, assignments, guard, new TestCostConfirmationRepo(), NoNotifier(), new NoShowStatisticsService(new TestNoShowStatisticsRepo(30, 0)));
 
         var first = await service.CancelNoShowsAsync();
         Check(first == 1 && past30.Status == AppointmentStatus.Cancelled && within30.Status == AppointmentStatus.Confirmed,
@@ -8985,7 +8985,7 @@ var tests = new (string Name, Func<Task> Run)[]
             "Chạy lặp không được hủy hoặc lưu lại lịch đã xử lý.");
 
         var emptyGuard = new TrackingConcurrencyGuard();
-        var emptyService = new AutoCancellationService(new TestAutoCancellationRepo([]), store, assignments, emptyGuard, new TestCostConfirmationRepo(), NoNotifier());
+        var emptyService = new AutoCancellationService(new TestAutoCancellationRepo([]), store, assignments, emptyGuard, new TestCostConfirmationRepo(), NoNotifier(), new NoShowStatisticsService(new TestNoShowStatisticsRepo(30, 0)));
         Check(await emptyService.CancelNoShowsAsync() == 0 && emptyGuard.RunCalls == 0,
             "Không có ứng viên thì không mở giao dịch nào.");
 
@@ -9047,7 +9047,7 @@ var tests = new (string Name, Func<Task> Run)[]
         });
         var guard = new TrackingConcurrencyGuard();
         var service = new AutoCancellationService(
-            candidates, store, new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()), guard, confirmations, NoNotifier());
+            candidates, store, new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()), guard, confirmations, NoNotifier(), new NoShowStatisticsService(new TestNoShowStatisticsRepo(30, 0)));
 
         var before = DateTimeOffset.UtcNow;
         var cancelled = await service.CancelOverdueCostConfirmationsAsync();
@@ -9103,7 +9103,7 @@ var tests = new (string Name, Func<Task> Run)[]
         confirmations.Items.Add(confirmation);
         var assignments = new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>());
         var guard = new TrackingConcurrencyGuard();
-        var service = new AutoCancellationService(candidates, store, assignments, guard, confirmations, NoNotifier());
+        var service = new AutoCancellationService(candidates, store, assignments, guard, confirmations, NoNotifier(), new NoShowStatisticsService(new TestNoShowStatisticsRepo(30, 0)));
 
         var first = await service.CancelOverdueCostConfirmationsAsync();
         Check(first == 1 && appointment.Status == AppointmentStatus.Cancelled && confirmation.Status == ConfirmationStatus.Expired,
@@ -9115,7 +9115,7 @@ var tests = new (string Name, Func<Task> Run)[]
 
         var emptyGuard = new TrackingConcurrencyGuard();
         var emptyService = new AutoCancellationService(
-            new TestAutoCancellationRepo([], []), store, assignments, emptyGuard, confirmations, NoNotifier());
+            new TestAutoCancellationRepo([], []), store, assignments, emptyGuard, confirmations, NoNotifier(), new NoShowStatisticsService(new TestNoShowStatisticsRepo(30, 0)));
         Check(await emptyService.CancelOverdueCostConfirmationsAsync() == 0 && emptyGuard.RunCalls == 0,
             "Không có yêu cầu quá hạn thì không mở giao dịch nào.");
 
@@ -9696,7 +9696,8 @@ var tests = new (string Name, Func<Task> Run)[]
             new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()),
             noShowGuard,
             new TestCostConfirmationRepo(),
-            noShowNotifier);
+            noShowNotifier,
+            new NoShowStatisticsService(new TestNoShowStatisticsRepo(30, 0)));
 
         Check(await noShowService.CancelNoShowsAsync() == 1, "Only the appointment past its hold time must be cancelled.");
         Check(noShowNotices.Created.Count == 1 && noShowNotices.Created[0].Type == NotificationType.Cancelled
@@ -9732,7 +9733,8 @@ var tests = new (string Name, Func<Task> Run)[]
             new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()),
             overdueGuard,
             confirmations,
-            overdueNotifier);
+            overdueNotifier,
+            new NoShowStatisticsService(new TestNoShowStatisticsRepo(30, 0)));
 
         Check(await overdueService.CancelOverdueCostConfirmationsAsync() == 1, "Only the overdue request must cancel its appointment.");
         Check(overdueNotices.Created.Count == 1 && overdueNotices.Created[0].Type == NotificationType.Cancelled
@@ -9740,6 +9742,93 @@ var tests = new (string Name, Func<Task> Run)[]
                 && overdueNotices.Created[0].Message.EndsWith("Lý do: chi phí mới không được khách hàng xác nhận.")
                 && !overdueNotices.Created[0].InsideTransaction,
             "An overdue cost confirmation cancellation must create one notice with the reason after the transaction, and the request not yet overdue none.");
+    }),
+    ("NoShowStatisticsService.LockBookingIfExceededAsync locks only when the recent no-shows exceed the configured threshold", async () =>
+    {
+        var customerId = Guid.NewGuid();
+        var now = new DateTimeOffset(2026, 11, 28, 3, 0, 0, TimeSpan.Zero);
+
+        foreach (var (count, threshold, expectedLocked) in new[]
+        {
+            (0, 3, false), (3, 3, false), (4, 3, true), (6, 3, true),
+            (0, 0, false), (1, 0, true), (2, 2, false), (3, 2, true),
+        })
+        {
+            var repo = new TestNoShowStatisticsRepo(30, count, threshold);
+
+            var locked = await new NoShowStatisticsService(repo).LockBookingIfExceededAsync(customerId, now);
+
+            Check(locked == expectedLocked, $"count {count}, threshold {threshold}: expected locked = {expectedLocked}.");
+            Check(repo.LockedCustomerIds.Count == (expectedLocked ? 1 : 0)
+                    && (!expectedLocked || repo.LockedCustomerIds[0] == customerId),
+                $"count {count}, threshold {threshold}: the customer must be locked exactly when expected.");
+            Check(repo.LastCustomerId == customerId && repo.LastSince == now.AddDays(-30),
+                $"count {count}, threshold {threshold}: the count must use the customer and the {30}-day window.");
+        }
+    }),
+    ("AutoCancellationService locks self-booking of a customer whose no-shows exceed the threshold, inside the cancellation transaction", async () =>
+    {
+        async Task<(TestNoShowStatisticsRepo Stats, SpaAppointment Due, SpaAppointment NotDue, int Cancelled)> RunAsync(int count)
+        {
+            var due = OldSpaAppointment(AppointmentStatus.Confirmed, TimeSpan.FromMinutes(-40));
+            var notDue = OldSpaAppointment(AppointmentStatus.Received, TimeSpan.FromMinutes(-40));
+            var guard = new TrackingConcurrencyGuard();
+            var stats = new TestNoShowStatisticsRepo(30, count) { InsideTransaction = () => guard.InsideRun };
+            var service = new AutoCancellationService(
+                new TestAutoCancellationRepo([due.AppointmentId, notDue.AppointmentId]),
+                new TestAppointmentStoreRepo([due, notDue]),
+                new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()),
+                guard,
+                new TestCostConfirmationRepo(),
+                NoNotifier(),
+                new NoShowStatisticsService(stats));
+
+            var cancelled = await service.CancelNoShowsAsync();
+            return (stats, due, notDue, cancelled);
+        }
+
+        var over = await RunAsync(4);
+        Check(over.Cancelled == 1 && over.Stats.LockedCustomerIds.SequenceEqual(new[] { over.Due.CustomerId }),
+            "A fourth no-show within the window must lock the customer of the cancelled appointment only.");
+        Check(over.Stats.LockedInsideTransaction.SequenceEqual(new[] { true }),
+            "The lock must be written inside the cancellation transaction.");
+        Check(over.Stats.LastCustomerId == over.Due.CustomerId && !over.Stats.LockedCustomerIds.Contains(over.NotDue.CustomerId),
+            "An appointment that was not cancelled must neither be counted nor lock its customer.");
+
+        var atThreshold = await RunAsync(3);
+        Check(atThreshold.Cancelled == 1 && atThreshold.Stats.LockedCustomerIds.Count == 0,
+            "Exactly three no-shows must not lock.");
+    }),
+    ("AutoCancellationService does not count or lock when it cancels an overdue cost confirmation", async () =>
+    {
+        var overdue = OldSpaAppointment(AppointmentStatus.Received, TimeSpan.FromMinutes(-40));
+        var confirmations = new TestCostConfirmationRepo();
+        confirmations.Items.Add(new CostConfirmation
+        {
+            ConfirmationId = Guid.NewGuid(),
+            AppointmentId = overdue.AppointmentId,
+            ActualWeightKg = 5.0m,
+            NewSizeGroup = SizeGroup.Medium,
+            OldAmount = 100000m,
+            NewAmount = 150000m,
+            Status = ConfirmationStatus.Pending,
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-40),
+            ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+        });
+        var stats = new TestNoShowStatisticsRepo(30, 10);
+        var service = new AutoCancellationService(
+            new TestAutoCancellationRepo([], [overdue.AppointmentId]),
+            new TestAppointmentStoreRepo([overdue]),
+            new TestAssignmentRepo(null, [], [], new Dictionary<Guid, int>()),
+            new TrackingConcurrencyGuard(),
+            confirmations,
+            NoNotifier(),
+            new NoShowStatisticsService(stats));
+
+        Check(await service.CancelOverdueCostConfirmationsAsync() == 1 && overdue.CancelReason == CancelReason.CostNotConfirmed,
+            "The overdue request must cancel the appointment with CostNotConfirmed.");
+        Check(stats.LastCustomerId is null && stats.LockedCustomerIds.Count == 0,
+            "A cost confirmation cancellation must neither count no-shows nor lock the customer.");
     }),
 };
 
@@ -11509,10 +11598,13 @@ sealed class TestAutoCancellationRepo(
     }
 }
 
-sealed class TestNoShowStatisticsRepo(int windowDays, int count) : INoShowStatisticsRepository
+sealed class TestNoShowStatisticsRepo(int windowDays, int count, int lockThreshold = 3) : INoShowStatisticsRepository
 {
     public Guid? LastCustomerId { get; private set; }
     public DateTimeOffset? LastSince { get; private set; }
+    public Func<bool> InsideTransaction { get; init; } = () => false;
+    public List<Guid> LockedCustomerIds { get; } = [];
+    public List<bool> LockedInsideTransaction { get; } = [];
 
     public Task<int> GetWindowDaysAsync(CancellationToken ct = default) => Task.FromResult(windowDays);
 
@@ -11521,6 +11613,15 @@ sealed class TestNoShowStatisticsRepo(int windowDays, int count) : INoShowStatis
         LastCustomerId = customerId;
         LastSince = since;
         return Task.FromResult(count);
+    }
+
+    public Task<int> GetLockThresholdAsync(CancellationToken ct = default) => Task.FromResult(lockThreshold);
+
+    public Task LockBookingAsync(Guid customerId, CancellationToken ct = default)
+    {
+        LockedCustomerIds.Add(customerId);
+        LockedInsideTransaction.Add(InsideTransaction());
+        return Task.CompletedTask;
     }
 }
 
